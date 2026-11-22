@@ -400,6 +400,10 @@
         <source>Recording saved as %1. Open it with Open video once the current files finish opening.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>The camera recording is kept: it opens as a new experiment once it is saved.</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 
 <context>
@@ -437,19 +441,7 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>&amp;Save and open…</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>Save the clip to a permanent file and open it as a new experiment.</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>&amp;Discard recording</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>Cancel</source>
         <translation type="unfinished" />
     </message>
     <message>
@@ -501,10 +493,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Camera capture %1.mov</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>Save recording</source>
         <translation type="unfinished" />
     </message>
@@ -549,10 +537,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Save the clip to open it as a new experiment.</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>&amp;Stop</source>
         <translation type="unfinished" />
     </message>
@@ -581,10 +565,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>A recording is in progress. Stop it and discard the clip?</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>The recording has not been saved. Discard it?</source>
         <translation type="unfinished" />
     </message>
@@ -592,6 +572,58 @@
         <source>Frame intervals longer than 1.5 times the median (%1 ms): %n, the longest %2 ms. The camera or its driver may have skipped frames there.</source>
         <translation type="unfinished">
             <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>&amp;Ask where to save each recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Otherwise each recording is saved in the MoTrack captures folder and opens at once.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Save as…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Choose where to save the clip; it then opens as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create the captures folder %1. Choose where to save the clip.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording in %1…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save the recording in %1: %2. Choose where to save it.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saved as %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Keep the recording?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>A recording is in progress. Stop it and keep the clip, or discard it?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Stop and &amp;keep</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Finishing the recording; the window closes once it is saved…</source>
+        <translation type="unfinished" />
     </message>
 </context>
 
@@ -651,6 +683,10 @@
     </message>
     <message>
         <source>Could not save %1: %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not find a free file name in %1.</source>
         <translation type="unfinished" />
     </message>
 </context>

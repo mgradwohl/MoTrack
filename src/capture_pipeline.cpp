@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLockFile>
+#include <QStandardPaths>
 #include <QUuid>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
@@ -565,37 +566,117 @@ bool CapturePipeline::isRecording() const
     return m_Recording;
 }
 
-QString moveCaptureFile(const QString& source, const QString& target, const std::atomic_bool& cancelled, bool allowRename)
+namespace
+{
+
+// Moves from to to within one volume, in one step. Without replace, an existing to is never replaced:
+// a hard link fails if to exists, and file systems without hard links fall back to a checked rename.
+std::error_code placeFile(const QString& from, const QString& to, bool replace)
+{
+    std::error_code error;
+    if (replace)
+    {
+        std::filesystem::rename(nativePath(from), nativePath(to), error);
+        return error;
+    }
+    std::filesystem::create_hard_link(nativePath(from), nativePath(to), error);
+    if (!error)
+    {
+        std::filesystem::remove(nativePath(from), error);
+        return {};
+    }
+    if (error == std::errc::file_exists || QFileInfo::exists(to))
+        return std::make_error_code(std::errc::file_exists);
+    if (error == std::errc::cross_device_link)
+        return error;
+    std::filesystem::rename(nativePath(from), nativePath(to), error);
+    return error;
+}
+
+} // namespace
+
+CaptureMove moveCaptureFile(const QString& source, const QString& target, const std::atomic_bool& cancelled, bool replace, bool allowRename)
 {
     const QFileInfo input(source);
     const QFileInfo output(target);
+    const auto failed = [](QString message)
+    {
+        return CaptureMove{.status = CaptureMoveStatus::Failed, .error = std::move(message)};
+    };
     if (!input.isFile())
-        return QCoreApplication::translate("motrack::CapturePipeline", "The recording is no longer available.");
+        return failed(QCoreApplication::translate("motrack::CapturePipeline", "The recording is no longer available."));
     if (!output.absoluteDir().exists())
-        return QCoreApplication::translate("motrack::CapturePipeline", "The folder %1 does not exist.")
-            .arg(QDir::toNativeSeparators(output.absolutePath()));
-    std::error_code error;
-    // A rename replaces an existing target in one step, on the same volume.
+        return failed(QCoreApplication::translate("motrack::CapturePipeline", "The folder %1 does not exist.")
+                          .arg(QDir::toNativeSeparators(output.absolutePath())));
+    if (!replace && (output.exists() || output.isSymLink()))
+        return {.status = CaptureMoveStatus::TargetExists, .error = {}};
+    // The same volume: one rename or link puts the complete file in place.
     if (allowRename)
     {
-        std::filesystem::rename(nativePath(source), nativePath(target), error);
+        const auto error = placeFile(source, target, replace);
         if (!error)
-            return {};
+            return {.status = CaptureMoveStatus::Moved, .error = {}};
+        if (error == std::errc::file_exists)
+            return {.status = CaptureMoveStatus::TargetExists, .error = {}};
     }
-    // Another volume: copy beside the target, then rename over it so a failure never leaves half a file.
+    // Another volume: copy to a hidden part file beside the target, then move that into place, so the
+    // final name never shows half a file.
     const auto staged = output.absoluteDir().filePath(
         QStringLiteral(".%1.%2.part").arg(output.fileName(), QUuid::createUuid().toString(QUuid::WithoutBraces)));
     if (auto message = copyFile(source, staged, cancelled); !message.isEmpty())
-        return message;
-    std::filesystem::rename(nativePath(staged), nativePath(target), error);
+        return failed(message);
+    const auto error = placeFile(staged, target, replace);
     if (error)
     {
         QFile::remove(staged);
-        return QCoreApplication::translate("motrack::CapturePipeline", "Could not save %1: %2")
-            .arg(QDir::toNativeSeparators(target), errorText(error));
+        if (error == std::errc::file_exists)
+            return {.status = CaptureMoveStatus::TargetExists, .error = {}};
+        return failed(QCoreApplication::translate("motrack::CapturePipeline", "Could not save %1: %2")
+                          .arg(QDir::toNativeSeparators(target), errorText(error)));
     }
     QFile::remove(source);
+    return {.status = CaptureMoveStatus::Moved, .error = {}};
+}
+
+QStringList defaultCaptureFolders()
+{
+    QStringList folders;
+    for (const auto location : {QStandardPaths::MoviesLocation, QStandardPaths::DocumentsLocation})
+        if (const auto base = QStandardPaths::writableLocation(location); !base.isEmpty())
+            folders << QDir(base).filePath(QStringLiteral("MoTrack"));
+    return folders;
+}
+
+QString prepareCaptureFolder(const QStringList& folders)
+{
+    for (const auto& folder : folders)
+        if (!folder.isEmpty() && QDir().mkpath(folder) && QFileInfo(folder).isDir())
+            return QDir(folder).absolutePath();
     return {};
+}
+
+QString captureFileName(const QDateTime& time, int candidate)
+{
+    const auto stamp = time.toString(QStringLiteral("yyyy-MM-dd HH-mm-ss"));
+    return candidate <= 1 ? QStringLiteral("Capture %1.mov").arg(stamp) : QStringLiteral("Capture %1 (%2).mov").arg(stamp).arg(candidate);
+}
+
+CaptureSave saveCaptureAutomatically(const QString& source, const QString& folder, const QDateTime& time, const std::atomic_bool& cancelled)
+{
+    constexpr int MAX_CANDIDATES = 1000;
+    const QDir directory(folder);
+    for (int candidate = 1; candidate <= MAX_CANDIDATES; ++candidate)
+    {
+        const auto target = directory.filePath(captureFileName(time, candidate));
+        const auto move = moveCaptureFile(source, target, cancelled, false);
+        if (move.status == CaptureMoveStatus::Moved)
+            return {.path = target, .error = {}};
+        if (move.status == CaptureMoveStatus::Failed)
+            return {.path = {}, .error = move.error};
+    }
+    return {.path = {},
+            .error = QCoreApplication::translate("motrack::CapturePipeline", "Could not find a free file name in %1.")
+                         .arg(QDir::toNativeSeparators(folder))};
 }
 
 QString captureLockName()

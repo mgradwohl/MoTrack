@@ -70,12 +70,18 @@ New Tracker imports also keep their original XML inside the saved `.motrack` fil
 Choose **File → Capture from camera…** to record a new movie experiment. Pick the camera and, where it
 reports them, a resolution and frame-rate range (**Camera default** lets the camera choose). **Record**
 starts and **Stop** ends a recording while the window previews the camera and shows the elapsed time
-and frame count. **Save and open…** then asks where to keep the clip, a QuickTime `.mov` file, and opens
-it as a new experiment, as **Open video** does. **Discard recording** returns to the preview; **Cancel**,
-or closing the window or the workspace, stops any recording and deletes its temporary file; while a
-recording has not been saved, each of these asks first. If the camera stops, disconnects or changes its
-frame size during a recording, the frames recorded so far are kept to save or discard. A failed
-recording, a camera error or a failed save leaves the workspace unchanged.
+and frame count. After **Stop**, the clip is saved as a QuickTime `.mov` file named
+`Capture <date> <time>.mov` in a `MoTrack` folder inside your Videos folder (Movies on macOS; Documents
+if that folder cannot be used), then opens at once as a new experiment, as **Open video** does. The window
+stays open for the next take. To rename or move a clip, tick **Ask where to save each recording**,
+which offers **Save as…** before the clip opens. If the captures folder cannot be created or written,
+MoTrack says so and asks where to save instead; **Discard recording** then drops the clip.
+
+Closing the capture window or the workspace during a recording asks whether to stop and keep the clip
+(it is saved and opened, then the window closes) or to discard it. A clip waiting for a location asks
+before it is discarded. If the camera stops, disconnects or changes its frame size during a recording,
+the frames recorded so far are kept and saved. A failed recording or a camera error leaves the
+workspace unchanged.
 
 Each frame keeps the time the camera gave it, so an uneven camera rate shows as uneven frame times;
 MoTrack never assigns a nominal frame rate. A camera without frame times is timed by when frames reach

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 
 #include <atomic>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <thread>
 #include <vector>
 
+class QDateTime;
 class QDir;
 class QVideoFrame;
 
@@ -124,12 +126,47 @@ class CapturePipeline final : public QObject
     bool m_Recording = false;
 };
 
-/// Moves a finished recording to target, replacing an existing target only once the copy is complete.
-/// Tries a rename first unless allowRename is false, then copies in chunks, checking cancelled between
-/// them. On failure or cancellation the source stays and no partial target remains. Empty on success,
-/// otherwise a description of the failure. Runs on any thread.
-[[nodiscard]] QString
-moveCaptureFile(const QString& source, const QString& target, const std::atomic_bool& cancelled, bool allowRename = true);
+/// How a capture file move ended.
+enum class CaptureMoveStatus : std::uint8_t
+{
+    Moved,
+    /// Without replace, the target already existed; nothing changed.
+    TargetExists,
+    Failed,
+};
+
+struct CaptureMove
+{
+    CaptureMoveStatus status = CaptureMoveStatus::Failed;
+    QString error;
+};
+
+/// Moves a finished recording to target atomically: the file appears under its final name complete or
+/// not at all. A move within one volume is a single link or rename; across volumes the recording is
+/// copied in chunks (checking cancelled between them) to a hidden part file beside the target, which
+/// is then moved into place the same way. With replace, an existing target is replaced (the user
+/// confirmed it); without, it is never touched and TargetExists is returned. allowRename false forces
+/// the copy route. On failure or cancellation the source stays and no part file remains. Any thread.
+[[nodiscard]] CaptureMove
+moveCaptureFile(const QString& source, const QString& target, const std::atomic_bool& cancelled, bool replace, bool allowRename = true);
+
+/// The folders automatic saving tries, in order: MoTrack in the user's Movies folder, then MoTrack in
+/// Documents (for systems without a Movies location).
+[[nodiscard]] QStringList defaultCaptureFolders();
+/// The first of folders that exists or can be created, or empty when none can.
+[[nodiscard]] QString prepareCaptureFolder(const QStringList& folders);
+/// "Capture yyyy-MM-dd HH-mm-ss.mov" for time, with " (2)", " (3)" … added for the nth candidate.
+[[nodiscard]] QString captureFileName(const QDateTime& time, int candidate = 1);
+
+/// Saves a finished recording in folder under the first free captureFileName for time, without ever
+/// replacing an existing file. The saved path, or empty with error set. Any thread.
+struct CaptureSave
+{
+    QString path;
+    QString error;
+};
+[[nodiscard]] CaptureSave
+saveCaptureAutomatically(const QString& source, const QString& folder, const QDateTime& time, const std::atomic_bool& cancelled);
 
 /// The lock file each capture folder holds (QLockFile) while its window owns it.
 [[nodiscard]] QString captureLockName();

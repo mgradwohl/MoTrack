@@ -745,19 +745,25 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
-    if (m_Capture && m_Capture->hasUnsavedRecording())
+    if (m_Capture && (m_Capture->hasUnsavedRecording() || m_Capture->state() == CaptureDialog::State::Saving))
     {
-        // An unsaved camera recording is asked about first; keeping it cancels the close.
+        // A camera recording that is not saved yet is asked about first. Keeping it cancels this close:
+        // the clip is saved and opened as an experiment, which the user then sees.
         m_Busy = true;
         bool alive = true;
         QObject lifetime;
         connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
-        const bool discard = m_Capture->confirmDiscard();
+        const bool close = m_Capture->confirmClose();
         if (!alive)
             return;
         m_Busy = false;
-        if (!discard)
+        if (!close)
+        {
+            using enum CaptureDialog::State;
+            if (m_Capture && (m_Capture->state() == Finishing || m_Capture->state() == Saving))
+                statusBar()->showMessage(tr("The camera recording is kept: it opens as a new experiment once it is saved."));
             return;
+        }
     }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());

@@ -1,5 +1,6 @@
 #include "capture_dialog.hpp"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDir>
@@ -127,15 +128,19 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
     m_Status->setObjectName("captureStatus");
     m_Status->setWordWrap(true);
     layout->addWidget(m_Status);
+    m_AskLocation = new QCheckBox(tr("&Ask where to save each recording"), this);
+    m_AskLocation->setObjectName("captureAskLocation");
+    m_AskLocation->setToolTip(tr("Otherwise each recording is saved in the MoTrack captures folder and opens at once."));
+    layout->addWidget(m_AskLocation);
     auto* buttons = new QHBoxLayout;
     m_Record = new QPushButton(tr("&Record"), this);
     m_Record->setObjectName("captureRecord");
-    m_Save = new QPushButton(tr("&Save and open…"), this);
+    m_Save = new QPushButton(tr("&Save as…"), this);
     m_Save->setObjectName("captureSave");
-    m_Save->setToolTip(tr("Save the clip to a permanent file and open it as a new experiment."));
+    m_Save->setToolTip(tr("Choose where to save the clip; it then opens as a new experiment."));
     m_Discard = new QPushButton(tr("&Discard recording"), this);
     m_Discard->setObjectName("captureDiscard");
-    m_Close = new QPushButton(tr("Cancel"), this);
+    m_Close = new QPushButton(tr("Close"), this);
     m_Close->setObjectName("captureCancel");
     buttons->addWidget(m_Record);
     buttons->addWidget(m_Save);
@@ -167,25 +172,7 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
                 m_Pipeline->acknowledgePreview();
             });
     connect(m_Pipeline.get(), &CapturePipeline::progress, this, &CaptureDialog::showProgress);
-    connect(m_Pipeline.get(),
-            &CapturePipeline::recordingFinished,
-            this,
-            [this](const CaptureResult& result)
-            {
-                if (m_Closed)
-                {
-                    releaseTemporary(); // Finished just as the window closed; the clip is discarded.
-                    return;
-                }
-                m_Result = result;
-                auto text = summary(result);
-                if (result.sizeChanged)
-                    text += QLatin1Char('\n') +
-                            tr("The camera changed its frame size, so the recording ended at the last frame of the original size.");
-                else if (!m_CameraActive)
-                    text += QLatin1Char('\n') + tr("The camera stopped during the recording; the clip ends at its last frame.");
-                setState(State::Recorded, text);
-            });
+    connect(m_Pipeline.get(), &CapturePipeline::recordingFinished, this, &CaptureDialog::recordingFinished);
     connect(m_Pipeline.get(),
             &CapturePipeline::recordingFailed,
             this,
@@ -193,6 +180,7 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
             {
                 releaseTemporary();
                 m_Result.reset();
+                m_CloseAfterSave = false;
                 setState(m_CameraActive ? State::Previewing : State::Unavailable, tr("The recording failed: %1").arg(message));
             });
     connect(m_Pipeline.get(), &CapturePipeline::recordingCancelled, this, [this] { releaseTemporary(); });
@@ -244,10 +232,9 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
 
 CaptureDialog::~CaptureDialog()
 {
-    // A save in progress stops at its next chunk and removes its partial copy; then the camera stops,
-    // the pipeline closes any movie, and the temporary folder is removed (member order).
-    if (m_SaveCancelled)
-        *m_SaveCancelled = true;
+    // A save in progress completes (a rename, or a copy for another volume): it keeps the recording.
+    // Then the camera stops, the pipeline closes any movie, and the temporary folder is removed (member
+    // order).
     m_Saving.waitForFinished();
     m_Source->stop();
 }
@@ -420,6 +407,41 @@ void CaptureDialog::toggleRecording()
     m_Stall.start();
 }
 
+void CaptureDialog::recordingFinished(const CaptureResult& result)
+{
+    if (m_Closed)
+    {
+        releaseTemporary(); // Finished just as the window closed; the clip is discarded.
+        return;
+    }
+    m_Result = result;
+    m_StoppedAt = QDateTime::currentDateTime();
+    m_Summary = summary(result);
+    if (result.sizeChanged)
+        m_Summary +=
+            QLatin1Char('\n') + tr("The camera changed its frame size, so the recording ended at the last frame of the original size.");
+    else if (!m_CameraActive)
+        m_Summary += QLatin1Char('\n') + tr("The camera stopped during the recording; the clip ends at its last frame.");
+    if (m_AskLocation->isChecked() && !m_CloseAfterSave)
+    {
+        setState(State::Recorded, m_Summary + QLatin1Char('\n') + tr("Choose where to save the clip; it then opens as a new experiment."));
+        chooseDestination();
+        return;
+    }
+    const auto folder = prepareCaptureFolder(m_Folders);
+    if (folder.isEmpty())
+    {
+        m_CloseAfterSave = false;
+        setState(State::Recorded,
+                 m_Summary + QLatin1Char('\n') +
+                     tr("Could not create the captures folder %1. Choose where to save the clip.")
+                         .arg(QDir::toNativeSeparators(m_Folders.value(0))));
+        chooseDestination();
+        return;
+    }
+    startSaving(folder, {});
+}
+
 void CaptureDialog::discardRecording()
 {
     if (m_State != State::Recorded)
@@ -439,9 +461,10 @@ void CaptureDialog::chooseDestination()
 {
     if (m_State != State::Recorded)
         return;
-    const QDir folder(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation));
-    const auto name = tr("Camera capture %1.mov").arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH-mm-ss")));
-    auto* chooser = new QFileDialog(this, tr("Save recording"), folder.filePath(name), tr("QuickTime movies (*.mov)"));
+    const auto folder = prepareCaptureFolder(m_Folders);
+    const QDir initial(folder.isEmpty() ? QDir::homePath() : folder);
+    auto* chooser =
+        new QFileDialog(this, tr("Save recording"), initial.filePath(captureFileName(m_StoppedAt)), tr("QuickTime movies (*.mov)"));
     chooser->setObjectName("captureSaveDialog");
     chooser->setAcceptMode(QFileDialog::AcceptSave);
     chooser->setDefaultSuffix(QStringLiteral("mov"));
@@ -452,78 +475,149 @@ void CaptureDialog::chooseDestination()
 
 void CaptureDialog::saveRecording(const QString& path)
 {
-    if (m_State != State::Recorded || !m_Result || path.isEmpty())
+    if (m_State == State::Recorded && m_Result && !path.isEmpty())
+        startSaving({}, path);
+}
+
+void CaptureDialog::startSaving(const QString& folder, const QString& chosen)
+{
+    if (!m_Result)
         return;
     const auto source = m_Result->path;
-    m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
-    setState(State::Saving, tr("Saving the recording…"));
-    auto* watcher = new QFutureWatcher<QString>(this);
+    setState(State::Saving,
+             folder.isEmpty() ? tr("Saving the recording…") : tr("Saving the recording in %1…").arg(QDir::toNativeSeparators(folder)));
+    auto* watcher = new QFutureWatcher<CaptureSave>(this);
     connect(watcher,
-            &QFutureWatcher<QString>::finished,
+            &QFutureWatcher<CaptureSave>::finished,
             this,
-            [this, watcher, path]
+            [this, watcher, folder]
             {
-                const auto error = watcher->result();
+                const auto save = watcher->result();
                 watcher->deleteLater();
-                finishSaving(path, error);
+                finishSaving(save, folder);
             });
-    m_Saving = QtConcurrent::run([source, path, cancelled = m_SaveCancelled] { return moveCaptureFile(source, path, *cancelled); });
+    // A save is never cancelled: it holds the user's recording. Destruction waits for it.
+    m_Saving = QtConcurrent::run(
+        [source, folder, chosen, time = m_StoppedAt]
+        {
+            const std::atomic_bool running{false};
+            if (folder.isEmpty())
+            {
+                // The Save dialog already confirmed replacing an existing file.
+                const auto move = moveCaptureFile(source, chosen, running, true);
+                return CaptureSave{.path = move.status == CaptureMoveStatus::Moved ? chosen : QString{}, .error = move.error};
+            }
+            return saveCaptureAutomatically(source, folder, time, running);
+        });
     watcher->setFuture(m_Saving);
 }
 
-void CaptureDialog::finishSaving(const QString& path, const QString& error)
+void CaptureDialog::finishSaving(const CaptureSave& save, const QString& folder)
 {
     if (m_Closed)
     {
-        // Closed while saving: whatever reached the destination is the user's; nothing opens.
-        m_Result.reset();
+        // Discarded without waiting (the workspace is closing): a saved file stays where it is, and
+        // nothing opens.
+        m_LastSaved = save.path.isEmpty() ? m_LastSaved : save.path;
         releaseTemporary();
         return;
     }
-    if (!error.isEmpty() || !m_Result)
+    if (save.path.isEmpty() || !m_Result)
     {
-        setState(State::Recorded, tr("Could not save the recording: %1").arg(error));
+        m_CloseAfterSave = false;
+        if (folder.isEmpty())
+        {
+            setState(State::Recorded, tr("Could not save the recording: %1").arg(save.error));
+            return;
+        }
+        // The automatic location failed: ask for one instead.
+        setState(
+            State::Recorded,
+            m_Summary + QLatin1Char('\n') +
+                tr("Could not save the recording in %1: %2. Choose where to save it.").arg(QDir::toNativeSeparators(folder), save.error));
+        chooseDestination();
         return;
     }
-    auto result = *m_Result;
-    result.path = QFileInfo(path).absoluteFilePath();
-    m_Result.reset();
+    auto& result = *m_Result;
+    result.path = QFileInfo(save.path).absoluteFilePath();
+    m_LastSaved = result.path;
     releaseTemporary();
-    m_Source->stop();
-    m_CameraActive = false;
+    const auto saved = result;
     const QPointer self(this);
-    Q_EMIT recordingSaved(result.path, result);
-    if (self)
-        accept();
+    Q_EMIT recordingSaved(saved.path, saved);
+    if (!self)
+        return;
+    if (m_CloseAfterSave)
+    {
+        discardAndClose(); // Nothing is left to discard.
+        return;
+    }
+    setState(m_CameraActive ? State::Previewing : State::Unavailable,
+             m_Summary + QLatin1Char('\n') + tr("Saved as %1.").arg(QDir::toNativeSeparators(saved.path)));
 }
 
 bool CaptureDialog::hasUnsavedRecording() const
 {
-    return busy(m_State);
+    return m_State == State::Recording || m_State == State::Finishing || m_State == State::Recorded;
 }
 
-bool CaptureDialog::confirmDiscard()
+bool CaptureDialog::confirmClose()
 {
+    if (m_State == State::Saving)
+    {
+        // The clip is being saved; close once it is saved and opened.
+        m_CloseAfterSave = true;
+        return false;
+    }
     if (!hasUnsavedRecording())
         return true;
     // An experiment can rarely be repeated; never discard a recording without asking.
+    const bool inProgress = m_State == State::Recording || m_State == State::Finishing;
     const QPointer self(this);
     bool questionAlive = true;
     QObject lifetime;
     auto* question = new QMessageBox(QMessageBox::Question,
-                                     tr("Discard the recording?"),
-                                     m_State == State::Recording ? tr("A recording is in progress. Stop it and discard the clip?")
-                                                                 : tr("The recording has not been saved. Discard it?"),
-                                     QMessageBox::Discard | QMessageBox::Cancel,
+                                     inProgress ? tr("Keep the recording?") : tr("Discard the recording?"),
+                                     inProgress ? tr("A recording is in progress. Stop it and keep the clip, or discard it?")
+                                                : tr("The recording has not been saved. Discard it?"),
+                                     inProgress ? QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel
+                                                : QMessageBox::Discard | QMessageBox::Cancel,
                                      this);
     question->setObjectName("captureDiscardQuestion");
-    question->setDefaultButton(QMessageBox::Cancel);
+    if (inProgress)
+    {
+        question->button(QMessageBox::Save)->setText(tr("Stop and &keep"));
+        question->setDefaultButton(QMessageBox::Save);
+    }
+    else
+        question->setDefaultButton(QMessageBox::Cancel);
     connect(question, &QObject::destroyed, &lifetime, [&questionAlive] { questionAlive = false; });
     (void)question->exec();
     const auto choice = self && questionAlive ? question->standardButton(question->clickedButton()) : QMessageBox::Cancel;
     if (questionAlive)
         delete question;
-    return self && choice == QMessageBox::Discard;
+    if (!self)
+        return false;
+    if (choice != QMessageBox::Save)
+        return choice == QMessageBox::Discard;
+    // Keep: saved automatically (whatever the Ask setting) and opened, then the window closes. The
+    // recording may have moved on while the question was open.
+    switch (m_State)
+    {
+    case State::Recording:
+        m_CloseAfterSave = true;
+        m_Pipeline->stopRecording();
+        setState(State::Finishing, tr("Finishing the recording; the window closes once it is saved…"));
+        return false;
+    case State::Finishing:
+    case State::Saving:
+        m_CloseAfterSave = true;
+        return false;
+    case State::Recorded:
+        return false; // Saving automatically failed; the clip waits for a location.
+    default:
+        return true; // Already saved.
+    }
 }
 
 void CaptureDialog::setStallWarningAfter(std::chrono::milliseconds limit)
@@ -531,9 +625,19 @@ void CaptureDialog::setStallWarningAfter(std::chrono::milliseconds limit)
     m_StallLimit = limit;
 }
 
+void CaptureDialog::setCaptureFolders(QStringList folders)
+{
+    m_Folders = std::move(folders);
+}
+
+QString CaptureDialog::lastSavedRecording() const
+{
+    return m_LastSaved;
+}
+
 void CaptureDialog::reject()
 {
-    if (confirmDiscard())
+    if (confirmClose())
         discardAndClose();
 }
 
@@ -541,15 +645,15 @@ void CaptureDialog::discardAndClose()
 {
     m_Closed = true;
     m_Stall.stop();
-    if (m_SaveCancelled)
-        *m_SaveCancelled = true;
     m_Pipeline->cancelRecording();
     m_Source->stop();
     m_CameraActive = false;
-    // An open movie file is removed once the pipeline reports it closed (or on destruction).
+    // An open movie file is removed once the pipeline reports it closed (or on destruction). A save in
+    // progress keeps the recording and finishes during destruction.
     if (!m_Pipeline->isRecording() && m_State != State::Saving)
     {
-        m_Result.reset();
+        if (m_State == State::Recorded)
+            m_Result.reset();
         releaseTemporary();
     }
     QDialog::reject();
@@ -627,7 +731,6 @@ QString CaptureDialog::summary(const CaptureResult& result) const
                          locale.toString(static_cast<double>(result.longestInterval.count()) / 1000, 'f', 1));
     if (result.clock == CaptureClock::Arrival)
         text << tr("The camera supplied no frame times, so each frame is timed by when it reached MoTrack.");
-    text << tr("Save the clip to open it as a new experiment.");
     return text.join(QLatin1Char(' '));
 }
 
@@ -640,14 +743,11 @@ void CaptureDialog::setState(State state, const QString& message)
     m_Format->setEnabled(idle && m_Camera->currentIndex() >= 0);
     m_Record->setEnabled(state == State::Previewing || state == State::Recording);
     m_Record->setText(state == State::Recording ? tr("&Stop") : tr("&Record"));
-    const bool recorded = state == State::Recorded || state == State::Saving;
+    const bool recorded = state == State::Recorded;
     m_Save->setVisible(recorded);
-    m_Save->setEnabled(state == State::Recorded);
     m_Discard->setVisible(recorded);
-    m_Discard->setEnabled(state == State::Recorded);
-    m_Close->setText(recorded ? tr("Discard and close") : tr("Cancel"));
-    if (idle)
-        m_Elapsed->clear();
+    m_Close->setText(recorded ? tr("Discard and close") : tr("Close"));
+    // The elapsed line keeps the last recording's time and counts until the next one starts.
 }
 
 } // namespace motrack

@@ -13,28 +13,46 @@ how to check it with a real camera.
 | `CameraSource` (`src/camera_source.hpp`) | Camera list, formats, permission, start/stop. `QtCameraSource` uses Qt Multimedia's `QCamera`, `QMediaCaptureSession` and `QVideoSink`; tests use a fake that delivers frames from another thread. |
 | `CapturePipeline` (`src/capture_pipeline.hpp`) | One worker thread converts the newest frame for preview and, while recording, writes every frame. Qt 6.8's backends deliver frames to the sink on the GUI thread; the sink only puts them in a locked queue of at most 8 frames, and the worker's signals reach the window on the GUI thread. |
 | `CaptureEncoder` (`src/capture_encoder.hpp`) | Writes a QuickTime (`.mov`) file of Motion JPEG frames with MoTrack's own FFmpeg, one presentation time per frame. |
-| `CaptureDialog` (`src/capture_dialog.hpp`) | Camera and format choice, preview, Record/Stop, elapsed time and frame count, save, discard and cancel. |
+| `CaptureDialog` (`src/capture_dialog.hpp`) | Camera and format choice, preview, Record/Stop, elapsed time and frame count, automatic saving or **Save as…**, discard and close. |
 | `WorkspaceWindow` | Owns the capture window and opens the saved clip with `openMovie`, the same path as **Open video**. |
 
-The recording goes to a private temporary folder. It is offered to the workspace only after
-**Save and open…** has moved it to a permanent file, so a saved project never refers to a file that
-MoTrack later deletes. A save to another volume copies on a worker thread and replaces the target only
-when the copy is complete. A camera that fails, stops delivering or disappears from the device list
-during a recording ends it, and the frames so far are kept to save or discard. (V4L2 reports an
-unplugged camera only by its disappearance.) If no frame arrives for 5 s, the window says so.
+The recording goes to a private temporary folder. When it stops, MoTrack saves it automatically to the
+captures folder and only then hands it to the workspace, so an experiment's movie is always the saved
+file, never a temporary one that MoTrack later deletes:
 
-Because an experiment often cannot be repeated, closing never discards an unsaved recording silently.
-Esc, the title-bar close, **Cancel** and closing the workspace ask first while a recording is in
-progress, finishing, finished or being saved; keeping it cancels the close. Once discarded (or on
-destruction, which cannot ask), MoTrack stops the recording, closes the movie and removes the temporary
-folder. Destruction joins the worker before the folder is removed, so the file is closed first even on
-Windows.
+- The captures folder is `MoTrack` inside `QStandardPaths::MoviesLocation` (`~/Movies` on macOS,
+  `Videos` on Windows, the XDG videos folder on Linux), created when needed; if it cannot be created,
+  `MoTrack` inside the Documents location.
+- The name is `Capture yyyy-MM-dd HH-mm-ss.mov` in local time when the recording stopped, with
+  ` (2)`, ` (3)` … added while the name is taken. An existing file is never replaced: within one volume
+  the clip is hard-linked to its name (which fails if the name exists) and the temporary name removed,
+  or renamed after a check on file systems without hard links. On another volume it is copied on a
+  worker thread to a hidden `.<name>.<uuid>.part` file beside the target, then placed the same way, so
+  the final name never shows a partial file.
+- If neither folder can be created, or saving there fails, the window says why and opens a Save dialog
+  instead. **Ask where to save each recording** asks every time, for clips to be renamed or kept
+  elsewhere; a file chosen there replaces an existing one only after the dialog confirms it. The option
+  lasts while the window is open.
+
+A camera that fails, stops delivering or disappears from the device list during a recording ends it,
+and the frames so far are kept and saved. (V4L2 reports an unplugged camera only by its
+disappearance.) If no frame arrives for 5 s, the window says so.
+
+Because an experiment often cannot be repeated, closing never discards a recording silently. Before
+the file exists (while recording or finishing), Esc, the title-bar close, **Close** and closing the
+workspace ask whether to stop and keep the recording or discard it. Keeping it cancels the close: the
+clip is saved and opened, and then the capture window closes (the workspace stays open). A clip that
+waits for its location asks before it is discarded. A save in progress is never cancelled; closing
+then waits for it, and destruction finishes it before returning. Once discarded (or on destruction
+during a recording, which cannot ask), MoTrack stops the recording, closes the movie and removes the
+temporary folder. Destruction joins the worker before the folder is removed, so the file is closed first
+even on Windows.
 
 Each folder holds a `QLockFile` while its window owns it. Opening the capture window removes
 `motrack-capture-*` folders whose lock belongs to a process that has ended, which is what a crash leaves
 behind together with an unfinished movie. Folders without a lock are removed once they are a day old.
 
-No camera work blocks the GUI thread: frame conversion, encoding and the copy run on workers, and the
+No camera work blocks the GUI thread: frame conversion, encoding and saving run on workers, and the
 window waits for their signals.
 
 Capture opens no network listener and uses no browser.
@@ -128,7 +146,7 @@ the current tab. MoTrack deliberately differs:
 | Localhost HTTP server and a browser page | A native Qt window; no listener, browser or JavaScript |
 | Video → Capture… loads into the current tab | File → Capture from camera… opens a new experiment, next to the other ways to open media; the current experiment is unchanged |
 | Browser MP4 timing, or a JPEG stack at a requested frame rate | The camera's own frame times, never a requested rate |
-| Captures stay in the system temporary folder (`capture-<id>.mp4` or numbered JPEG files) and are not removed | The clip is saved to a file the user chooses before it opens; temporary files are removed |
+| Captures open at once from files in the system temporary folder (`capture-<id>.mp4` or numbered JPEG files), which Tracker never moves or removes | Captures open at once too, after an automatic, collision-free save to `MoTrack` in the Videos folder (Movies on macOS); the experiment refers to that file, and temporary files are removed. **Ask where to save each recording** offers a Save dialog first |
 | Camera choice and format belong to the browser | Camera and reported resolution/frame-rate choice in the window |
 
 Reading the upstream source (`TrackerCameraServer.java`, `Tracker.importVideoCapture` and
@@ -157,15 +175,18 @@ check a staged build with a real camera:
    should follow movement smoothly while the window stays responsive.
 3. Record about five seconds of a ball toss or a phone stopwatch, press **Stop**, and read the summary:
    frame count, duration, average rate and any dropped frames.
-4. Choose **Save and open…**, keep the `.mov` name and confirm a new experiment opens. Step through
-   frames and compare the frame times with the stopwatch; an uneven rate should appear as uneven times.
+4. Confirm a new experiment opens at once and that its movie is
+   `Capture <date> <time>.mov` in `MoTrack` in the Videos folder (Movies on macOS). Step through frames
+   and compare the frame times with the stopwatch; an uneven rate should appear as uneven times. Then
+   tick **Ask where to save each recording**, record again and save under a chosen name.
 5. Unplug the camera mid-recording: the window should end the recording, keep its frames and say so
    (on Linux within a moment of the device disappearing). Then try another application holding the
    camera, camera access turned off in the system privacy settings, and no camera attached. Each should
    show a message and leave the workspace unchanged, with no `motrack-capture-*` folder left in the
    temporary directory once the window closes.
-6. Press Esc, **Cancel** and close the workspace during a recording and after it; each should ask first.
-   Keep the recording once, then discard it and confirm the temporary folder is removed.
+6. Press Esc, **Close** and close the workspace during a recording; each should ask first. Keep the
+   recording once (it should open, then the capture window closes), then discard it and confirm the
+   temporary folder is removed. After a take is saved, closing should not ask.
 7. On macOS, step through the first frames and confirm the first two frame times differ: Qt 6.8 to 6.11
    would otherwise give both the time zero ([#303](https://github.com/mgradwohl/MoTrack/issues/303)).
 8. Optionally open the saved clip in Tracker to confirm it plays there.
