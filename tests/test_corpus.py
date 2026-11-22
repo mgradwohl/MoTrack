@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -3455,7 +3456,7 @@ def motrack_state(tracker=None):
             "units": {"mass": "kg", "time": "s", "length": "m"},
             "clip": {"first_frame": 0, "step_size": 1, "step_count": 3, "end_frame": 2, "start_time_ms": 0,
                      "frame_duration_ms": 100, "steps": [[0, 0, 0], [1, 1, 100], [2, 2, 200]]},
-            "coords": {"fixed_origin": True, "fixed_angle": True, "fixed_scale": True,
+            "coords": {"fixed_origin": True, "fixed_angle": True, "fixed_scale": True, "key_frames": [],
                        "frames": [row[:6] for row in tracker["panel"]["coords"]["frames"]]},
             "tracks": [{"class": mass["class"], "name": mass["name"], "properties": {"mass": 2},
                         "steps": copy.deepcopy(mass["steps"]),
@@ -3463,8 +3464,18 @@ def motrack_state(tracker=None):
                                  "rows": [[row[i] for i in indices] for row in mass["data"]["rows"]]}}]}}
 
 
+def known_avi_failure(entry_id="avi"):
+    return {"id": entry_id, "case": "archived-avi", "object": None, "path": None,
+            "issue": "https://github.com/mgradwohl/MoTrack/issues/140", "upstream": None, "summary": "AVI is not extracted.",
+            "expected": {"state_of": "linked-movie", "project_sha256": "0" * 64},
+            "tracker": {"load_failure": ["waiting=application loader callback"]}}
+
+
+AVI_FAILURE = "Probe failed (1):\nTracker state dump input=x waiting=application loader callback\njava.lang.IllegalStateException: timed out"
+
+
 class TrackerStateTests(unittest.TestCase):
-    """The loaded-state oracle (TrackerStateDump.java), differ and known-defect registry, without Java."""
+    """The loaded-state oracle (TrackerStateDump.java), differ, gap baseline and registry, without Java."""
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-state-test-")
@@ -3478,8 +3489,12 @@ class TrackerStateTests(unittest.TestCase):
     def test_schema_validation_rejects_malformed_or_inconsistent_dumps(self):
         corpus.validate_state_dump(tracker_state(), self.manifest)
         corpus.validate_state_dump(motrack_state(), self.manifest, "motrack")
+        untimed = motrack_state()
+        untimed["panel"]["clip"]["steps"][1][2] = None  # A partial producer may not know a step time.
+        corpus.validate_state_dump(untimed, self.manifest, "motrack")
         for mutation in ["version", "producer", "loading", "panel-keys", "track-keys", "duplicate-frame", "ragged-row",
-                         "raw-nan", "duplicate-column", "clip-step", "coords-frame", "unsupported-class", "constants"]:
+                         "raw-nan", "duplicate-column", "clip-step", "coords-frame", "unsupported-class", "constants",
+                         "tracker-null-time"]:
             document = tracker_state()
             kind = "tracker"
             panel = document["panel"]
@@ -3496,11 +3511,21 @@ class TrackerStateTests(unittest.TestCase):
             elif mutation == "clip-step": panel["clip"]["steps"][0][1] = 0.5
             elif mutation == "coords-frame": panel["coords"]["frames"][0][0] = "0"
             elif mutation == "constants": mass["data"]["constants"]["m"] = None
+            elif mutation == "tracker-null-time": panel["clip"]["steps"][0][2] = None
             else:
                 document, kind = motrack_state(), "motrack"
                 document["panel"]["tracks"][0]["class"] = TRACKER + "CenterOfMass"
-            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                corpus.validate_state_dump(document, self.manifest, kind)
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "^named.json: invalid"):
+                corpus.validate_state_dump(document, self.manifest, kind, "named.json")
+
+    def test_dump_files_name_themselves_and_reject_bare_specials(self):
+        path = self.root / "bare.json"
+        path.write_text(json.dumps(tracker_state()).replace('"NaN"', "NaN", 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "bare.json: bare NaN is not JSON"):
+            corpus.read_state(path, self.manifest)
+        path.write_text(json.dumps({**tracker_state(), "schema_version": 3}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "bare.json: invalid tracker state dump: schema"):
+            corpus.read_state(path, self.manifest)
 
     def test_canonical_layout_round_trips_with_one_row_per_line(self):
         document = tracker_state()
@@ -3522,7 +3547,8 @@ class TrackerStateTests(unittest.TestCase):
             "column": (lambda d: d["panel"]["tracks"][1]["data"]["columns"][3].update(name="vx"), "data.columns"),
             "dimensions": (lambda d: d["panel"]["tracks"][1]["data"]["columns"][3].update(dimensions="L"), "dimensions"),
             "time": (lambda d: d["panel"]["clip"]["steps"][2].__setitem__(2, 200.001), "clip.steps[2].time_ms"),
-            "mapping": (lambda d: d["panel"]["clip"]["steps"][2].__setitem__(1, 3), "step/frame mapping"),
+            "mapping": (lambda d: d["panel"]["clip"]["steps"][2].__setitem__(1, 3), "clip.steps[2]: frame 3 differs"),
+            "extra-step": (lambda d: d["panel"]["clip"]["steps"].append([3, 3, 300.0]), "clip.steps[3]: unexpected step"),
             "coords": (lambda d: d["panel"]["coords"]["frames"][1][6].__setitem__(4, 1e-6), "coords.frames[1]"),
             "property": (lambda d: d["panel"]["tracks"][1]["properties"]["keyFrames"]["items"].append(3), "keyFrames.items"),
             "integer": (lambda d: d["panel"]["tracks"][1]["properties"]["keyFrames"]["items"].__setitem__(0, 0.0), None),
@@ -3565,9 +3591,17 @@ class TrackerStateTests(unittest.TestCase):
                     "PointMass.properties.name", "selected_track", "views", "video", "properties", "coords.frames.transform",
                     "units.angles_in_radians", "clip.rate"]:
             self.assertIn(gap, comparison.gaps)
+        untimed = motrack_state()
+        untimed["panel"]["clip"]["steps"][2][2] = None
+        self.assertIn("clip.steps.time", self.compare(tracker_state(), untimed, subset=True).gaps)
+        shorter = motrack_state()
+        shorter["panel"]["coords"]["frames"].pop()
+        self.assertIn("coords.frames after 1", self.compare(tracker_state(), shorter, subset=True).gaps)
         for mutation, location in [("value", "rows[frame=1].v_{x}"), ("invented", "columns.speed"), ("missing-track", "identities"),
                                    ("extra-step", "steps[frame=7]"), ("mass", "properties.mass"), ("unit", "units.time"),
-                                   ("coords", "coords.frames[9]"), ("row", "rows[frame=2]")]:
+                                   ("coords", "coords.frames[3]"), ("row", "rows[frame=2]"), ("gap-frames", "contiguous"),
+                                   ("empty-frames", "contiguous"), ("key-frames", "coords.key_frames"),
+                                   ("clip-step", "clip.steps[2]")]:
             actual = motrack_state()
             track = actual["panel"]["tracks"][0]
             if mutation == "value": track["data"]["rows"][1][3] = 5.5
@@ -3576,11 +3610,42 @@ class TrackerStateTests(unittest.TestCase):
             elif mutation == "extra-step": track["steps"].append({"frame": 7, "position": [0.0, 0.0]})
             elif mutation == "mass": track["properties"]["mass"] = 3.0
             elif mutation == "unit": actual["panel"]["units"]["time"] = "ms"
-            elif mutation == "coords": actual["panel"]["coords"]["frames"].append([9, 0.0, 0.0, 0.0, 1.0, 1.0])
+            elif mutation == "coords": actual["panel"]["coords"]["frames"].append([3, 0.0, 0.0, 0.0, 1.0, 1.0])
+            elif mutation == "gap-frames": del actual["panel"]["coords"]["frames"][1]
+            elif mutation == "empty-frames": actual["panel"]["coords"]["frames"] = []
+            elif mutation == "key-frames": actual["panel"]["coords"]["key_frames"] = [0]
+            elif mutation == "clip-step": actual["panel"]["clip"]["steps"].pop()
             else: track["data"]["rows"].pop()
             failures = [message for _, message in self.compare(tracker_state(), actual, subset=True).failures]
             with self.subTest(mutation=mutation):
                 self.assertTrue(any(location in message for message in failures), failures)
+
+    def test_gaps_name_their_reason(self):
+        tracker, motrack = tracker_state(), motrack_state()
+        untimed = copy.deepcopy(motrack)
+        del untimed["panel"]["clip"]["frame_duration_ms"]
+        movie = copy.deepcopy(tracker)
+        movie["panel"]["video"] = {"class": "XuggleVideo"}
+        uncalibrated = copy.deepcopy(motrack)
+        del uncalibrated["panel"]["coords"]
+        for gap, tracker_doc, motrack_doc, reason in [
+                ("track class CoordAxes", tracker, motrack, "unmodeled-class"),
+                ("PointMass.data.θ_{v}", tracker, motrack, "unmodeled-column"),
+                ("PointMass.data.v_{x}", tracker, untimed, "default-timing"),
+                ("PointMass.data.t", movie, untimed, "probe-media-timing"),
+                ("clip.steps.time", movie, untimed, "probe-media-timing"),
+                ("PointMass.data.x", tracker, uncalibrated, "uncalibrated"),
+                ("units.length", tracker, motrack, "default-length-unit"),
+                ("coords.frames after 12", tracker, motrack, "coords-range"),
+                ("known defect x-row.t", movie, untimed, "probe-media-timing"),
+                ("known defect x-step-11[2]", tracker, untimed, "default-timing"),
+                ("known defect x", tracker, motrack, "known-defect-unmodeled"),
+                ("views", tracker, motrack, "unmodeled-field")]:
+            with self.subTest(gap=gap):
+                self.assertEqual(corpus.classify_gap(gap, tracker_doc, motrack_doc), reason)
+        self.assertEqual(set(corpus.STATE_GAP_REASONS), {"unmodeled-class", "unmodeled-field", "unmodeled-column",
+                                                         "probe-media-timing", "default-timing", "default-length-unit",
+                                                         "uncalibrated", "coords-range", "known-defect-unmodeled"})
 
     def registry(self, *entries):
         return {"schema_version": 1, "reference_version": "6.3.5", "entries": list(entries)}
@@ -3600,17 +3665,15 @@ class TrackerStateTests(unittest.TestCase):
     def test_committed_registry_is_valid_and_seeded_from_unaccepted_cases(self):
         registry = corpus.load_known_defects(self.manifest)
         issues = {entry["issue"].rsplit("/", 1)[1] for entry in registry["entries"]}
-        self.assertTrue({"63", "64", "140", "146"} <= issues)
+        self.assertTrue({"63", "64", "140", "146", "209"} <= issues)
         cases = {entry["case"] for entry in registry["entries"]}
-        self.assertTrue({"vector-sum", "archived-avi", "vector-images-negative-time", "vector-movie-negative-time",
-                         "table-owners", "table-owners-subset", "table-owners-defaults", "table-owners-legacy-formats"} <= cases)
         # Each rejected session case of the corpus guide is represented, never waived as a group.
         excluded = {case["id"] for case in self.manifest["cases"] if "session_exclusion" in case or case.get("session_known_issue")}
         self.assertTrue(excluded <= cases, excluded - cases)
 
     def test_committed_dumps_are_canonical_cover_the_corpus_and_reproduce_the_registry(self):
         registry = corpus.load_known_defects(self.manifest)
-        whole = {entry["case"] for entry in registry["entries"] if entry["tracker"] == corpus.STATE_LOAD_FAILURE}
+        whole = {entry["case"]: entry for entry in registry["entries"] if corpus.is_whole_file(entry)}
         dumps, size = {}, 0
         for case in self.manifest["cases"]:
             path = corpus.state_path(case["id"])
@@ -3626,18 +3689,57 @@ class TrackerStateTests(unittest.TestCase):
                          {corpus.state_path(case["id"]) for case in self.manifest["cases"] if case["id"] not in whole})
         self.assertLess(size, 1536 * 1024)
         failures = []
-        reproduced = corpus.check_known_defects(registry, self.manifest, dumps, failures)
+        errors = {case_id: "\n".join(entry["tracker"]["load_failure"]) for case_id, entry in whole.items()}
+        reproduced = corpus.check_known_defects(registry, self.manifest, dumps, failures, errors)
         self.assertEqual(failures, [])
         self.assertEqual(len(reproduced), len(registry["entries"]))
-        # A dump compared with itself has no differences, and none carries a machine-specific path.
         for case_id in ["protractor", "ball-toss", "dynamic-sine"]:
             self.assertEqual(corpus.compare_state(dumps[case_id], dumps[case_id], self.manifest, case_id).failures, [])
         for path in corpus.STATE_DIR.glob("*.json"):
             self.assertNotRegex(path.read_text(encoding="utf-8"), r"/home/|/tmp/|[A-Za-z]:[\\/]|/Users/")
 
+    def test_registry_values_are_derived_independently_from_the_saved_projects(self):
+        # BallToss is fetched into the reference cache; its derivation runs in state-oracle/state-check.
+        manifest = copy.deepcopy(self.manifest)
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] != "ball-toss"]
+        registry = corpus.load_known_defects(self.manifest)
+        values, checks = corpus.derive_known_defect_values(manifest, self.root)
+        derivable = [entry for entry in registry["entries"] if entry["case"] != "ball-toss" and not corpus.is_whole_file(entry)]
+        self.assertLessEqual({entry["id"] for entry in derivable}, set(values))
+        for entry in derivable:
+            mismatches, missing = corpus.registered_check(values[entry["id"]], entry["expected"], {"absolute": 1e-9, "relative": 1e-9})
+            with self.subTest(entry=entry["id"]):
+                self.assertEqual((mismatches, missing), ([], []))
+        self.assertEqual(len(checks), 4)
+        dumps = {case["id"]: corpus.read_state(corpus.state_path(case["id"]), self.manifest) for case in manifest["cases"]
+                 if corpus.state_path(case["id"]).exists()}
+        for case_id, track, path, value in checks:
+            actual = corpus.resolve_state_path(dumps[case_id]["panel"], {"track": track}, path)
+            self.assertTrue(corpus.state_matches(value, actual, {"absolute": 1e-9, "relative": 1e-9}), (case_id, path))
+        avi = next(entry for entry in registry["entries"] if entry["id"] == "archived-avi-load")
+        by_id = {case["id"]: case for case in self.manifest["cases"]}
+        for case_id in ("archived-avi", "linked-movie"):
+            digest = hashlib.sha256(corpus.project_path(by_id[case_id], self.root).read_bytes()).hexdigest()
+            self.assertEqual(digest, avi["expected"]["project_sha256"], case_id)
+        # A tampered registry value no longer matches its derivation.
+        tampered = copy.deepcopy(registry)
+        entry = next(item for item in tampered["entries"] if item["id"] == "vector-images-negative-time-a")
+        entry["expected"]["x"] = 1.25
+        entry["expected"]["extra"] = 0.0
+        failures = []
+        with patch.object(corpus, "derive_ball_toss", return_value=[]):
+            corpus.check_known_defect_derivations(tampered, manifest, self.root, dumps, failures)
+        self.assertTrue(any("vector-images-negative-time-a" in failure and "registered value differs" in failure
+                            for failure in failures), failures)
+
+    def test_media_sample_tables_give_independent_frame_times(self):
+        movie = corpus.CORPUS / "fixtures/vector-movie/constant-rate.mov"
+        self.assertEqual(corpus.iso_video_frames(movie.read_bytes()), [0.0, 125.0, 250.0, 375.0])
+        with self.assertRaises(ValueError):
+            corpus.iso_video_frames(b"\x00\x00\x00\x10moovxxxx\x00\x00\x00\x04")
+
     def test_registry_rejects_cross_file_wildcard_duplicate_or_non_deviating_entries(self):
-        whole = self.entry(id="avi", case="archived-avi", object=None, path=None, tracker=corpus.STATE_LOAD_FAILURE,
-                           expected={"state_of": "linked-movie"}, issue="https://github.com/mgradwohl/MoTrack/issues/140")
+        whole = known_avi_failure()
         corpus.load_known_defects(self.manifest, self.write_registry(self.registry(self.entry(), whole)))
         mutations = {
             "unknown-case": self.entry(case="not-a-case"),
@@ -3649,8 +3751,11 @@ class TrackerStateTests(unittest.TestCase):
             "missing-summary": self.entry(summary=""),
             "extra-key": {**self.entry(), "waive": True},
             "whole-object": {**whole, "case": "vector-sum"},
-            "self-reference": {**whole, "expected": {"state_of": "archived-avi"}},
-            "unknown-state-of": {**whole, "expected": {"state_of": "missing"}},
+            "self-reference": {**whole, "expected": {**whole["expected"], "state_of": "archived-avi"}},
+            "unknown-state-of": {**whole, "expected": {**whole["expected"], "state_of": "missing"}},
+            "no-hash": {**whole, "expected": {"state_of": "linked-movie"}},
+            "no-signature": {**whole, "tracker": {"load_failure": []}},
+            "generic-failure": {**whole, "tracker": "@load_failure"},
         }
         for name, entry in mutations.items():
             entries = [entry, self.entry(id="second", path="steps", expected=[{"frame": 0}], tracker=[])] \
@@ -3672,47 +3777,74 @@ class TrackerStateTests(unittest.TestCase):
                              ({"track": "mass A"}, "data.missing"), (None, "clip.steps[9]")]:
             self.assertEqual(corpus.resolve_state_path(panel, target, path), corpus.STATE_ABSENT)
 
-    def test_known_defects_must_persist_and_stale_entries_fail(self):
-        registry = self.registry(self.entry(), self.entry(id="avi", case="archived-avi", object=None, path=None,
-                                                          tracker=corpus.STATE_LOAD_FAILURE, expected={"state_of": "linked-movie"}))
+    def test_known_defects_must_persist_and_stale_or_changed_entries_fail(self):
+        registry = self.registry(self.entry(), known_avi_failure())
         broken = tracker_state(members=())
         failures = []
         reproduced = corpus.check_known_defects(registry, self.manifest,
-                                                {"vector-sum": broken, "archived-avi": corpus.STATE_LOAD_FAILURE}, failures)
+                                                {"vector-sum": broken, "archived-avi": corpus.STATE_LOAD_FAILURE}, failures,
+                                                {"archived-avi": AVI_FAILURE})
         self.assertEqual(failures, [])
         self.assertEqual([entry["id"] for entry in reproduced], ["sum-members", "avi"])
-        for dumps, message in [({"vector-sum": tracker_state(members=("vector A", "vector B")), "archived-avi": corpus.STATE_LOAD_FAILURE},
-                                "STALE known defect sum-members"),
-                               ({"vector-sum": tracker_state(members=("vector C",)), "archived-avi": corpus.STATE_LOAD_FAILURE},
-                                "CHANGED known defect sum-members"),
-                               ({"vector-sum": broken, "archived-avi": tracker_state()}, "STALE known defect avi"),
-                               ({"vector-sum": corpus.STATE_LOAD_FAILURE, "archived-avi": corpus.STATE_LOAD_FAILURE},
-                                "Tracker failed to load"),
-                               ({"archived-avi": corpus.STATE_LOAD_FAILURE}, "was not dumped")]:
+        for dumps, errors, message in [
+                ({"vector-sum": tracker_state(members=("vector A", "vector B")), "archived-avi": corpus.STATE_LOAD_FAILURE},
+                 {"archived-avi": AVI_FAILURE}, "STALE known defect sum-members"),
+                ({"vector-sum": tracker_state(members=("vector C",)), "archived-avi": corpus.STATE_LOAD_FAILURE},
+                 {"archived-avi": AVI_FAILURE}, "CHANGED known defect sum-members"),
+                ({"vector-sum": broken, "archived-avi": tracker_state()}, {}, "STALE known defect avi"),
+                ({"vector-sum": broken, "archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": "Probe failed: OutOfMemoryError"},
+                 "CHANGED known defect avi"),
+                ({"vector-sum": corpus.STATE_LOAD_FAILURE, "archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": AVI_FAILURE},
+                 "Tracker failed to load"),
+                ({"archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": AVI_FAILURE}, "was not dumped")]:
             failures = []
-            corpus.check_known_defects(registry, self.manifest, dumps, failures)
+            corpus.check_known_defects(registry, self.manifest, dumps, failures, errors)
             with self.subTest(message=message):
                 self.assertTrue(any(message in failure for failure in failures), failures)
 
-    def test_motrack_must_match_the_independent_value_at_registered_paths(self):
+    def test_motrack_must_match_the_independent_value_without_waiving_unlisted_keys(self):
         entry = self.entry(id="mass-velocity", case="case", object={"track": "mass A"}, path="data.rows[frame=1]",
                            expected={"v_{x}": 6.0}, tracker={"v_{x}": 5.0})
-        registry = self.registry(entry)
+
+        def check(actual, registry_entry=entry, expected=None):
+            comparison = self.compare(expected or tracker_state(), actual, subset=True)
+            corpus.apply_known_defects(comparison, self.registry(registry_entry), "case", actual, expected or tracker_state())
+            return comparison
         # MoTrack reproducing Tracker's deviating value fails; the independent value passes.
         for value, failing in [(5.0, True), (6.0, False)]:
             actual = motrack_state()
             actual["panel"]["tracks"][0]["data"]["rows"][1][3] = value
-            comparison = self.compare(tracker_state(), actual, subset=True)
-            corpus.apply_known_defects(comparison, registry, "case", actual)
+            comparison = check(actual)
             with self.subTest(value=value):
                 self.assertEqual(bool(comparison.failures), failing, comparison.failures)
                 if failing:
                     self.assertIn("independent value of known defect mass-velocity", comparison.failures[0][1])
-        unmodeled = self.entry(case="case")
-        comparison = self.compare(tracker_state(), motrack_state(), subset=True)
-        corpus.apply_known_defects(comparison, self.registry(unmodeled), "case", motrack_state())
+        # An unlisted key in the same row is still compared with Tracker, not waived.
+        actual = motrack_state()
+        actual["panel"]["tracks"][0]["data"]["rows"][1][3] = 6.0
+        actual["panel"]["tracks"][0]["data"]["rows"][1][1] = 9.0
+        self.assertTrue(any("rows[frame=1].x" in message for _, message in check(actual).failures))
+        # Where Tracker has no row, every key MoTrack reports must be listed; listed unreported keys are gaps.
+        absent = self.entry(id="extra-row", case="case", object={"track": "mass A"}, path="data.rows[frame=3]",
+                            expected={"frame": 3, "x": 2.5, "y": 3.5, "v_{x}": 1.0}, tracker="@absent")
+        actual = motrack_state()
+        actual["panel"]["tracks"][0]["data"]["rows"].append([0.3, 2.5, 3.5, "NaN", 3.0, 3.0])
+        comparison = check(actual, absent)
+        self.assertTrue(any("t: not part of the independent value" in message for _, message in comparison.failures),
+                        comparison.failures)
+        absent["expected"]["t"] = 0.3
+        absent["expected"]["step"] = 3
+        actual["panel"]["tracks"][0]["data"]["rows"][-1][3] = 1.0
+        comparison = check(actual, absent)
         self.assertEqual(comparison.failures, [])
-        self.assertIn("known defect sum-members (not yet modeled)", comparison.gaps)
+        del actual["panel"]["tracks"][0]["data"]["columns"][0]
+        for row in actual["panel"]["tracks"][0]["data"]["rows"]:
+            del row[0]
+        self.assertIn("known defect extra-row.t", check(actual, absent).gaps)
+        unmodeled = self.entry(case="case")
+        comparison = check(motrack_state(), unmodeled)
+        self.assertEqual(comparison.failures, [])
+        self.assertIn("known defect sum-members", comparison.gaps)
 
     def oracle_cases(self):
         by_id = {case["id"]: case for case in self.manifest["cases"]}
@@ -3720,7 +3852,7 @@ class TrackerStateTests(unittest.TestCase):
         manifest["cases"] = [copy.deepcopy(by_id[name]) for name in ["independent-vectors", "vector-sum", "archived-avi", "linked-movie"]]
         return manifest
 
-    def run_oracle(self, manifest, registry, outputs, *, record=False, commands=None):
+    def run_oracle(self, manifest, registry, outputs, *, record=False, commands=None, logs=None):
         """Run check_state_oracle with fake javac/Java processes; `outputs` maps input names to dumps or errors."""
         state_dir = self.root / "state"
 
@@ -3728,37 +3860,40 @@ class TrackerStateTests(unittest.TestCase):
             if commands is not None:
                 commands.append((command, display))
             if "TrackerStateDump" not in command:
-                return
+                return ""
             index = command.index("TrackerStateDump")
             source, output = Path(command[index + 1]), Path(command[index + 2])
-            result = outputs[source.name]
+            polls = next(argument for argument in command if argument.startswith("-Dmotrack.tableVisitPolls=")).split("=")[1]
+            result = outputs.get((source.name, polls), outputs[source.name])
             if isinstance(result, Exception):
                 raise result
             output.write_text(json.dumps(result), encoding="utf-8")
+            return (logs or {}).get(source.name, "")
 
         with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus, "STATE_DIR", state_dir), \
                 patch.object(corpus, "KNOWN_DEFECTS", self.write_registry(registry)), \
                 patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
                 patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=run), \
-                redirect_stdout(io.StringIO()) as printed:
+                patch.object(corpus, "check_known_defect_derivations"), redirect_stdout(io.StringIO()) as printed:
             corpus.check_state_oracle(manifest, self.root, "java", record=record)
         return printed.getvalue()
 
     def oracle_registry(self):
-        return self.registry(self.entry(), self.entry(id="avi", case="archived-avi", object=None, path=None,
-                                                      tracker=corpus.STATE_LOAD_FAILURE, expected={"state_of": "linked-movie"}))
+        return self.registry(self.entry(), known_avi_failure())
+
+    def oracle_outputs(self):
+        return {"independent-vectors.trk": tracker_state(), "vector-sum.trk": tracker_state(members=()),
+                "archived-movie.trz": ValueError(AVI_FAILURE), "linked-movie.trk": tracker_state()}
 
     def test_state_oracle_records_then_rejects_drift_and_keeps_generated_dumps(self):
         manifest = self.oracle_cases()
-        outputs = {"independent-vectors.trk": tracker_state(), "vector-sum.trk": tracker_state(members=()),
-                   "archived-movie.trz": ValueError("Probe failed (1):\nTracker state dump input=x waiting=loader\n"
-                                                    "java.lang.IllegalStateException: timed out\n\tat Example"),
-                   "linked-movie.trk": tracker_state()}
+        outputs = self.oracle_outputs()
         commands = []
         printed = self.run_oracle(manifest, self.oracle_registry(), outputs, record=True, commands=commands)
         self.assertIn("recorded 3 Tracker dumps", printed)
-        self.assertIn("archived-avi: KNOWN TRACKER DEFECT reproduced (whole-file load failure; not accepted): ", printed)
-        self.assertIn("waiting=loader | java.lang.IllegalStateException: timed out", printed)
+        self.assertIn("archived-avi: Tracker load failed (whole-file known defect): ", printed)
+        self.assertIn("waiting=application loader callback | java.lang.IllegalStateException: timed out", printed)
+        self.assertIn("KNOWN TRACKER DEFECT reproduced: avi", printed)
         self.assertEqual(sorted(path.name for path in (self.root / "state").glob("*.json")),
                          ["independent-vectors.json", "linked-movie.json", "vector-sum.json"])
         self.assertEqual((self.root / "state" / "vector-sum.json").read_text(encoding="utf-8"),
@@ -3769,6 +3904,7 @@ class TrackerStateTests(unittest.TestCase):
         for command, display in commands[1:]:
             self.assertEqual(display, ":77")
             self.assertIn("-Xmx256m", command)
+            self.assertIn(f"-Dmotrack.tableVisitPolls={corpus.STATE_TABLE_POLLS}", command)
             home = next(argument for argument in command if argument.startswith("-Duser.home=")).split("=", 1)[1]
             self.assertTrue(Path(home).is_relative_to(self.root) and not Path(home).exists())
         archive = next(command for command, _ in commands if "archived-movie.trz" in " ".join(command))
@@ -3783,13 +3919,31 @@ class TrackerStateTests(unittest.TestCase):
         generated = sorted(path.name for path in (self.root / "state-generated").glob("*.json"))
         self.assertEqual(generated, ["independent-vectors.json", "linked-movie.json", "vector-sum.json"])
 
+    def test_bounded_table_visits_are_logged_and_confirmed_with_a_long_bound(self):
+        manifest = self.oracle_cases()
+        outputs = self.oracle_outputs()
+        self.run_oracle(manifest, self.oracle_registry(), outputs, record=True)
+        logs = {"independent-vectors.trk": "noise\nTrackerStateDump table visit owner=mass A result=bounded polls=40\n"
+                                           "TrackerStateDump table visit owner=mass B result=populated polls=3\n"}
+        commands = []
+        printed = self.run_oracle(manifest, self.oracle_registry(), outputs, logs=logs, commands=commands)
+        self.assertIn("independent-vectors: table visits mass A: bounded (40 polls), mass B: populated (3 polls)", printed)
+        self.assertIn("independent-vectors: bounded table visit confirmed with 400 polls", printed)
+        longer = [command for command, _ in commands if f"-Dmotrack.tableVisitPolls={corpus.STATE_LONG_TABLE_POLLS}" in command]
+        self.assertEqual(len(longer), 1)
+        changed = tracker_state()
+        changed["panel"]["views"]["tables"].append({"chooser": 0, "track_columns": [["mass A", "t"]]})
+        with self.assertRaisesRegex(ValueError, "400-poll table visit changes the dump"):
+            self.run_oracle(manifest, self.oracle_registry(),
+                            {**outputs, ("independent-vectors.trk", str(corpus.STATE_LONG_TABLE_POLLS)): changed}, logs=logs)
+
     def test_state_oracle_fails_for_stale_or_unexpected_load_results(self):
         manifest = self.oracle_cases()
-        outputs = {"independent-vectors.trk": tracker_state(), "vector-sum.trk": tracker_state(members=()),
-                   "archived-movie.trz": ValueError("Probe failed (1): timed out"), "linked-movie.trk": tracker_state()}
+        outputs = self.oracle_outputs()
         self.run_oracle(manifest, self.oracle_registry(), outputs, record=True)
         for changed, message in [({"vector-sum.trk": tracker_state(members=("vector A", "vector B"))}, "STALE known defect sum-members"),
                                  ({"archived-movie.trz": tracker_state()}, "STALE known defect avi"),
+                                 ({"archived-movie.trz": ValueError("Probe failed (1): crash")}, "CHANGED known defect avi"),
                                  ({"independent-vectors.trk": ValueError("Probe failed (1): crash")}, "Tracker state dump failed")]:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.run_oracle(manifest, self.oracle_registry(), {**outputs, **changed})
@@ -3803,42 +3957,82 @@ class TrackerStateTests(unittest.TestCase):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "requires Linux"):
             corpus.check_state_oracle(manifest, self.root, "java")
 
-    def test_native_state_check_compares_the_modeled_subset_and_uses_independent_whole_file_expectations(self):
+    def native_check(self, manifest, native, *, record=False, probes=None, gaps_path=None):
+        state_dir = self.root / "state"
+
+        def run(command, display=None):
+            if probes is not None:
+                probes.append(command)
+            self.assertEqual(command[1], "--state")
+            case_id = next(name for name in native if Path(command[2]).stem == name)
+            result = native[case_id]
+            if isinstance(result, Exception):
+                raise result
+            Path(command[3]).write_text(json.dumps(result), encoding="utf-8")
+            return ""
+
+        with patch.object(corpus, "STATE_DIR", state_dir), patch.object(corpus, "STATE_GAPS", gaps_path or self.root / "gaps.json"), \
+                patch.object(corpus, "KNOWN_DEFECTS", self.write_registry(self.oracle_registry())), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=run), \
+                patch.object(corpus, "project_path", side_effect=lambda case, cache: self.root / (case["id"] + ".trk")), \
+                patch.object(corpus, "check_known_defect_derivations"), redirect_stdout(io.StringIO()) as printed:
+            corpus.check_state_native(manifest, self.root, "probe", record=record)
+        return printed.getvalue()
+
+    def test_native_state_check_ratchets_gaps_and_uses_independent_whole_file_expectations(self):
         manifest = self.oracle_cases()
         state_dir = self.root / "state"
         state_dir.mkdir()
         for name in ["independent-vectors", "vector-sum", "linked-movie"]:
             (state_dir / (name + ".json")).write_text(corpus.state_text(tracker_state()), encoding="utf-8")
-        native = {"independent-vectors": motrack_state(), "vector-sum": motrack_state(), "archived-avi": motrack_state(),
-                  "linked-movie": motrack_state()}
+        native = {name: motrack_state() for name in ["independent-vectors", "vector-sum", "archived-avi", "linked-movie"]}
         probes = []
-
-        def run(command, display=None):
-            probes.append(command)
-            self.assertEqual(command[1], "--state")
-            case_id = next(name for name in native if Path(command[2]).stem == name or Path(command[2]).name.startswith(name))
-            Path(command[3]).write_text(json.dumps(native[case_id]), encoding="utf-8")
-
-        def check():
-            with patch.object(corpus, "STATE_DIR", state_dir), \
-                    patch.object(corpus, "KNOWN_DEFECTS", self.write_registry(self.oracle_registry())), \
-                    patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=run), \
-                    patch.object(corpus, "project_path", side_effect=lambda case, cache: self.root / (case["id"] + ".trk")), \
-                    redirect_stdout(io.StringIO()) as printed:
-                corpus.check_state_native(manifest, self.root, "probe")
-            return printed.getvalue()
-
-        printed = check()
-        self.assertIn("in 4 of 4 cases", printed)
-        self.assertIn("track class CoordAxes: 4 cases", printed)
+        self.assertIn("recorded the gaps of 4 cases", self.native_check(manifest, native, record=True, probes=probes))
         self.assertEqual(len(probes), 4)
+        baseline = corpus.load_gap_baseline(manifest, self.root / "gaps.json")
+        self.assertEqual(baseline["vector-sum"]["track class VectorSum"], "unmodeled-class")
+        self.assertIn("unmodeled-field", json.loads((self.root / "gaps.json").read_text(encoding="utf-8"))["all_cases"])
+        printed = self.native_check(manifest, native)
+        self.assertIn("in 4 of 4 cases, and every gap equals the committed baseline", printed)
+        self.assertIn("unmodeled-class 8", printed)
+        # A value MoTrack stops reporting is a new gap, so it fails even though nothing is compared there.
+        for name, mutate, message in [
+                ("calibration-lost", lambda d: d["panel"].pop("coords"), "new gap (unmodeled-field): MoTrack no longer"),
+                ("timing-lost", lambda d: d["panel"]["clip"].pop("frame_duration_ms"), "gap clip.frame_duration_ms"),
+                ("mass-lost", lambda d: d["panel"]["tracks"][0].pop("properties"), "gap PointMass.properties"),
+                ("steps-lost", lambda d: d["panel"]["tracks"][0].pop("steps"), "gap PointMass.steps"),
+                ("column-lost", lambda d: d["panel"]["tracks"][0]["data"]["columns"].pop(3) and
+                 [row.pop(3) for row in d["panel"]["tracks"][0]["data"]["rows"]], "gap PointMass.data.v_{x}"),
+                ("frames-lost", lambda d: d["panel"]["coords"]["frames"].pop(), "gap coords.frames after 1")]:
+            changed = copy.deepcopy(native)
+            mutate(changed["vector-sum"])
+            with self.subTest(mutation=name), self.assertRaisesRegex(ValueError, re.escape(message)):
+                self.native_check(manifest, changed)
+        # A closed gap must be removed from the baseline explicitly.
+        richer = copy.deepcopy(native)
+        richer["vector-sum"]["panel"]["selected_track"] = "mass A"
+        with self.assertRaisesRegex(ValueError, "gap closed: MoTrack now reports this value"):
+            self.native_check(manifest, richer)
         native["archived-avi"]["panel"]["tracks"][0]["steps"][0]["position"] = [9.0, 9.0]
         with self.assertRaisesRegex(ValueError, r"archived-avi: .*steps\[frame=0\]\.position"):
-            check()
+            self.native_check(manifest, native)
+        native["archived-avi"] = ValueError("Probe failed (3): crash")
+        with self.assertRaisesRegex(ValueError, "archived-avi: MoTrack state probe failed"):
+            self.native_check(manifest, native)
         native["archived-avi"] = motrack_state()
         (state_dir / "archived-avi.json").write_text(corpus.state_text(tracker_state()), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "do not match the corpus cases"):
-            check()
+        with self.assertRaisesRegex(ValueError, r"unexpected \['archived-avi.json'\]"):
+            self.native_check(manifest, native)
+
+    def test_committed_gap_baseline_covers_every_case_with_named_reasons(self):
+        baseline = corpus.load_gap_baseline(self.manifest)
+        self.assertEqual(set(baseline), {case["id"] for case in self.manifest["cases"]})
+        self.assertEqual(baseline["ball-toss"]["PointMass.data.t"], "probe-media-timing")
+        self.assertEqual(baseline["center-of-mass"]["PointMass.data.t"], "default-timing")
+        self.assertEqual(baseline["independent-vectors"]["units.length"], "default-length-unit")
+        self.assertNotIn("PointMass.data.x", baseline["ball-toss"])  # Calibrated positions are compared.
+        self.assertEqual(corpus.STATE_GAPS.read_bytes().decode("utf-8"),
+                         corpus.gap_baseline_text(corpus.gap_baseline(baseline)))
 
     def test_state_diff_command_compares_two_files_and_rejects_misuse(self):
         expected, actual = self.root / "tracker.json", self.root / "motrack.json"
@@ -3865,6 +4059,11 @@ class TrackerStateTests(unittest.TestCase):
             corpus.main()
         self.assertEqual(oracle.call_args.args[2], "jdk/java")
         self.assertTrue(oracle.call_args.kwargs["record"])
+        with patch.object(sys, "argv", ["corpus.py", "state-check", "--probe", "p", "--record"]), \
+                patch.object(corpus, "check_state_native") as native:
+            corpus.main()
+        self.assertTrue(native.call_args.kwargs["record"])
+
 
 class OdeOracleTests(unittest.TestCase):
     """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""

@@ -142,7 +142,8 @@ python -m unittest discover -s tests -p test_corpus.py
 
 `state-oracle` dumps every case as Tracker's application loader leaves it (Linux with Xvfb) and diffs the
 committed [loaded-state dumps](state) and the [known-defect registry](known-defects.json); `state-check`
-compares MoTrack's modeled subset with those dumps on any platform without Java. The
+compares MoTrack's modeled subset with those dumps on any platform without Java and requires its gaps to equal
+the committed [gap baseline](state-gaps.json). The
 [oracle-dump guide](../../docs/oracle-dumps.md) defines the schema, tolerances, registry and gaps.
 
 `ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned

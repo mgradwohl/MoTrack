@@ -100,34 +100,60 @@ row.
 ### MoTrack dumps
 
 `motrack_corpus_probe --state input.trk output.json` writes what MoTrack's importer models today, in the same
-schema with `kind: "motrack"` and `supported_classes` (point mass and vector). Tracks follow their original
-source order. Point masses carry `mass`, their marks as steps and the data columns MoTrack computes (`t`,
-`x`, `y`, `v_{x}`, `v_{y}`, `v`, `a_{x}`, `a_{y}`, `p_{x}`, `p_{y}`, `K`, `step`, `frame`, `pixel_{x}`,
-`pixel_{y}`); vectors carry their samples as steps. Time and derivative columns are omitted for untimed clips,
-world quantities for uncalibrated projects, and the length unit when the file has none. The comparison reports
-each omission as a gap. Tracker materializes a 100 ms frame duration and the `m` label when a media-free file
-saves neither; MoTrack does not yet (#214).
+schema with `kind: "motrack"` and `supported_classes` (point mass and vector). It reads MoTrack's own values
+rather than recomputing them: data rows are the frames of `measurementPlot`'s position series, `t` is that
+series' time, the derivative columns are `measurementPlot`'s quantities, and steps, step times and the end frame
+come from the production clip helpers (`clipStepOfFrame`, `clipFrameOfStep`, `clipFrameTimeMs`). Tracks follow
+their original source order. Point masses carry `mass`, their marks as steps and the computed columns (`t`, `x`,
+`y`, `v_{x}`, `v_{y}`, `v`, `a_{x}`, `a_{y}`, `p_{x}`, `p_{y}`, `K`, `step`, `frame`, `pixel_{x}`, `pixel_{y}`);
+vectors carry their samples as steps. Clip step rows exist for untimed clips too, with a `null` (unknown) time.
+`coords.key_frames` lists the calibration keys unless origin, angle and scale are all fixed, matching
+`ImageCoordSystem`.
+
+What MoTrack does not report is a gap, never a silent pass (see [the gap baseline](#gap-baseline)). Time and
+derivative columns are absent for untimed clips, world quantities for uncalibrated projects, and the length unit
+when the file has none. Tracker materializes a 100 ms frame duration and the `m` label when a media-free file
+saves neither; MoTrack does not yet (#214). The XML-only probe does not decode media, so movie cases are untimed
+here even though MoTrack's decoder times them in the application.
+
+**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 43 point-mass cases, plus
+vector tails, tips and components in 36 cases. **No finite derivative value is compared in any case.** Tracker
+has finite velocities in 17 cases (BallToss, the 14 keyed movies, `attachments` and `model-dependencies`), all of
+which are untimed in the probe; the remaining timed cases have no three consecutive marks.
 
 ## Comparing dumps
 
 `StateComparison` in [`tools/corpus.py`](../tools/corpus.py) compares two validated dumps:
 
-- **Exact:** track classes, names and order; step and row frame numbers; clip step/frame mapping; column
-  names and dimensions; strings, booleans, `null`, the specials above, and integer-valued properties.
+- **Exact:** track classes, names and order; step and row frame numbers; each clip step's frame; column names
+  and dimensions; strings, booleans, `null`, the specials above, and integer-valued properties.
 - **Tolerance:** other numbers, from the manifest's `state_tolerance` table. The default (absolute `1e-10`,
   relative `1e-12`) equals the coordinate tolerance of the existing corpus checks. Data columns use their
-  dimensions: first-derivative quantities (`L/T`, `ML/T`, `A/T`, and `MLL/TT` kinetic energy) allow absolute
-  and relative `1e-9`; second derivatives (`L/TT`, `A/TT`) allow absolute `1e-7`. Central differences divide
-  rounded position differences by Δt and Δt², so an implementation that differentiates world positions
-  instead of image displacements differs by rounding amplified by those factors. These bounds are for this
-  oracle, not a universal rule for future fits, tracking or solvers.
-- Data rows are matched by their `frame` column, so missing and unexpected frames are reported individually.
+  dimensions: first-derivative quantities (`L/T`, `ML/T`, `A/T`, and `MLL/TT` kinetic energy) allow absolute and
+  relative `1e-9`; second derivatives (`L/TT`, `A/TT`) allow absolute `1e-7`. These bounds cover rounding only:
+  central differences divide rounded position differences by Δt and Δt², so differentiating world positions
+  instead of image displacements differs by rounding amplified by those factors. They do not cover an algorithm
+  difference: MoTrack's acceleration uses a three-point formula where Tracker uses a five-point fit (#207), which
+  these tolerances must not hide. The derivative tolerances are **not exercised yet** (see above). These bounds are
+  for this oracle, not a universal rule for future fits, tracking or solvers.
+- Data rows are matched by their `frame` column and clip steps by their index, so missing, extra and remapped
+  rows or steps are reported individually.
 
-In **subset mode** (a MoTrack dump), only what MoTrack reports is compared. Tracker tracks of unsupported
-classes, unreported columns, properties and sections are listed as gaps, not failures. Everything MoTrack does
-report must match, a supported Tracker track must appear, and a column or key that Tracker does not report is a
-failure. Reports are bounded and name the full path, for example
-`panel.tracks[name=mass A].data.rows[frame=3].v_{x}: expected 1.5, got 1.6`.
+In **subset mode** (a MoTrack dump), only what MoTrack reports is compared with Tracker. Everything MoTrack does
+report must match, a supported Tracker track must appear, coordinates must be a contiguous range from frame 0,
+and a column or key that Tracker does not report is a failure. Reports are bounded and name the full path, for
+example `panel.tracks[name=mass A].data.rows[frame=3].v_{x}: expected 1.5, got 1.6`.
+
+### Gap baseline
+
+Everything Tracker reports that MoTrack does not (an unmodeled class, column, property or section, a timing or
+calibration value, coordinate frames beyond the clip) is a gap. [`tests/corpus/state-gaps.json`](../tests/corpus/state-gaps.json)
+commits every case's gaps, each with its reason: `unmodeled-class`, `unmodeled-field`, `unmodeled-column`,
+`probe-media-timing` (the XML-only probe cannot time a movie), `default-timing` and `default-length-unit`
+(Tracker's defaults, #214), `uncalibrated`, `coords-range` and `known-defect-unmodeled`. `state-check` is a
+ratchet: a **new** gap fails, so a value MoTrack stops reporting (lost calibration or timing, missing steps or
+mass, fewer coordinate frames) cannot pass unnoticed; a **closed** gap or a changed reason fails until the
+baseline is re-recorded with `state-check --record` and reviewed. Gaps shared by every case are listed once.
 
 ## Known-defect registry
 
@@ -136,34 +162,44 @@ so that MoTrack matches an independent value instead of inheriting the defect. E
 
 - one corpus `case`; `object` `{"track": name}` (exactly one track) or `null` for the panel; and a `path`
   inside it. Paths are dot-separated keys with `[index]` and `[field=value]` selectors, for example
-  `data.rows[frame=0]` or `properties.vectors`. Wildcards are rejected.
+  `data.rows[frame=0]` or `clip.steps[11]`. Wildcards are rejected.
 - the MoTrack `issue` (and upstream report, when one exists) and a summary.
-- `expected`: the independent value MoTrack must match, from the fixture's own construction or the pinned
-  original XML, never from Tracker's output.
+- `expected`: the independent value MoTrack must match.
 - `tracker`: the deviating value Tracker shows, or `"@absent"` when Tracker omits the value.
 
-Values match when every listed object key matches (other keys are unconstrained), lists have equal length and
-items, and numbers agree within the default tolerance. An entry whose `expected` equals its `tracker` value is
-rejected, as are duplicate entries and entries naming more than one case; no entry waives a property across
-files.
+**Independence.** Every `expected` value is recomputed by `derive_known_defect_values` from the saved project XML,
+the media's own container tables (MP4/QuickTime `stts`/`stsz`) and cited pinned defaults, never from Tracker's
+output: table columns, selections and formats from the saved views and per-track number formats plus
+`TTrack.getDefaultFormatPatterns` (time `0.000`, step and frame `0`); vector rows from saved tails/components and
+the fixed calibration; vector sums from their named members; BallToss's frame count, times, positions and
+Tracker's derivative definitions (spill-1 central velocity, five-point acceleration). `state-oracle` and
+`state-check` fail when a registered value differs from its derivation, and each derivation must also reproduce
+Tracker on frames where Tracker is not defective (25 such checks), which validates the formulas themselves.
+Angles are omitted where the direction is undefined (a zero vector) or on `atan2`'s branch cut.
 
-A **whole-file** entry has `object` and `path` `null`, `tracker: "@load_failure"` and
-`expected: {"state_of": "<case>"}`: Tracker cannot load the file, and MoTrack's load must equal Tracker's state
-for another case with the same experiment. For example, `archived-avi` holds a member byte-identical to
-`linked-movie.trk`, whose state is its expectation (#140).
+**Matching.** On the Tracker side, the listed part must still match (other keys are compared by the strict
+dump-against-dump check). On the MoTrack side, an entry overrides only what it lists: where Tracker has an object
+at the path, unlisted keys stay compared with Tracker; where Tracker has no value, every key MoTrack reports must
+be listed. Listed keys MoTrack does not report, or reports as `null`, are gaps. An entry whose `expected` matches
+its `tracker` value is rejected, as are duplicates and entries naming more than one case; no entry waives a
+property across files.
 
-`state-oracle` requires every entry to be **reproduced** in the regenerated Tracker dumps. An entry fails as
-`STALE` when Tracker now reports the independent value (or loads a whole-file case), and as `CHANGED` when the
-deviation changed; re-pinning the reference therefore surfaces every entry for review. In `state-check`,
-MoTrack's value at a registered path must equal `expected`, replacing the Tracker comparison there; a path that
-MoTrack does not model yet is a gap.
+A **whole-file** entry has `object` and `path` `null`, `tracker: {"load_failure": [signatures]}` and
+`expected: {"state_of": "<case>", "project_sha256": "<hash>"}`: Tracker cannot load the file, its failure text
+must contain every signature, and MoTrack's load must equal Tracker's state for another case whose project bytes
+hash to the same value. `archived-avi` holds a member byte-identical to `linked-movie.trk` (#140).
 
-The seed entries cover the unaccepted cases in the corpus guide: vector-sum members, steps and data (#63),
-the omitted negative-time vector rows (#146), the AVI archive load failure (#140), and the custom table columns,
-formats and selections Tracker loses (#64). Table expectations are transcribed from each fixture's original XML
-plus the pinned default patterns (frame and step `0`, time `0.000`). The first dumps also found that Tracker's
-Xuggle engine indexes 11 of the 13 samples of BallToss's MP4, cutting the clip and the ball's last two data rows
-(#209); those entries take their values from the MP4 sample table and the Java XML/coordinate reference.
+`state-oracle` requires every entry to be **reproduced**. An entry fails as `STALE` when Tracker now reports the
+independent value (or loads a whole-file case), and as `CHANGED` when the deviation, or a load failure's
+signature, changed; re-pinning the reference therefore surfaces every entry for review.
+
+The entries cover the unaccepted cases in the corpus guide: vector-sum members, steps and data (#63), the
+omitted negative-time vector rows (#146), the AVI archive load failure (#140), and the custom table columns,
+formats and selections Tracker loses (#64). The first dumps also found that Tracker's Xuggle engine indexes 11 of
+the 13 samples of BallToss's MP4 (#209): `XuggleVideo.finalizeLoading` counts `packetCount - firstDisplayPacket`
+and never drains the decoder at the end of the stream, so an H.264 file with a reorder delay of N loses its last
+N frames. The clip is cut to frames 0–10, the ball's frames 11–12 lose their rows, and the velocity at frame 10
+and accelerations at frames 9–10 become NaN.
 
 ## Commands and CI
 
@@ -171,16 +207,26 @@ Xuggle engine indexes 11 of the 13 samples of BallToss's MP4, cutting the clip a
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java            # Linux with Xvfb
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java --record   # replace dumps for review
 python tools/corpus.py state-check --probe build/dev/motrack_corpus_probe       # any platform, no Java
+python tools/corpus.py state-check --probe build/dev/motrack_corpus_probe --record   # re-record the gaps
 python tools/corpus.py state-diff expected.json actual.json
 ```
 
 `state-oracle` verifies the pinned inputs, compiles the reference helpers with the JDK's `javac`, dumps every
-corpus case, compares each dump with the committed one, then checks the registry. On failure it leaves the
+corpus case, compares each dump with the committed one, then checks the registry and its derivations. The dumper
+logs how each customized-table visit ended (`populated`, `bounded` or `skipped`); a case whose visit ends on the
+40-poll bound is dumped again with a 400-poll (10 s) bound and must give the same state. On failure it leaves the
 regenerated dumps in the cache's `state-generated` directory. `--record` replaces the committed dumps only when
 every case loaded and every registry entry reproduced; inspect and explain each changed row before committing.
 
 CI runs `state-oracle` in its own Linux job and uploads the regenerated dumps when it fails; the final coverage
 job waits for it. `state-check` runs after the corpus check on Windows, macOS and Linux.
+
+### Provenance of committed dumps
+
+Most dumps derive from MoTrack's own Java-authored fixtures. The `ball-toss`, `dynamic-sine` and `protractor`
+dumps contain data derived from upstream Tracker examples (`BallToss.trz`, `asinewave.trk`, `protractor.trk`),
+which the manifest otherwise fetches unchanged rather than vendoring; they are distributed under the upstream
+license linked in the manifest's `upstream.license_notice` (GPL).
 
 ## Limits
 

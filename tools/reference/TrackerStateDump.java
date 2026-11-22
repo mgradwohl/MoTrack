@@ -98,6 +98,9 @@ public final class TrackerStateDump {
         // Customized tables are visited through Tracker's normal selection path, but only for a bounded
         // time: pinned 6.3.5 can leave columns unpopulated (#64), and that loaded state is what is dumped.
         TrackerSessionReference.boundedTableVisits = true;
+        TrackerSessionReference.tableVisitPolls = Integer.getInteger("motrack.tableVisitPolls", 40);
+        if (TrackerSessionReference.tableVisitPolls < 1 || TrackerSessionReference.tableVisitPolls > 800)
+            throw new IllegalArgumentException("Table visit polls must be 1-800 (25 ms each, within the 30 s deadline)");
         SwingUtilities.invokeAndWait(TrackerSessionReference.guard(() -> {
             TFrame frame = new TFrame();
             // Pinned AsyncLoader can call its completion hook twice; dump only once.

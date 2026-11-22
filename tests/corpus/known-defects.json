@@ -21,7 +21,7 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
       "upstream": null,
       "summary": "With unresolved members the loaded sum has no steps; the independent image-space sums exist at frames 0, 2 and 4 only.",
-      "expected": [{"frame": 0, "tail": [240.0, 260.0], "components": [10.0, 4.0]}, {"frame": 2, "tail": [280.0, 280.0], "components": [0.0, 0.0]}, {"frame": 4, "tail": [320.0, 300.0], "components": [-2.0, 4.0]}],
+      "expected": [{"frame": 0, "tail": [240.0, 260.0], "tip": [250.0, 264.0], "components": [10.0, 4.0]}, {"frame": 2, "tail": [280.0, 280.0], "tip": [280.0, 280.0], "components": [0.0, 0.0]}, {"frame": 4, "tail": [320.0, 300.0], "tip": [318.0, 304.0], "components": [-2.0, 4.0]}],
       "tracker": []
     },
     {
@@ -32,7 +32,7 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
       "upstream": null,
       "summary": "The loaded sum has no data rows; independent world components with scales (2,4) are (5,-1), (0,0) and (-1,-1).",
-      "expected": [{"frame": 0, "x": 5.0, "y": -1.0}, {"frame": 2, "x": 0.0, "y": 0.0}, {"frame": 4, "x": -1.0, "y": -1.0}],
+      "expected": [{"t": 0.0, "x": 5.0, "y": -1.0, "mag": 5.0990195135927845, "x_{tail}": -80.0, "y_{tail}": 35.0, "step": 0, "frame": 0, "θ": -0.19739555984988075}, {"t": 0.2, "x": 0.0, "y": -0.0, "mag": 0.0, "x_{tail}": -60.0, "y_{tail}": 30.0, "step": 2, "frame": 2}, {"t": 0.4, "x": -1.0, "y": -1.0, "mag": 1.4142135623730951, "x_{tail}": -40.0, "y_{tail}": 25.0, "step": 4, "frame": 4, "θ": -2.356194490192345}],
       "tracker": []
     },
     {
@@ -43,7 +43,7 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
       "upstream": null,
       "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
-      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946},
+      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946, "θ": -0.5880026035475675, "x_{tail}": 9.0, "y_{tail}": 4.0, "step": 0, "frame": 0},
       "tracker": "@absent"
     },
     {
@@ -53,8 +53,8 @@
       "path": "data.rows[frame=1]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
       "upstream": null,
-      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms.",
-      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5},
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi.",
+      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5, "x_{tail}": 9.0, "y_{tail}": -0.0, "step": 1, "frame": 1},
       "tracker": "@absent"
     },
     {
@@ -65,7 +65,7 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
       "upstream": null,
       "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
-      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946},
+      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946, "θ": -0.5880026035475675, "x_{tail}": 9.0, "y_{tail}": 4.0, "step": 0, "frame": 0},
       "tracker": "@absent"
     },
     {
@@ -75,8 +75,8 @@
       "path": "data.rows[frame=1]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
       "upstream": null,
-      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms.",
-      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5},
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi.",
+      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5, "x_{tail}": 9.0, "y_{tail}": -0.0, "step": 1, "frame": 1},
       "tracker": "@absent"
     },
     {
@@ -86,9 +86,9 @@
       "path": null,
       "issue": "https://github.com/mgradwohl/MoTrack/issues/140",
       "upstream": null,
-      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation.",
-      "expected": {"state_of": "linked-movie"},
-      "tracker": "@load_failure"
+      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation. The loader never completes, so the 30 s deadline expires. The loader never completes, so the 30 s deadline expires.",
+      "expected": {"state_of": "linked-movie", "project_sha256": "57da7df15a0ce7d1feeb3dec70d98af6b99ca923c282a394fa1fe792aa4d5e6b"},
+      "tracker": {"load_failure": ["waiting=application loader callback", "Tracker state loading timed out: application loader callback"]}
     },
     {
       "id": "table-owners-subset-track-columns",
@@ -223,6 +223,17 @@
       "tracker": 10
     },
     {
+      "id": "ball-toss-step-11",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.steps[11]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": null,
+      "summary": "Clip step 11 (frame 11 at 726 ms in the MP4 sample table) is cut.",
+      "expected": [11, 11, 726.0],
+      "tracker": "@absent"
+    },
+    {
       "id": "ball-toss-row-11",
       "case": "ball-toss",
       "object": {"track": "ball"},
@@ -230,7 +241,18 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
       "upstream": null,
       "summary": "The mark at frame 11 lies outside the shortened clip, so its data row is omitted.",
-      "expected": {"step": 11, "frame": 11, "x": 1.0385765309139834, "y": -0.3870916105076646, "pixel_{x}": 545.4848800834202, "pixel_{y}": 361.8769551616267},
+      "expected": {"t": 0.726, "step": 11, "frame": 11, "x": 1.0385765309139832, "y": -0.38709161050766444, "pixel_{x}": 545.4848800834202, "pixel_{y}": 361.8769551616267},
+      "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-step-12",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.steps[12]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": null,
+      "summary": "Clip step 12 (frame 12 at 792 ms in the MP4 sample table) is cut.",
+      "expected": [12, 12, 792.0],
       "tracker": "@absent"
     },
     {
@@ -241,8 +263,30 @@
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
       "upstream": null,
       "summary": "The mark at frame 12 lies outside the shortened clip, so its data row is omitted.",
-      "expected": {"step": 12, "frame": 12, "x": 1.161392997274509, "y": -0.6583428063942828, "pixel_{x}": 594.5359749739312, "pixel_{y}": 469.9895724713243},
+      "expected": {"t": 0.792, "step": 12, "frame": 12, "x": 1.161392997274509, "y": -0.6583428063942824, "pixel_{x}": 594.5359749739312, "pixel_{y}": 469.9895724713243},
       "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-derivatives-9",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=9]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": null,
+      "summary": "Tracker's five-point acceleration at frame 9 needs frame 11, which the shortened clip excludes (NaN).",
+      "expected": {"a_{x}": 0.23895424787029482, "a_{y}": -10.498534384805007, "a": 10.501253418592864},
+      "tracker": {"a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}
+    },
+    {
+      "id": "ball-toss-derivatives-10",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=10]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": null,
+      "summary": "Velocity at frame 10 needs frame 11 and acceleration frames 11-12, which the shortened clip excludes (NaN).",
+      "expected": {"v_{x}": 1.7951166369838845, "v_{y}": -3.0256452358946664, "v": 3.5180922150888003, "a_{x}": 0.5269859502692836, "a_{y}": -10.704605688347469, "a": 10.717569553531352},
+      "tracker": {"v_{x}": "NaN", "v_{y}": "NaN", "v": "NaN", "a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}
     }
   ]
 }

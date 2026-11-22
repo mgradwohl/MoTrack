@@ -57,8 +57,10 @@ public final class TrackerSessionReference {
     static final CountDownLatch DONE = new CountDownLatch(1);
     static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
     static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
-    // TrackerStateDump dumps loaded tables as they are; the resave baseline keeps waiting for populated columns.
+    // TrackerStateDump dumps loaded tables as they are, visiting each for at most tableVisitPolls 25 ms polls and
+    // logging how each visit ended; the resave baseline keeps waiting for populated columns.
     static boolean boundedTableVisits;
+    static int tableVisitPolls = 40;
     private static final AtomicReference<Map<String, Object>> REPORT = new AtomicReference<>();
     private static final AtomicInteger LOADER_CALLBACKS = new AtomicInteger();
 
@@ -413,7 +415,10 @@ public final class TrackerSessionReference {
                 List<TTrack> owners = panel.getTracks().stream().filter(track -> track.getName().equals(row.get(0))).toList();
                 if (owners.size() != 1 || !table.isShowing() || table.getSelectedTrack() == null) {
                     // A state dump records a table Tracker does not show (or cannot select) as loaded.
-                    if (boundedTableVisits) continue;
+                    if (boundedTableVisits) {
+                        System.out.println("TrackerStateDump table visit owner=" + row.get(0) + " result=skipped polls=0");
+                        continue;
+                    }
                     throw new IllegalStateException("Reference needs a visible table with an unambiguous owner");
                 }
                 visits.add(new TableVisit(table, owners.get(0), table.getSelectedTrack()));
@@ -438,6 +443,7 @@ public final class TrackerSessionReference {
         // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
         int[] index = {0};
         int[] polls = {0};
+        boolean[] bound = {false};
         boolean[] selected = {false};
         Timer timer = new Timer(25, event -> guard(() -> {
             TableVisit visit = visits.get(index[0]);
@@ -467,11 +473,18 @@ public final class TrackerSessionReference {
                     + " ignoreRepaint=" + panel.getTFrame().getIgnoreRepaint()
                     + " autoRefresh=" + panel.isAutoRefresh());
                 // A bounded visit (40 polls, one second) records still-null columns instead of timing out.
-                if (row.stream().anyMatch(value -> value == null) && !(boundedTableVisits && ++polls[0] >= 40)) return;
+                if (row.stream().anyMatch(value -> value == null)) {
+                    if (!boundedTableVisits || ++polls[0] < tableVisitPolls) return;
+                    bound[0] = true;
+                }
             }
             if (!found) throw new IllegalStateException("Customized table disappeared during selection");
             visit.view().setSelectedTrack(visit.restore());
+            if (boundedTableVisits)
+                System.out.println("TrackerStateDump table visit owner=" + visit.track().getName()
+                    + " result=" + (bound[0] ? "bounded" : "populated") + " polls=" + polls[0]);
             polls[0] = 0;
+            bound[0] = false;
             if (++index[0] == visits.size()) {
                 ((Timer) event.getSource()).stop();
                 action.run();

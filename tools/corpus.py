@@ -242,6 +242,8 @@ def run(command, *, display=None):
                             timeout=45, env=environment)
     if result.returncode:
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
+    # The bounded output lets callers read diagnostics a successful helper printed.
+    return "".join(part for part in (result.stdout, result.stderr) if isinstance(part, str))
 
 
 def session_file_diagnostic(path):
@@ -2871,10 +2873,11 @@ def check_sessions(manifest, cache, java, probe=None):
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-# Loaded-state oracle (O3/O4) and the known-defect registry. The schema, comparison rules and
-# registry semantics are defined in docs/oracle-dumps.md.
+# Loaded-state oracle (O3/O4) and the known-defect registry. The schema, comparison rules, gap baseline
+# and registry semantics are defined in docs/oracle-dumps.md.
 STATE_DIR = CORPUS / "state"
 KNOWN_DEFECTS = CORPUS / "known-defects.json"
+STATE_GAPS = CORPUS / "state-gaps.json"
 STATE_SCHEMA_VERSION = 1
 STATE_PREPARATION = "expand_visit_custom_tables_bounded_restore_selection"
 STATE_ABSENT = "@absent"
@@ -2886,11 +2889,33 @@ MAX_STATE_ITEMS = 10000
 STATE_PANEL_KEYS = ("units", "selected_track", "properties", "clip", "video", "coords", "tracks", "views")
 STATE_TRACK_KEYS = ("class", "name", "properties", "steps", "data")
 STATE_JAVA_SOURCES = ("TrackerReference.java", "TrackerSessionReference.java", "TrackerStateDump.java")
+# Customized tables are visited for this many 25 ms polls; a case whose visit ends on the bound is dumped
+# again with the long bound (10 s), which must give the same state.
+STATE_TABLE_POLLS = 40
+STATE_LONG_TABLE_POLLS = 400
+STATE_TABLE_VISIT = re.compile(r"^TrackerStateDump table visit owner=(.*) result=(populated|bounded|skipped) polls=([0-9]+)$", re.M)
 MOTRACK_ISSUE = re.compile(r"https://github\.com/mgradwohl/MoTrack/issues/[1-9][0-9]*")
+TRACKER_PACKAGE = "org.opensourcephysics.cabrillo.tracker."
 # Layout of committed dumps: these containers are expanded one item per line; all else stays compact.
 STATE_EXPANDED = {(), ("panel",), ("panel", "tracks"), ("panel", "tracks", "*"), ("panel", "tracks", "*", "steps"),
                   ("panel", "tracks", "*", "data"), ("panel", "tracks", "*", "data", "rows"), ("panel", "coords"),
                   ("panel", "coords", "frames"), ("panel", "clip"), ("panel", "clip", "steps")}
+# Point-mass columns that exist only with a time base; without one they are timing gaps, not unmodeled.
+STATE_TIMING_COLUMNS = ("t", "v_{x}", "v_{y}", "v", "a_{x}", "a_{y}", "p_{x}", "p_{y}", "K")
+STATE_GAP_REASONS = {
+    "unmodeled-class": "MoTrack preserves this track class but does not model it yet.",
+    "unmodeled-field": "MoTrack's model does not hold this loaded-state field yet.",
+    "unmodeled-column": "MoTrack does not compute this data column yet.",
+    "probe-media-timing": "The XML-only probe does not decode media; movie timing comes from MoTrack's decoder.",
+    "default-timing": "Tracker applies its 100 ms default frame duration; MoTrack does not yet (#214).",
+    "default-length-unit": "Tracker applies its default length unit; MoTrack does not yet (#214).",
+    "uncalibrated": "Without a saved calibration MoTrack reports no world quantities; Tracker uses its default coordinates.",
+    "coords-range": "MoTrack reports coordinates through the clip's last frame; Tracker's system spans the whole video.",
+    "known-defect-unmodeled": "A registered known defect lies at a path or key MoTrack does not model yet.",
+}
+# Pinned 6.3.5 TTrack.getDefaultFormatPatterns(int) (source candidate dc064f9, TTrack.java:4038-4057):
+# point-mass tables format t with NumberField.DECIMAL_3_PATTERN and step/frame with INTEGER_PATTERN.
+TABLE_DEFAULT_PATTERNS = {"frame": "0", "step": "0", "t": "0.000"}
 
 
 def state_path(case_id):
@@ -2905,11 +2930,21 @@ def is_state_number(value):
     return (type(value) in (int, float) and math.isfinite(value)) or value in STATE_NONFINITE
 
 
-def validate_state_dump(document, manifest, kind="tracker"):
+def load_state_json(text, source):
+    """Parse dump JSON, rejecting the bare NaN/Infinity tokens Python's parser would otherwise accept."""
+    def reject(token):
+        raise ValueError(f"bare {token} is not JSON; specials must be strings")
+    try:
+        return json.loads(text, parse_constant=reject)
+    except ValueError as error:
+        raise ValueError(f"{source}: {error}") from error
+
+
+def validate_state_dump(document, manifest, kind="tracker", source="state dump"):
     """Check a loaded-state dump's schema before it is compared, recorded or trusted."""
     def require(condition, message):
         if not condition:
-            raise ValueError(f"Invalid {kind} state dump: {message}")
+            raise ValueError(f"{source}: invalid {kind} state dump: {message}")
 
     require(isinstance(document, dict) and set(document) == {"schema_version", "producer", "panel"}
             and document["schema_version"] == STATE_SCHEMA_VERSION, "schema")
@@ -2957,9 +2992,11 @@ def validate_state_dump(document, manifest, kind="tracker"):
                         for row in rows), f"data rows of {track['name']!r}")
     clip = panel.get("clip")
     if clip is not None:
+        # A partial producer writes null for an unknown step time (an untimed clip); Tracker always has one.
         require(isinstance(clip, dict) and isinstance(clip.get("steps", []), list)
                 and all(isinstance(row, list) and len(row) == 3 and type(row[0]) is int and type(row[1]) is int
-                        and is_state_number(row[2]) for row in clip.get("steps", [])), "clip steps")
+                        and (is_state_number(row[2]) or (kind == "motrack" and row[2] is None))
+                        for row in clip.get("steps", [])), "clip steps")
     coords = panel.get("coords")
     if coords is not None:
         require(isinstance(coords, dict) and isinstance(coords.get("frames"), list)
@@ -2984,9 +3021,9 @@ def state_text(document):
 
 def read_state(path, manifest, kind="tracker"):
     if path.stat().st_size > MAX_STATE_BYTES:
-        raise ValueError(f"State dump exceeds its size limit: {path}")
-    document = json.loads(path.read_text(encoding="utf-8"))
-    validate_state_dump(document, manifest, kind)
+        raise ValueError(f"{shown_path(path)}: state dump exceeds its size limit")
+    document = load_state_json(path.read_text(encoding="utf-8"), shown_path(path))
+    validate_state_dump(document, manifest, kind, shown_path(path))
     return document
 
 
@@ -2995,7 +3032,8 @@ class StateComparison:
 
     Identities, frame numbers, names, classes and dimensions compare exactly; numbers use the manifest's
     state tolerance table, chosen by a data column's dimensions. In subset mode the actual dump is a
-    partial producer (MoTrack): only what it reports is compared and the rest is recorded as a gap.
+    partial producer (MoTrack): only what it reports is compared, and what it omits is recorded as a gap.
+    Gaps are checked against a committed per-case baseline, so a value that disappears fails.
     """
 
     def __init__(self, manifest, case_id, *, subset=False):
@@ -3060,7 +3098,7 @@ class StateComparison:
     def mapping(self, expected, actual, path, label=None):
         """Compare an object; in subset mode only the keys the actual producer reports.
 
-        `label` names unreported keys in the aggregated gap list (for example "PointMass.properties").
+        `label` names unreported keys in the gap list (for example "PointMass.properties").
         """
         if not self.subset or not isinstance(expected, dict) or not isinstance(actual, dict):
             self.tree(expected, actual, path)
@@ -3079,11 +3117,22 @@ class StateComparison:
         if steps_actual is None:
             self.gap("clip.steps")
             return
-        if [row[:2] for row in steps_expected] != [row[:2] for row in steps_actual]:
-            self.fail(f"{path}.steps", "step/frame mapping differs")
-            return
-        for want, got in zip(steps_expected, steps_actual):
-            self.scalar(want[2], got[2], f"{path}.steps[{want[0]}].time_ms")
+        # Steps are compared one by one, so each missing, extra or remapped step is reported (and can be
+        # registered) individually.
+        want_steps = {row[0]: row for row in steps_expected}
+        got_steps = {row[0]: row for row in steps_actual}
+        for step in sorted(want_steps.keys() - got_steps.keys()):
+            self.fail(f"{path}.steps[{step}]", "missing step")
+        for step in sorted(got_steps.keys() - want_steps.keys()):
+            self.fail(f"{path}.steps[{step}]", "unexpected step")
+        for step in sorted(want_steps.keys() & got_steps.keys()):
+            want, got = want_steps[step], got_steps[step]
+            if want[1] != got[1]:
+                self.fail(f"{path}.steps[{step}]", f"frame {got[1]} differs from {want[1]}")
+            elif got[2] is None:
+                self.gap("clip.steps.time")
+            else:
+                self.scalar(want[2], got[2], f"{path}.steps[{step}].time_ms")
 
     def coords(self, expected, actual, path):
         if expected is None or actual is None:
@@ -3093,9 +3142,17 @@ class StateComparison:
                      {k: v for k, v in actual.items() if k != "frames"}, path, "coords")
         frames = {row[0]: row for row in expected["frames"]}
         actual_frames = actual["frames"]
-        if not self.subset and [row[0] for row in actual_frames] != list(frames):
-            self.fail(f"{path}.frames", "frame list differs")
+        reported = [row[0] for row in actual_frames]
+        if not self.subset:
+            if reported != list(frames):
+                self.fail(f"{path}.frames", "frame list differs")
+                return
+        elif reported != list(range(len(reported))) or not reported:
+            # A partial producer must report a contiguous range from frame 0; fewer frames are a gap.
+            self.fail(f"{path}.frames", f"expected contiguous frames from 0, got {reported[:5]}...")
             return
+        elif len(reported) < len(frames):
+            self.gap(f"coords.frames after {reported[-1]}")
         for row in actual_frames:
             want = frames.get(row[0])
             if want is None:
@@ -3257,7 +3314,11 @@ def resolve_state_path(panel, target, path):
 
 
 def state_matches(expected, actual, tolerance):
-    """Registry value match: listed object keys must match (others are unconstrained); lists exactly."""
+    """Tracker-side registry match: listed object keys must match, lists exactly.
+
+    Unlisted keys are unconstrained here because state-oracle separately compares every Tracker dump with
+    its committed copy exactly; the registry only names the deviating part.
+    """
     if isinstance(expected, dict):
         return isinstance(actual, dict) and all(key in actual and state_matches(value, actual[key], tolerance)
                                                 for key, value in expected.items())
@@ -3269,9 +3330,49 @@ def state_matches(expected, actual, tolerance):
     return type(expected) is type(actual) and expected == actual
 
 
+def registered_check(expected, actual, tolerance, path=""):
+    """MoTrack-side registry match. Returns (mismatches, missing): every key MoTrack reports must be listed
+    and equal; listed keys MoTrack does not report, and values it reports as null (unknown), are missing
+    (gaps)."""
+    if actual is None and expected is not None:
+        return [], [path or ".value"]
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return [f"{path or 'value'}: expected an object, got {json.dumps(actual)[:80]}"], []
+        mismatches, missing = [], []
+        for key in actual:
+            if key not in expected:
+                mismatches.append(f"{path}.{key}: not part of the independent value")
+            else:
+                more, absent = registered_check(expected[key], actual[key], tolerance, f"{path}.{key}")
+                mismatches += more
+                missing += absent
+        missing += [f"{path}.{key}" for key in expected if key not in actual]
+        return mismatches, missing
+    if isinstance(expected, list):
+        if not isinstance(actual, list) or len(expected) != len(actual):
+            return [f"{path or 'value'}: expected {len(expected)} items"], []
+        mismatches, missing = [], []
+        for index, (want, got) in enumerate(zip(expected, actual)):
+            more, absent = registered_check(want, got, tolerance, f"{path}[{index}]")
+            mismatches += more
+            missing += absent
+        return mismatches, missing
+    if type(expected) in (int, float) and type(actual) in (int, float):
+        ok = math.isclose(expected, actual, rel_tol=tolerance["relative"], abs_tol=tolerance["absolute"])
+    else:
+        ok = type(expected) is type(actual) and expected == actual
+    return ([] if ok else [f"{path or 'value'}: expected {expected!r}, got {actual!r}"]), []
+
+
+def is_whole_file(entry):
+    return entry["object"] is None and entry["path"] is None
+
+
 def load_known_defects(manifest, path=None):
     """Validate the per-case registry of reference defects that MoTrack must not inherit."""
-    registry = json.loads((path or KNOWN_DEFECTS).read_text(encoding="utf-8"))
+    source = path or KNOWN_DEFECTS
+    registry = load_state_json(source.read_text(encoding="utf-8"), shown_path(source))
     if (not isinstance(registry, dict) or set(registry) != {"schema_version", "reference_version", "entries"}
             or registry["schema_version"] != 1 or registry["reference_version"] != manifest["reference"]["version"]
             or not isinstance(registry["entries"], list) or len(registry["entries"]) > 1000):
@@ -3291,11 +3392,13 @@ def load_known_defects(manifest, path=None):
                 or not isinstance(entry["summary"], str) or not entry["summary"]):
             raise ValueError(f"Invalid or duplicate known-defect entry {name!r}")
         ids.add(name)
-        if entry["object"] is None and entry["path"] is None:
-            expected = entry["expected"]
-            if (entry["tracker"] != STATE_LOAD_FAILURE or not isinstance(expected, dict) or set(expected) != {"state_of"}
+        if is_whole_file(entry):
+            expected, tracker = entry["expected"], entry["tracker"]
+            if (not isinstance(tracker, dict) or set(tracker) != {"load_failure"} or not isinstance(tracker["load_failure"], list)
+                    or not tracker["load_failure"] or not all(isinstance(text, str) and text for text in tracker["load_failure"])
+                    or not isinstance(expected, dict) or set(expected) != {"state_of", "project_sha256"}
                     or expected["state_of"] not in cases or expected["state_of"] == entry["case"]
-                    or entry["case"] in whole):
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(expected["project_sha256"])) or entry["case"] in whole):
                 raise ValueError(f"Invalid whole-file known defect {name!r}")
             whole.add(entry["case"])
             continue
@@ -3305,8 +3408,8 @@ def load_known_defects(manifest, path=None):
                 or not all(STATE_SEGMENT.fullmatch(segment) for segment in where.split("."))):
             raise ValueError(f"Invalid known-defect object or path {name!r}")
         key = (entry["case"], None if target is None else target["track"], where)
-        if key in keys or entry["tracker"] == STATE_LOAD_FAILURE or state_matches(entry["expected"], entry["tracker"],
-                                                                                   manifest["state_tolerance"]["default"]):
+        if (key in keys or (isinstance(entry["tracker"], dict) and "load_failure" in entry["tracker"])
+                or state_matches(entry["expected"], entry["tracker"], manifest["state_tolerance"]["default"])):
             raise ValueError(f"Duplicate or non-deviating known-defect entry {name!r}")
         keys.add(key)
     if whole & {case for case, _, _ in keys}:
@@ -3314,22 +3417,30 @@ def load_known_defects(manifest, path=None):
     return registry
 
 
-def check_known_defects(registry, manifest, dumps, failures):
+def check_known_defects(registry, manifest, dumps, failures, errors=None):
     """Require each registered Tracker deviation to persist; return the reproduced entries.
 
-    `dumps` maps case IDs to Tracker dumps or STATE_LOAD_FAILURE. A registered deviation that Tracker
-    no longer shows fails as stale, so re-pinning the reference surfaces every entry for review.
+    `dumps` maps case IDs to Tracker dumps or STATE_LOAD_FAILURE, and `errors` maps failed cases to their
+    failure text. A deviation Tracker no longer shows fails as STALE, a different one as CHANGED, so
+    re-pinning the reference surfaces every entry for review.
     """
     tolerance = manifest["state_tolerance"]["default"]
+    errors = errors or {}
     reproduced = []
     for entry in registry["entries"]:
         observed = dumps.get(entry["case"])
         if observed is None:
             failures.append(f"{entry['case']}: known defect {entry['id']}: case was not dumped")
             continue
-        if entry["tracker"] == STATE_LOAD_FAILURE:
+        if is_whole_file(entry):
             if observed != STATE_LOAD_FAILURE:
                 failures.append(f"{entry['case']}: STALE known defect {entry['id']} ({entry['issue']}): Tracker now loads this file")
+                continue
+            text = errors.get(entry["case"], "")
+            missing = [signature for signature in entry["tracker"]["load_failure"] if signature not in text]
+            if missing:
+                failures.append(f"{entry['case']}: CHANGED known defect {entry['id']} ({entry['issue']}): the load failure "
+                                f"no longer shows {missing}: {text[-1500:]}")
                 continue
         else:
             if observed == STATE_LOAD_FAILURE:
@@ -3345,25 +3456,39 @@ def check_known_defects(registry, manifest, dumps, failures):
     return reproduced
 
 
-def apply_known_defects(comparison, registry, case_id, actual):
-    """In a MoTrack comparison, registered paths must equal the independent value, not Tracker's."""
+def apply_known_defects(comparison, registry, case_id, actual, expected):
+    """In a MoTrack comparison, registered paths must equal the independent value, not Tracker's.
+
+    Only what an entry lists is overridden. Where Tracker has an object at the path, unlisted keys stay
+    compared with Tracker; where Tracker has no value (or a non-object), every key MoTrack reports must be
+    listed. Listed keys MoTrack does not report are gaps.
+    """
     tolerance = comparison.default
     for entry in registry["entries"]:
-        if entry["case"] != case_id or entry["tracker"] == STATE_LOAD_FAILURE:
+        if entry["case"] != case_id or is_whole_file(entry):
             continue
         prefix = "panel" + ("" if entry["object"] is None else f".tracks[name={entry['object']['track']}]") + "." + entry["path"]
+        tracker = resolve_state_path(expected["panel"], entry["object"], entry["path"])
+        partial = isinstance(tracker, dict) and isinstance(entry["expected"], dict)
+        covered = [prefix + "." + key for key in entry["expected"]] if partial else [prefix]
         comparison.failures = [(path, message) for path, message in comparison.failures
-                               if path != prefix and not path.startswith(prefix + ".") and not path.startswith(prefix + "[")]
+                               if not any(path == item or path.startswith(item + ".") or path.startswith(item + "[")
+                                          for item in covered)]
         top = entry["path"].split(".", 1)[0].split("[", 1)[0]
         owner = actual["panel"] if entry["object"] is None else next(
             (track for track in actual["panel"]["tracks"] if track["name"] == entry["object"]["track"]), None)
         if owner is None or top not in owner:
-            comparison.gap(f"known defect {entry['id']} (not yet modeled)")
+            comparison.gap(f"known defect {entry['id']}")
             continue
         value = resolve_state_path(actual["panel"], entry["object"], entry["path"])
-        if not state_matches(entry["expected"], value, tolerance):
-            comparison.fail(prefix, f"must equal the independent value of known defect {entry['id']} ({entry['issue']}), "
-                                    f"got {json.dumps(value, ensure_ascii=False)[:400]}")
+        if partial and isinstance(value, dict):
+            value = {key: item for key, item in value.items() if key in entry["expected"]}
+        mismatches, missing = registered_check(entry["expected"], value, tolerance)
+        for item in missing:
+            comparison.gap(f"known defect {entry['id']}{item}")
+        if mismatches:
+            comparison.fail(prefix, f"must equal the independent value of known defect {entry['id']} ({entry['issue']}): "
+                                    + "; ".join(mismatches)[:400])
 
 
 def state_report(comparison):
@@ -3371,6 +3496,365 @@ def state_report(comparison):
     if len(comparison.failures) > STATE_REPORT_LIMIT:
         lines.append(f"... {len(comparison.failures) - STATE_REPORT_LIMIT} further differences")
     return "\n".join(f"  {comparison.case}: {line}" for line in lines)
+
+
+# Independent expectations. Each non-whole-file registry value is recomputed here from the saved project
+# XML, the media's container tables and documented pinned defaults, never from Tracker's output. Where
+# Tracker is not defective, the same derivation must also reproduce Tracker's dump (a self-check).
+def osp_property(element, name):
+    for item in element.findall("property"):
+        if item.get("name") == name:
+            return item
+    return None
+
+
+def osp_value(item):
+    """Decode an OSP XML property: scalars, arrays (including compact {a,b}), collections, objects."""
+    if item is None:
+        return None
+    kind = item.get("type")
+    if kind == "int":
+        return int(item.text)
+    if kind == "double":
+        return float(item.text)
+    if kind == "boolean":
+        return item.text == "true"
+    if kind == "string":
+        return item.text or ""
+    if kind == "object":
+        return item.find("object")
+    if kind == "collection":
+        return [osp_value(child) for child in item.findall("property")]
+    if kind == "array":
+        compact = osp_property(item, "array")
+        if compact is not None and compact.get("type") == "string":
+            return [float(part) if "." in part else int(part) for part in compact.text.strip("{}").split(",") if part]
+        values = {int(child.get("name")[1:-1]): osp_value(child) for child in item.findall("property")}
+        return [values.get(index) for index in range(max(values) + 1)] if values else []
+    raise ValueError(f"Unsupported OSP property type {kind!r}")
+
+
+def osp_object(element, name):
+    value = osp_value(osp_property(element, name))
+    return {child.get("name"): osp_value(child) for child in value.findall("property")} if value is not None else None
+
+
+def project_root(case, cache):
+    return ET.fromstring(project_path(case, cache).read_bytes())
+
+
+def project_tracks(root):
+    return {osp_value(osp_property(track, "name")): track for track in osp_value(osp_property(root, "tracks"))}
+
+
+def fixed_world(root):
+    """OSP ImageCoordSystem image-to-world maps for a fully fixed system (angle saved in degrees)."""
+    coords = osp_value(osp_property(root, "coords"))
+    flags = [osp_value(osp_property(coords, name)) for name in ("fixedorigin", "fixedangle", "fixedscale")]
+    data = osp_value(osp_property(coords, "framedata"))
+    if flags != [True, True, True] or not data:
+        raise ValueError("Independent derivations support fully fixed coordinates only")
+    key = {child.get("name"): osp_value(child) for child in data[0].findall("property")}
+    angle = math.radians(key["angle"])
+
+    def components(dx, dy):
+        x, y = dx / key["xscale"], dy / key["yscale"]
+        return math.cos(angle) * x - math.sin(angle) * y, -math.sin(angle) * x - math.cos(angle) * y
+
+    def point(px, py):
+        return components(px - key["xorigin"], py - key["yorigin"])
+    return point, components
+
+
+def iso_video_frames(data):
+    """Frame start times (ms) of the first video track of an MP4/QuickTime file, from its sample tables."""
+    def boxes(start, end):
+        position = start
+        while position + 8 <= end:
+            size, kind = struct.unpack(">I4s", data[position:position + 8])
+            header = 8
+            if size == 1:
+                size, header = struct.unpack(">Q", data[position + 8:position + 16])[0], 16
+            elif size == 0:
+                size = end - position
+            if size < header:
+                raise ValueError("Malformed media box")
+            yield kind, position + header, position + size
+            position += size
+
+    def find(start, end, path):
+        for kind, body, stop in boxes(start, end):
+            if kind == path[0]:
+                yield from ([(body, stop)] if len(path) == 1 else find(body, stop, path[1:]))
+
+    for moov, moov_end in find(0, len(data), [b"moov"]):
+        for trak, trak_end in find(moov, moov_end, [b"trak"]):
+            if next(data[b + 8:b + 12] for b, _ in find(trak, trak_end, [b"mdia", b"hdlr"])) != b"vide":
+                continue
+            mdhd = next(b for b, _ in find(trak, trak_end, [b"mdia", b"mdhd"]))
+            timescale = struct.unpack(">I", data[mdhd + (12 if data[mdhd] == 0 else 20):][:4])[0]
+            stts = next(b for b, _ in find(trak, trak_end, [b"mdia", b"minf", b"stbl", b"stts"]))
+            times, elapsed = [], 0
+            for index in range(struct.unpack(">I", data[stts + 4:stts + 8])[0]):
+                count, delta = struct.unpack(">II", data[stts + 8 + 8 * index:stts + 16 + 8 * index])
+                for _ in range(count):
+                    times.append(elapsed * 1000 / timescale)
+                    elapsed += delta
+            return times
+    raise ValueError("No video track in media")
+
+
+def derive_known_defect_values(manifest, cache):
+    """Independent values for the registry, keyed by entry ID, plus (case, track, path, value) self-checks
+    that the same derivations reproduce Tracker where it is not defective."""
+    by_id = {case["id"]: case for case in manifest["cases"]}
+    values, checks = {}, []
+
+    # #64: saved table views, per-track number formats and the pinned default patterns.
+    for case_id in ["table-owners-subset", "table-owners-defaults", "table-owners-legacy-formats", "table-owners"]:
+        if case_id not in by_id:
+            continue
+        root = project_root(by_id[case_id], cache)
+        views = osp_value(osp_property(root, "views"))
+        table = next((chooser_index, slot) for chooser_index, chooser in enumerate(views or []) for slot in (chooser or [])
+                     if slot is not None and slot.get("class") == TRACKER_PACKAGE + "TableTView")
+        chooser, element = table
+        columns = sorted(osp_value(osp_property(element, "track_columns")), key=lambda row: row[0])
+        patterns = {(owner, column): pattern for owner in [row[0] for row in columns]
+                    for column, pattern in TABLE_DEFAULT_PATTERNS.items()}
+        for group in osp_value(osp_property(element, "column_formats")) or []:
+            for owner, column, pattern in group:
+                patterns[(owner, column)] = pattern
+        for name, track in project_tracks(root).items():
+            pairs = osp_value(osp_property(track, "number_formats")) or []
+            for index in range(0, len(pairs), 2):
+                patterns[(name, pairs[index])] = pairs[index + 1]
+        table = {"chooser": chooser, "selected_track": osp_value(osp_property(element, "selected_track")),
+                 "track_columns": columns,
+                 "column_formats": [[owner, column, patterns[(owner, column)]] for owner, column in sorted(patterns)],
+                 "dataset_indices": []}
+        if case_id == "table-owners-defaults":
+            values[case_id + "-table"] = [table]
+        for key in ["track_columns", "selected_track", "column_formats"]:
+            values[f"{case_id}-{key.replace('_', '-')}"] = table[key]
+
+    def vector_rows(root, name, times, point, components, frames=None):
+        rows = {}
+        for frame, sample in enumerate(osp_value(osp_property(project_tracks(root)[name], "framedata"))):
+            if sample is None or (frames is not None and frame not in frames):
+                continue
+            item = {child.get("name"): osp_value(child) for child in sample.findall("property")}
+            x, y = components(item["xcomponent"], item["ycomponent"])
+            tail = point(item["xtail"], item["ytail"])
+            rows[frame] = {"t": times(frame), "x": x, "y": y, "mag": math.hypot(x, y), "θ": math.atan2(y, x),
+                           "x_{tail}": tail[0], "y_{tail}": tail[1], "step": frame, "frame": frame}
+        return rows
+
+    # #146: negative-time vector rows from the saved samples, calibration and the clip's time base.
+    for case_id, prefix in [("vector-images-negative-time", "vector-images-negative-time"),
+                            ("vector-movie-negative-time", "vector-movie-negative-time")]:
+        if case_id not in by_id:
+            continue
+        case = by_id[case_id]
+        root = project_root(case, cache)
+        clip = osp_value(osp_property(root, "videoclip"))
+        start = osp_value(osp_property(clip, "starttime"))
+        if case_id.startswith("vector-movie"):
+            media = local_fixture_path(case).parent / osp_value(osp_property(osp_value(osp_property(clip, "video")), "path"))
+            frame_times = iso_video_frames(media.read_bytes())
+        else:
+            delta = osp_value(osp_property(osp_value(osp_property(clip, "video")), "delta_t"))
+            frame_times = [frame * delta for frame in range(64)]
+        point, components = fixed_world(root)
+        for name, suffix, frame in [("vector A", "a", 0), ("vector B", "b", 1)]:
+            rows = vector_rows(root, name, lambda f: (start + frame_times[f]) / 1000, point, components)
+            row = rows.pop(frame)
+            if suffix == "b":
+                # (-1.5, 0) lies on atan2's branch cut: its angle (+/-pi) depends only on the sign of zero.
+                del row["θ"]
+            values[f"{prefix}-{suffix}"] = row
+            checks.extend((case_id, name, f"data.rows[frame={other}]", value) for other, value in rows.items()
+                          if (start + frame_times[other]) >= 0)
+
+    # #63: the sum of the named members where every member is marked, at the sum's saved tails.
+    if "vector-sum" in by_id:
+        derive_vector_sum(project_root(by_id["vector-sum"], cache), values)
+    if "ball-toss" in by_id:
+        checks.extend(derive_ball_toss(by_id["ball-toss"], cache, values))
+    return values, checks
+
+
+def derive_vector_sum(root, values):
+    """#63: the sum of the named members where every member is marked, at the sum's saved tails."""
+    tracks = project_tracks(root)
+    point, components = fixed_world(root)
+    members = osp_value(osp_property(tracks["resultant"], "vectors"))
+    saved = osp_value(osp_property(tracks["resultant"], "framedata"))
+    samples = {name: {frame: {c.get("name"): osp_value(c) for c in item.findall("property")}
+                      for frame, item in enumerate(osp_value(osp_property(tracks[name], "framedata"))) if item is not None}
+               for name in members}
+    steps, rows = [], []
+    for frame, item in enumerate(saved):
+        if item is None or not all(frame in samples[name] for name in members):
+            continue
+        tail_item = {c.get("name"): osp_value(c) for c in item.findall("property")}
+        dx = sum(samples[name][frame]["xcomponent"] for name in members)
+        dy = sum(samples[name][frame]["ycomponent"] for name in members)
+        tail = [tail_item["xtail"], tail_item["ytail"]]
+        steps.append({"frame": frame, "tail": tail, "tip": [tail[0] + dx, tail[1] + dy], "components": [dx, dy]})
+        x, y = components(dx, dy)
+        world_tail = point(*tail)
+        # StepperClipControl's default 100 ms frame duration applies: the fixture saves no clip control.
+        row = {"t": frame * 0.1, "x": x, "y": y, "mag": math.hypot(x, y), "x_{tail}": world_tail[0],
+               "y_{tail}": world_tail[1], "step": frame, "frame": frame}
+        if dx or dy:
+            row["θ"] = math.atan2(y, x)  # A zero sum has no direction.
+        rows.append(row)
+    values["vector-sum-members"] = {"items": members}
+    values["vector-sum-steps"] = steps
+    values["vector-sum-data"] = rows
+
+
+def derive_ball_toss(case, cache, values):
+    """#209: BallToss's MP4 sample table, the saved clip and marks, and Tracker's derivative definitions
+    (spill-1 central velocity; five-point acceleration, see #207). Returns its Tracker self-checks."""
+    checks = []
+    root = project_root(case, cache)
+    source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
+    clip = osp_value(osp_property(root, "videoclip"))
+    with zipfile.ZipFile(source) as archive:
+        frame_times = iso_video_frames(archive.read(osp_value(osp_property(osp_value(osp_property(clip, "video")), "path"))))
+    count, first, stride = (osp_value(osp_property(clip, name)) for name in ("stepcount", "startframe", "stepsize"))
+    point, _ = fixed_world(root)
+    marks = {frame: {c.get("name"): osp_value(c) for c in item.findall("property")}
+             for frame, item in enumerate(osp_value(osp_property(project_tracks(root)["ball"], "framedata"))) if item is not None}
+    world = {frame: point(mark["x"], mark["y"]) for frame, mark in marks.items()}
+    dt = frame_times[1] / 1000
+    values["ball-toss-video-frames"] = len(frame_times)
+    values["ball-toss-clip-steps"] = count
+    values["ball-toss-clip-end"] = first + (count - 1) * stride
+    for frame in (11, 12):
+        values[f"ball-toss-step-{frame}"] = [frame, frame, frame_times[frame]]
+        values[f"ball-toss-row-{frame}"] = {"t": frame_times[frame] / 1000, "step": frame, "frame": frame, "x": world[frame][0],
+                                            "y": world[frame][1], "pixel_{x}": marks[frame]["x"], "pixel_{y}": marks[frame]["y"]}
+
+    def velocity(frame):
+        return [(world[frame + 1][axis] - world[frame - 1][axis]) / (2 * dt) for axis in (0, 1)]
+
+    def acceleration(frame):
+        return [(2 * world[frame - 2][axis] - world[frame - 1][axis] - 2 * world[frame][axis] - world[frame + 1][axis]
+                 + 2 * world[frame + 2][axis]) / (7 * dt * dt) for axis in (0, 1)]
+    for frame, keys in [(9, "a"), (10, "va")]:
+        row = {}
+        if "v" in keys:
+            vx, vy = velocity(frame)
+            row.update({"v_{x}": vx, "v_{y}": vy, "v": math.hypot(vx, vy)})
+        ax, ay = acceleration(frame)
+        row.update({"a_{x}": ax, "a_{y}": ay, "a": math.hypot(ax, ay)})
+        values[f"ball-toss-derivatives-{frame}"] = row
+    checks.extend(("ball-toss", "ball", f"data.rows[frame={frame}]",
+                   {"x": world[frame][0], "y": world[frame][1], "pixel_{x}": marks[frame]["x"], "pixel_{y}": marks[frame]["y"]})
+                  for frame in range(2, 11))
+    checks.extend(("ball-toss", "ball", f"data.rows[frame={frame}]", dict(zip(("v_{x}", "v_{y}"), velocity(frame))))
+                  for frame in range(3, 10))
+    checks.extend(("ball-toss", "ball", f"data.rows[frame={frame}]", dict(zip(("a_{x}", "a_{y}"), acceleration(frame))))
+                  for frame in range(4, 9))
+    return checks
+
+
+def check_known_defect_derivations(registry, manifest, cache, dumps, failures):
+    """Every registry value must equal its independent derivation, and each derivation must reproduce
+    Tracker's dump where Tracker is not defective. Whole-file expectations must hash-match."""
+    values, checks = derive_known_defect_values(manifest, cache)
+    tolerance = {"absolute": 1e-9, "relative": 1e-9}
+    for entry in registry["entries"]:
+        if is_whole_file(entry):
+            by_id = {case["id"]: case for case in manifest["cases"]}
+            digests = {hashlib.sha256(project_path(by_id[case_id], cache).read_bytes()).hexdigest()
+                       for case_id in (entry["case"], entry["expected"]["state_of"])}
+            if digests != {entry["expected"]["project_sha256"]}:
+                failures.append(f"{entry['case']}: whole-file known defect {entry['id']}: the project does not hash-match "
+                                f"{entry['expected']['state_of']}")
+            continue
+        if entry["id"] not in values:
+            failures.append(f"{entry['case']}: known defect {entry['id']} has no independent derivation")
+            continue
+        mismatches, missing = registered_check(values[entry["id"]], entry["expected"], tolerance)
+        if mismatches or missing:
+            failures.append(f"{entry['case']}: known defect {entry['id']}: registered value differs from its derivation: "
+                            + "; ".join(mismatches + [f"missing {item}" for item in missing])[:400])
+    for case_id, track, path, value in checks:
+        dump = dumps.get(case_id)
+        if dump is None or dump == STATE_LOAD_FAILURE:
+            continue
+        actual = resolve_state_path(dump["panel"], {"track": track}, path)
+        if not state_matches(value, actual, {"absolute": 1e-9, "relative": 1e-9}):
+            failures.append(f"{case_id}: independent derivation does not reproduce Tracker at {track} {path}: "
+                            f"{json.dumps(value)[:200]} vs {json.dumps(actual)[:200]}")
+
+
+def classify_gap(gap, tracker, motrack):
+    """Name why MoTrack does not report a value: the committed baseline records one reason per gap."""
+    if gap.startswith("track class "):
+        return "unmodeled-class"
+    timed = "frame_duration_ms" in motrack["panel"].get("clip", {})
+    if gap.startswith("known defect "):
+        key = gap.rsplit(".", 1)[-1] if "." in gap else None
+        # A registered clip step row holds its time at index 2.
+        if (key in STATE_TIMING_COLUMNS or re.search(r"-step-[0-9]+\[2\]$", gap)) and not timed:
+            return "default-timing" if tracker["panel"]["video"] is None else "probe-media-timing"
+        return "known-defect-unmodeled"
+    if gap.startswith("coords.frames after "):
+        return "coords-range"
+    if gap == "units.length":
+        return "default-length-unit"
+    column = gap.split(".data.", 1)[1] if ".data." in gap else None
+    if gap in {"clip.frame_duration_ms", "clip.steps.time"} or (column in STATE_TIMING_COLUMNS and not timed):
+        return "default-timing" if tracker["panel"]["video"] is None else "probe-media-timing"
+    if column in {"x", "y", *STATE_TIMING_COLUMNS} and "coords" not in motrack["panel"]:
+        return "uncalibrated"
+    if column is not None:
+        return "unmodeled-column"
+    return "unmodeled-field"
+
+
+def gap_baseline_text(baseline):
+    """One case per line, gaps grouped by reason; gaps shared by every case are listed once."""
+    dump = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":"))  # noqa: E731
+    lines = ["{", '  "schema_version": 1,', f'  "reasons": {dump(STATE_GAP_REASONS)},',
+             f'  "all_cases": {dump(baseline["all_cases"])},', '  "cases": {']
+    cases = baseline["cases"]
+    lines += [f"    {json.dumps(case_id)}: {dump(cases[case_id])}{',' if i + 1 < len(cases) else ''}"
+              for i, case_id in enumerate(cases)]
+    lines += ["  }", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def gap_baseline(gaps):
+    """Group per-case {gap: reason} maps into the committed layout."""
+    common = set.intersection(*(set(items.items()) for items in gaps.values())) if gaps else set()
+    group = lambda pairs: {reason: sorted(gap for gap, why in pairs if why == reason)  # noqa: E731
+                           for reason in sorted({why for _, why in pairs})}
+    return {"all_cases": group(common),
+            "cases": {case_id: group(set(items.items()) - common) for case_id, items in gaps.items()}}
+
+
+def load_gap_baseline(manifest, path=None):
+    source = path or STATE_GAPS
+    document = load_state_json(source.read_text(encoding="utf-8"), shown_path(source))
+    if (not isinstance(document, dict) or set(document) != {"schema_version", "reasons", "all_cases", "cases"}
+            or document["schema_version"] != 1 or document["reasons"] != STATE_GAP_REASONS
+            or set(document["cases"]) != {case["id"] for case in manifest["cases"]}):
+        raise ValueError(f"{shown_path(source)}: unexpected gap baseline schema, reasons or cases")
+    result = {}
+    for case_id, groups in document["cases"].items():
+        items = {}
+        for reason, names in [*document["all_cases"].items(), *groups.items()]:
+            if reason not in STATE_GAP_REASONS or not isinstance(names, list):
+                raise ValueError(f"{shown_path(source)}: unknown gap reason {reason!r}")
+            items.update({name: reason for name in names})
+        result[case_id] = items
+    return result
 
 
 def tracker_state_input(case, cache, directory):
@@ -3390,7 +3874,7 @@ def check_state_oracle(manifest, cache, java, *, record=False):
     if sys.platform != "linux":
         raise ValueError("The Tracker state oracle requires Linux with Xvfb (it uses the application loader)")
     registry = load_known_defects(manifest)
-    whole_file = {entry["case"] for entry in registry["entries"] if entry["tracker"] == STATE_LOAD_FAILURE}
+    whole_file = {entry["case"] for entry in registry["entries"] if is_whole_file(entry)}
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
     java_path = Path(shutil.which(java) or java).resolve()
@@ -3398,7 +3882,7 @@ def check_state_oracle(manifest, cache, java, *, record=False):
     if generated.exists():
         shutil.rmtree(generated)
     generated.mkdir(parents=True)
-    dumps, failures, compared = {}, [], 0
+    dumps, errors, failures, compared, bounded = {}, {}, [], 0, []
     with tempfile.TemporaryDirectory(prefix="state-", dir=cache) as temporary, private_display() as display:
         root = Path(temporary)
         classes = root / "classes"
@@ -3406,34 +3890,42 @@ def check_state_oracle(manifest, cache, java, *, record=False):
         everything = [item["file"] for item in manifest["reference"].get("runtime_dependencies", [])]
         run([str(java_path.with_name("javac")), "-encoding", "UTF-8", "-cp", java_classpath(manifest, cache, dependencies=everything),
              "-d", str(classes), *(str(ROOT / "tools/reference" / name) for name in STATE_JAVA_SOURCES)])
-        for case in manifest["cases"]:
-            directory = root / case["id"]
+
+        def dump(case, label, polls):
+            directory = root / (case["id"] + label)
             home = directory / "java-home"
             home.mkdir(parents=True)
             source, member = tracker_state_input(case, cache, directory)
             output = directory / "state.json"
+            log = run([str(java_path), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en",
+                       "-Duser.country=US", f"-Dmotrack.tableVisitPolls={polls}", "-Xmx256m", "-cp",
+                       java_classpath(manifest, cache, classes=classes, dependencies=case.get("reference_dependencies", [])),
+                       "TrackerStateDump", str(source), str(output), *([member] if member else [])], display=display) or ""
+            if output.stat().st_size > MAX_STATE_BYTES:
+                raise ValueError(f"{case['id']}: state dump exceeds its size limit")
+            document = load_state_json(output.read_text(encoding="utf-8"), f"{case['id']} Tracker dump")
+            validate_state_dump(document, manifest, source=f"{case['id']} Tracker dump")
+            return document, STATE_TABLE_VISIT.findall(log)
+
+        for case in manifest["cases"]:
             try:
-                run([str(java_path), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en",
-                     "-Duser.country=US", "-Xmx256m", "-cp",
-                     java_classpath(manifest, cache, classes=classes, dependencies=case.get("reference_dependencies", [])),
-                     "TrackerStateDump", str(source), str(output), *([member] if member else [])], display=display)
+                document, visits = dump(case, "", STATE_TABLE_POLLS)
             except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                dumps[case["id"]] = STATE_LOAD_FAILURE
+                dumps[case["id"]], errors[case["id"]] = STATE_LOAD_FAILURE, str(error)
                 if case["id"] in whole_file:
                     # Show the dumper's own failure line, so a changed cause is visible in the log.
                     cause = [line.strip() for line in str(error).splitlines() if "waiting=" in line or "Exception" in line]
-                    print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (whole-file load failure; not accepted): "
-                          f"{' | '.join(cause[:2])[:400]}")
+                    print(f"{case['id']}: Tracker load failed (whole-file known defect): {' | '.join(cause[:2])[:400]}")
                 else:
                     failures.append(f"{case['id']}: Tracker state dump failed: {str(error)[-3000:]}")
                 continue
-            if output.stat().st_size > MAX_STATE_BYTES:
-                raise ValueError(f"{case['id']}: state dump exceeds its size limit")
-            document = json.loads(output.read_text(encoding="utf-8"))
-            validate_state_dump(document, manifest)
             dumps[case["id"]] = document
-            state_path_generated = generated / (case["id"] + ".json")
-            state_path_generated.write_text(state_text(document), encoding="utf-8", newline="\n")
+            if visits:
+                print(f"{case['id']}: table visits " + ", ".join(f"{owner}: {result} ({polls} polls)"
+                                                                for owner, result, polls in visits))
+            if any(result == "bounded" for _, result, _ in visits):
+                bounded.append(case)
+            (generated / (case["id"] + ".json")).write_text(state_text(document), encoding="utf-8", newline="\n")
             if record or case["id"] in whole_file:
                 continue
             committed = state_path(case["id"])
@@ -3445,11 +3937,27 @@ def check_state_oracle(manifest, cache, java, *, record=False):
                 failures.append(f"{case['id']}: Tracker state differs from the committed dump:\n" + state_report(comparison))
             else:
                 compared += 1
+        # A visit that ended on the poll bound must dump the same state with a ten-times longer bound.
+        for case in bounded:
+            try:
+                longer, _ = dump(case, "-long-visit", STATE_LONG_TABLE_POLLS)
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                failures.append(f"{case['id']}: long table-visit dump failed: {str(error)[-1500:]}")
+                continue
+            comparison = compare_state(dumps[case["id"]], longer, manifest, case["id"] + " (long visit)")
+            if comparison.failures:
+                failures.append(f"{case['id']}: a {STATE_LONG_TABLE_POLLS}-poll table visit changes the dump:\n"
+                                + state_report(comparison))
+            else:
+                print(f"{case['id']}: bounded table visit confirmed with {STATE_LONG_TABLE_POLLS} polls")
     expected_files = {state_path(case_id) for case_id in dumps if case_id not in whole_file}
-    if not record and set(STATE_DIR.glob("*.json")) != expected_files:
+    present = set(STATE_DIR.glob("*.json"))
+    if not record and present != expected_files:
         failures.append("Committed dumps do not match the corpus cases and whole-file known defects: unexpected "
-                        f"{sorted(path.name for path in set(STATE_DIR.glob('*.json')) - expected_files)}")
-    reproduced = check_known_defects(registry, manifest, dumps, failures)
+                        f"{sorted(path.name for path in present - expected_files)}, missing "
+                        f"{sorted(path.name for path in expected_files - present)}")
+    reproduced = check_known_defects(registry, manifest, dumps, failures, errors)
+    check_known_defect_derivations(registry, manifest, cache, dumps, failures)
     for entry in reproduced:
         print(f"{entry['case']}: KNOWN TRACKER DEFECT reproduced: {entry['id']} ({entry['issue']}; MoTrack must match "
               f"the independent value)")
@@ -3468,50 +3976,86 @@ def check_state_oracle(manifest, cache, java, *, record=False):
               f"{shown_path(STATE_DIR)}; review every change")
         return
     print(f"state-oracle: {compared} Tracker loaded-state dumps match {shown_path(STATE_DIR)}; "
-          f"{len(reproduced)} known defects reproduced")
+          f"{len(reproduced)} known defects reproduced and independently derived")
 
 
-def check_state_native(manifest, cache, probe):
-    """Compare MoTrack's loaded state with the committed Tracker dumps for the subset MoTrack models."""
+def check_state_native(manifest, cache, probe, *, record=False):
+    """Compare MoTrack's loaded state with the committed Tracker dumps for the subset MoTrack models.
+
+    Unmodeled content is a gap, never a silent pass: the per-case gaps must equal the committed baseline
+    (tests/corpus/state-gaps.json), so a value MoTrack stops reporting fails, and a closed gap must be
+    removed from the baseline with --record.
+    """
     registry = load_known_defects(manifest)
-    whole_file = {entry["case"]: entry for entry in registry["entries"] if entry["tracker"] == STATE_LOAD_FAILURE}
+    whole_file = {entry["case"]: entry for entry in registry["entries"] if is_whole_file(entry)}
     expected_files = {state_path(case["id"]) for case in manifest["cases"] if case["id"] not in whole_file}
-    if set(STATE_DIR.glob("*.json")) != expected_files:
-        raise ValueError("Committed Tracker state dumps do not match the corpus cases and whole-file known defects")
+    present = set(STATE_DIR.glob("*.json"))
+    if present != expected_files:
+        raise ValueError("Committed Tracker state dumps do not match the corpus cases and whole-file known defects: "
+                         f"unexpected {sorted(p.name for p in present - expected_files)}, "
+                         f"missing {sorted(p.name for p in expected_files - present)}")
+    baseline = None if record else load_gap_baseline(manifest)
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
     reports = cache / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     failures, gaps, compared = [], {}, 0
+    dumps = {}
     for case in manifest["cases"]:
         project = project_path(case, cache)
         output = reports / (case["id"] + "-native-state.json")
         output.unlink(missing_ok=True)
-        run([str(Path(probe).resolve()), "--state", str(project), str(output)])
+        try:
+            run([str(Path(probe).resolve()), "--state", str(project), str(output)])
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            failures.append(f"  {case['id']}: MoTrack state probe failed: {str(error)[-1500:]}")
+            continue
         actual = read_state(output, manifest, "motrack")
         source = whole_file[case["id"]]["expected"]["state_of"] if case["id"] in whole_file else case["id"]
         expected = read_state(state_path(source), manifest)
+        dumps[case["id"]] = STATE_LOAD_FAILURE if case["id"] in whole_file else expected
         comparison = compare_state(expected, actual, manifest, case["id"], subset=True)
-        apply_known_defects(comparison, registry, case["id"], actual)
-        for gap in comparison.gaps:
-            gaps.setdefault(gap, []).append(case["id"])
+        apply_known_defects(comparison, registry, case["id"], actual, expected)
+        gaps[case["id"]] = {gap: classify_gap(gap, expected, actual) for gap in comparison.gaps}
+        if baseline is not None:
+            known = baseline.get(case["id"], {})
+            for gap in sorted(gaps[case["id"]].keys() - known.keys()):
+                comparison.fail(f"gap {gap}", f"new gap ({gaps[case['id']][gap]}): MoTrack no longer reports a value "
+                                              "the baseline expects it to report")
+            for gap in sorted(known.keys() - gaps[case["id"]].keys()):
+                comparison.fail(f"gap {gap}", "gap closed: MoTrack now reports this value; update the baseline "
+                                              "with state-check --record")
+            for gap in sorted(known.keys() & gaps[case["id"]].keys()):
+                if known[gap] != gaps[case["id"]][gap]:
+                    comparison.fail(f"gap {gap}", f"reason changed from {known[gap]} to {gaps[case['id']][gap]}")
         if comparison.failures:
             failures.append(state_report(comparison))
         else:
             compared += 1
-    print(f"state-check: MoTrack matches Tracker's loaded state for its modeled subset in {compared} of "
-          f"{len(manifest['cases'])} cases (whole-file known defects use their independent expectation)")
-    print("state-check: gaps (unmodeled in MoTrack; not failures):")
-    for gap in sorted(gaps):
-        print(f"  {gap}: {len(gaps[gap])} cases")
+    derivation_failures = []
+    check_known_defect_derivations(registry, manifest, cache, dumps, derivation_failures)
+    failures += [f"  {failure}" for failure in derivation_failures]
     if failures:
         raise ValueError("MoTrack loaded state differs from Tracker:\n" + "\n".join(failures))
+    if record:
+        STATE_GAPS.write_text(gap_baseline_text(gap_baseline(gaps)), encoding="utf-8", newline="\n")
+        print(f"state-check: recorded the gaps of {len(gaps)} cases in {shown_path(STATE_GAPS)}; review every change")
+        return
+    counts = {}
+    for items in gaps.values():
+        for reason in items.values():
+            counts[reason] = counts.get(reason, 0) + 1
+    print(f"state-check: MoTrack matches Tracker's loaded state for its modeled subset in {compared} of "
+          f"{len(manifest['cases'])} cases, and every gap equals the committed baseline "
+          f"(whole-file known defects use their independent expectation)")
+    print("state-check: gaps by reason: " + ", ".join(f"{reason} {counts[reason]}" for reason in sorted(counts)))
 
 
 def diff_state_files(manifest, expected_path_, actual_path_, *, subset=False):
     """Ad hoc comparison of two dump files, printing the bounded difference report."""
     expected = read_state(expected_path_, manifest)
-    actual_kind = json.loads(actual_path_.read_text(encoding="utf-8")).get("producer", {}).get("kind")
+    raw = load_state_json(actual_path_.read_text(encoding="utf-8"), shown_path(actual_path_))
+    actual_kind = raw.get("producer", {}).get("kind") if isinstance(raw, dict) else None
     actual = read_state(actual_path_, manifest, "motrack" if actual_kind == "motrack" else "tracker")
     comparison = compare_state(expected, actual, manifest, actual_path_.stem, subset=subset or actual_kind == "motrack")
     if comparison.gaps:
@@ -3637,7 +4181,7 @@ def main():
     if args.command == "state-oracle":
         check_state_oracle(manifest, cache, args.java, record=args.record)
     elif args.command == "state-check":
-        check_state_native(manifest, cache, args.probe)
+        check_state_native(manifest, cache, args.probe, record=args.record)
     elif args.command == "state-diff":
         diff_state_files(manifest, *args.dumps)
     elif args.command in {"fetch", "verify"}:
