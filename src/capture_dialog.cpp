@@ -23,7 +23,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -299,7 +298,11 @@ void CaptureDialog::refreshFormats()
     if (camera < 0)
         return;
     const auto& formats = m_Devices.at(camera).formats;
-    auto order = std::views::iota(0, static_cast<int>(formats.size())) | std::ranges::to<std::vector<int>>();
+    // A plain loop: Clang with libstdc++ 14 rejects views::iota | ranges::to (its forward_like).
+    std::vector<int> order;
+    order.reserve(static_cast<std::size_t>(formats.size()));
+    for (int index = 0; index < formats.size(); ++index)
+        order.push_back(index);
     // Largest frames first, then the fastest frame rate.
     std::ranges::stable_sort(order,
                              [&formats](int left, int right)
