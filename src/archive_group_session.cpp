@@ -160,11 +160,10 @@ bool ArchiveGroupSession::isModified() const
     if (m_SavedMembership[0] != m_MembershipRevision ||
         (paired && (m_SavedMembership[1] != m_MembershipRevision || !recoveryPath().isEmpty())))
         return true;
-    return std::ranges::any_of(m_Members,
-                               [paired](const auto& member) {
-                                   return member.session->history.isModified() ||
-                                          (paired && member.session->history.isModified(SaveTarget::Tracker));
-                               });
+    return std::ranges::any_of(
+        m_Members,
+        [paired](const auto& member)
+        { return member.session->history.isModified() || (paired && member.session->history.isModified(SaveTarget::Tracker)); });
 }
 
 const QString& ArchiveGroupSession::sourcePath() const

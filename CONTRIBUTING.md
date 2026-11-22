@@ -4,9 +4,11 @@ MoTrack starts from [TaskSmack's conventions](https://github.com/mgradwohl/tasks
 
 ## Developer setup
 
-Follow the [setup commands in the README](README.md#build-the-prototype). Use `-DryRun` on Windows or `--dry-run` on Linux and macOS to preview installation. WinGet may ask for administrator access for Visual Studio Build Tools. Ubuntu uses APT and sudo when required. On macOS, install Homebrew if needed. The script opens Apple's Command Line Tools installer if the tools are missing. Rerun setup after the installer finishes.
+Follow the [setup commands in the README](README.md#build-the-prototype). Use `-DryRun` on Windows or `--dry-run` on Linux and macOS to preview every installation, uninstallation and download. The installers ask for administrator approval (UAC) themselves on Windows. Ubuntu uses APT and sudo when required. On macOS, install Homebrew if needed. The script opens Apple's Command Line Tools installer if the tools are missing. Rerun setup after the installer finishes. The scripts install the [pinned toolchain](#pinned-toolchain) and leave a tool that is already present at or above MoTrack's floor in place.
 
-The setup scripts manage Qt 6.8.3, Qt Linguist Tools, and the LLVM 18 formatter under `.dev-tools`. They build FFmpeg with the pinned vcpkg release and enable the codec, demuxer, and pixel-conversion libraries. The first FFmpeg build can take several minutes. CMake fetches GoogleTest during configuration. An existing Qt 6.8 or newer SDK can also be used through `CMAKE_PREFIX_PATH`. A system FFmpeg 6.1 or newer is supported through pkg-config.
+The setup scripts manage Qt 6.8.3 and Qt Linguist Tools under `.dev-tools`. They build FFmpeg with the pinned vcpkg release and enable the codec, demuxer, and pixel-conversion libraries. The first FFmpeg build can take several minutes. CMake fetches GoogleTest during configuration. An existing Qt 6.8 or newer SDK can also be used through `CMAKE_PREFIX_PATH`. A system FFmpeg 6.1 or newer is supported through pkg-config.
+
+Qt comes from [aqtinstall](https://github.com/miurahr/aqtinstall) 3.3.0, installed from PyPI into the `.dev-tools` virtual environment. When PyPI or aqtinstall fails, for example on a network that blocks `files.pythonhosted.org`, `tools/dev_sdk.py` installs the same essential archives directly from Qt's online repository. It reads the package list from `download.qt.io` itself over HTTPS (never through a mirror redirect), and that list must name exactly the archives in [`tools/qt-archives.sha256`](tools/qt-archives.sha256). Every archive, which may come from a mirror, is checked against the SHA-256 pinned there before libarchive's `bsdtar` extracts it. Qt's servers are therefore trusted only for the package list and the archives' placement, not for the archives' contents. `python tools/dev_sdk.py qt-archive-checksums` regenerates the pins after a Qt version change; review them before committing. The fallback places each archive where the repository's extract operations say and writes `bin/qt.conf` with `Prefix=..`. `python tools/dev_sdk.py install --qt-source direct` (or `MOTRACK_QT_SOURCE=direct`) uses that path on purpose; the Ubuntu contributor-setup CI job does, so both paths stay tested. Windows uses its built-in `tar.exe`, macOS `/usr/bin/tar`, and Ubuntu `libarchive-tools`. Older setups installed PyPI's `clang-format` 18 in that virtual environment; `dev_sdk.py install` removes it, and the activation scripts put the pinned LLVM ahead of it until then.
 
 On Windows, vcpkg downloads a private MSYS2 environment under `.dev-tools/vcpkg/downloads/tools/msys2` to run FFmpeg's shell-based build. This supplies Bash and build utilities; MoTrack still uses Clang and the Windows SDK. Contributors do not need to configure MSYS2, and the packaged application does not require an MSYS2 installation.
 
@@ -24,7 +26,33 @@ source tools/dev-env.sh
 cmake --workflow --preset dev
 ```
 
-The checks locate the tools and compile and link a Qt probe without fetching project dependencies. Pass `-ToolsOnly` or `--tools-only` to skip the probe.
+The checks report each tool's path and version against the pins, print how to fix anything missing or out of range, and then compile and link a Qt, FFmpeg and libarchive probe without fetching project dependencies. On Linux the probe also rejects a standard library other than GCC 14's libstdc++, and on macOS one other than Apple's libc++. Pass `-ToolsOnly` or `--tools-only` to skip the probe.
+
+### Pinned toolchain
+
+[`tools/toolchain.env`](tools/toolchain.env) is the single list of pinned versions. The setup and check scripts, the activation scripts and CI all read it, so a version changes in one place. The approach follows [TaskSmack's setup scripts](https://github.com/mgradwohl/tasksmack/tree/main/tools): one LLVM major everywhere, installers verified before they run, exact versions where the package manager allows them, and a check that names the fix.
+
+| Component | Windows x64 | Ubuntu 24.04 | macOS |
+| --- | --- | --- | --- |
+| Compiler | LLVM 23.1.5 `clang++`, from LLVM's MSI checked against its SHA-256 (setup and CI install the same file) | `clang++` 23 from apt.llvm.org's `llvm-toolchain-noble-23` | Apple Clang 17+ (Xcode or Command Line Tools 16.3+; CI uses Xcode 16.4) |
+| clang-format, clang-tidy | From the same LLVM 23.1.5 | `clang-format-23`, `clang-tidy-23` from the same repository | Homebrew `llvm@23` (keg-only) |
+| Coverage tools | LLVM 23 `llvm-cov`, `llvm-profdata` | LLVM 23 `llvm-cov`, `llvm-profdata` | Apple's, which read Apple Clang's profiles |
+| C++ standard library | MSVC STL from Visual Studio 2026 Build Tools (toolset 14.50+; CI has 14.52) and Windows SDK 10.0.26100 | GCC 14's libstdc++ | Apple's libc++ |
+| CMake, Ninja, ccache, Python | Setup's WinGet versions: 4.4.4, 1.13.2, 4.14.3, 3.12.10 (CI uses the image's CMake and Ninja and setup-python's 3.12) | Ubuntu's packages (3.28, 1.11, 4.9, 3.12) | Homebrew's, with `python@3.12` |
+
+Every LLVM tool except macOS's Apple Clang and its coverage tools must be the pinned major: another major fails the check, because formatting and static analysis results differ between majors. Windows installs exactly 23.1.5, and another 23.x release there passes with a note. apt.llvm.org and Homebrew publish only the current release of a major, so Linux and macOS take the newest LLVM 23 they serve; the check reports the release. apt.llvm.org's signing key is checked against its pinned fingerprint before APT trusts it. On Windows, setup leaves exactly one LLVM, of the pinned major, in `C:\Program Files\LLVM`. An installation of another major there has to be uninstalled first, all of its installer registrations included, since side-by-side LLVM installers share that directory. Setup does that only when given `-ReplaceLlvm`, and only after the new MSI has been downloaded and verified. Without `-ReplaceLlvm` it stops and lists what it would remove; `-DryRun -ReplaceLlvm` previews the removal. LLVM installed in any other directory is reported and left alone. For NSIS installations, which record no install location, setup reads the directory from the uninstaller's path. CMake, Ninja, ccache, Python, Git, the MSVC toolset and Qt are checked against floors (CMake 3.25, Ninja 1.11, Python 3.12, Git 2.30, MSVC 14.50, Qt 6.8; ccache 4.9 is recommended). Visual Studio Build Tools (WinGet's current 2026 release) and Git are installed unversioned, and only their floors are checked. WinGet keeps only recent versions of a package; when a pin has left its catalog, setup warns and installs the newest version instead.
+
+macOS keeps Apple Clang as the compiler because Qt's macOS binaries link the system libc++. A Homebrew LLVM `clang++` would compile against Homebrew's newer libc++ headers while the application loads the system library at run time. Homebrew's `llvm@23` gives macOS the same clang-format and clang-tidy major as the other platforms without replacing the compiler: it is keg-only, and `tools/dev-env.sh` puts links to just its clang-format and clang-tidy (in `.dev-tools/macos/llvm-23-tools`) ahead of Apple's toolchain, which ships an older clang-format of its own. The rest of `llvm@23`, its `clang++` included, stays off `PATH`. Homebrew currently serves `llvm@23` as an alias of its `llvm` formula and keeps a separate `llvm@23` formula once `llvm` moves to 24.
+
+Linux builds use libstdc++, never libc++. The one exception is the `msan` preset, which needs a MemorySanitizer-instrumented libc++ and Qt built for it. Qt's Linux binaries use libstdc++, and `std::string` and containers cross the Qt API, so mixing the two libraries breaks the build or the program. Ubuntu 24.04's default GCC is 13, and LLVM Clang picks its newest GCC installation. `tools/dev-env.sh` and CI therefore set `MOTRACK_GCC_INSTALL_DIR` to GCC 14's directory. [`cmake/MoTrackLibstdcxx.cmake`](cmake/MoTrackLibstdcxx.cmake) passes it to every compile and link as `--gcc-install-dir`, CMake's own checks included. A build tree configured before that setting changed stops with a request to reconfigure with `--fresh`.
+
+### C++ standard libraries
+
+C++23 library support differs between the three standard libraries. GCC 14's libstdc++ adds these to GCC 13's: `std::print` and `std::println`, the `std::ranges::to` function, `std::generator`, `std::out_ptr` and `std::inout_ptr`, and `std::forward_like`. It still lacks `std::flat_map` and `std::flat_set` and range formatting (GCC 15), and `std::mdspan` and `std::ranges::starts_with`/`ends_with` (GCC 16).
+
+Apple's libc++ in Xcode 16.4 corresponds roughly to upstream libc++ 19, so it lacks features libc++ added later or has not implemented: `std::flat_map` and `std::flat_set`, `views::zip` and `views::adjacent` (complete only in libc++ 22), `views::enumerate`, `views::stride` and the `ranges::fold_left` family (23), `views::join_with` (21), `views::chunk`, `views::slide` and `views::cartesian_product`, `std::generator`, `std::move_only_function` and `std::stacktrace`. Apple's availability annotations can also restrict features that live in the library binary, such as `std::print`, by deployment target.
+
+Features available in all three libraries include `std::expected`, `std::print`, the `std::ranges::to` function, `std::out_ptr`, `std::forward_like`, `views::chunk_by`, `views::repeat` and `ranges::contains`. These versions come from the [libstdc++](https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#status.iso.2023) and [libc++](https://libcxx.llvm.org/Status/Cxx23.html) status pages and [cppreference](https://en.cppreference.com/w/cpp/compiler_support/23). The Apple column is inferred from the libc++ version, so confirm a newly used feature in the macOS CI build before relying on it.
 
 ## C++ style
 
@@ -94,7 +122,7 @@ without a match the interface is English.
 
 ## Checks before a pull request
 
-Run the CMake configure, build, and test commands in the README. Configure the benchmark target before linting all sources so the compilation database covers it too.
+Run the CMake configure, build, and test commands in the README. Configure the benchmark target before linting all sources so the compilation database covers it too. Run these from an activated shell, so `clang-format` and `clang-tidy` are the pinned LLVM 23's; `check-prereqs` shows which ones it finds.
 
 ```sh
 git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
@@ -102,13 +130,17 @@ cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
 git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 clang-tidy -p build/dev
 ```
 
+Changes to the setup tools have their own tests, which install nothing: `pwsh -NoProfile -File tools/test-setup-dev.ps1` and `pwsh -NoProfile -File tools/test-check-prereqs.ps1` on Windows, and `python -m unittest discover -s tests -p test_dev_tools.py` everywhere (its Bash cases run on Linux and macOS). The Windows build job runs the PowerShell tests and every build job runs the Python ones.
+
 CI caches the verified vcpkg checkout and bootstrap executable by platform, architecture and the
 media setup script hash. `python tools/media_sdk.py bootstrap` checks the pinned revision and prepares
 that executable before library installation. The bootstrap cache is saved at that point, so a later
 build or test failure does not force the next run to download the same tool again. Library builds,
 installed prefixes and downloads stay outside this cache; vcpkg's existing binary cache continues to
-validate compiled dependencies against its build configuration. Cache misses still use the pinned
-upstream downloads and can fail during an upstream outage.
+validate compiled dependencies against its build configuration. That binary cache is also saved as soon
+as the media libraries are built, rather than only when the whole job passes, so a later failure or
+timeout does not make the next run rebuild FFmpeg (about 26 minutes on Windows). Cache misses still use
+the pinned upstream downloads and can fail during an upstream outage.
 
 Coverage profiles include both the instrumented binary signature and process ID. LLVM's merge mode
 preserves counters if a process ID is reused, including separate invocations of the same test executable.
@@ -117,19 +149,24 @@ Collection clears only its previous `motrack-*.profraw` profiles before running 
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
 
-The Ubuntu contributor-setup job runs the full C++ formatting and static-analysis checks after its
+CI installs the [pinned toolchain](#pinned-toolchain) from `tools/toolchain.env`: the LLVM 23.1.5 MSI on
+Windows, apt.llvm.org's LLVM 23 with GCC 14's libstdc++ on Ubuntu (whose build job also runs
+`tools/check-prereqs.sh --tools-only`), and Apple Clang on macOS. Each contributor-setup job runs
+`setup-dev.sh`, which ends with the full `check-prereqs.sh`, then builds and tests the developer preset.
+The Ubuntu contributor-setup job runs the full C++ formatting and static-analysis checks with LLVM 23 after its
 developer build. It enables and builds the benchmark target before running clang-tidy against
 `build/dev`, with at most two analysis processes. This runs alongside the platform build and Tracker
 acceptance jobs, giving each workload its own time budget as the reference corpus grows. The final
 coverage job waits for both the build and contributor-setup matrices to pass before combining reports.
 
-The workspace executable runs in six complementary CTest groups. General UI cases run in
-`workspace`; `workspace_saving` runs `PairedWorkspace.*` and `ImagePackageWorkspace.*`,
-`workspace_document` runs `WorkspaceDocument.*`, `ui_translations` runs `UiTranslations.*` (every catalog),
-and the two session groups partition `DocumentSession.*`.
+The workspace executable runs in seven complementary CTest groups. General UI cases run in
+`workspace`; `workspace_shell` runs the `WorkspaceShell.*` save/revert flows
+([#283](https://github.com/mgradwohl/MoTrack/issues/283)); `workspace_saving` runs `PairedWorkspace.*` and
+`ImagePackageWorkspace.*`, `workspace_document` runs `WorkspaceDocument.*`, `ui_translations` runs
+`UiTranslations.*` (every catalog), and the two session groups partition `DocumentSession.*`.
 `document_session_journals` includes names matching `*Journal*`; `document_session` uses the complementary
 negative filter. Every current or future session case therefore runs exactly once. Each group retains
-a 60-second timeout, and ordinary CTest/coverage collection runs all six groups. This separates the
+a 60-second timeout, and ordinary CTest/coverage collection runs all seven groups. This separates the
 real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
 [#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 
@@ -166,6 +203,7 @@ Use `cmake --list-presets=all` for the available configure, build, test, and wor
 | --- | --- |
 | CMake presets, Clang, GoogleTest, and LLVM coverage | Keep the same configure-build-test workflow. Add macOS to the matrix and enforce a fixed 90% floor on the union of measured lines. |
 | Editor configuration, clang-format, clang-tidy, and clangd | Use the same naming and formatting style. Start with checks relevant to C++23 and Qt, and add rules as the code grows. |
+| Pinned LLVM and setup checks | Use the same LLVM major (23) and Windows MSI, CI-matching WinGet pins, verified apt.llvm.org key, dry-run previews, version checks with fixes, and tests for the scripts. Keep Apple Clang on macOS and libstdc++ on Linux because of Qt's binaries; TaskSmack's Linux libc++, pre-commit hooks and LLVM package caches are not adopted. |
 | Separation of platform code, domain logic, and UI | Apply the same dependency discipline to the Tracker document model, numerical analysis, media decoding, and Qt interface. |
 | Sanitizers, fuzzing, and benchmarks | Bring in ASan/UBSan and fuzzing when the project importer grows to handle archives and media. Add benchmarks against representative video and tracking workloads once those paths exist. |
 | Release and supply-chain checks | Adopt signed artifacts, dependency scanning, notices, SBOMs, and provenance as part of the first installer milestone. |
