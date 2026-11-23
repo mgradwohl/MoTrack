@@ -124,7 +124,16 @@ TEST(VideoReader, IndexesRelativeTimestampsAndHonorsCancellation)
     EXPECT_NEAR(index.frameTimes.back(), 0.328, 1e-12);
     // The stream time base the timestamps were quantized to (#331): every relative frame time is whole ticks.
     ASSERT_TRUE(index.timeBase.known());
-    EXPECT_EQ(index.timeBase, motrack::VideoReader(path).timeBase());
+    const auto reported = motrack::VideoReader(path).timeBase();
+    EXPECT_FALSE(reported.precisionKnown());
+    EXPECT_EQ(index.timeBase.numerator, reported.numerator);
+    EXPECT_EQ(index.timeBase.denominator, reported.denominator);
+    // The index also infers the timestamps' precision (#335); this fixture's 1/1000 s tick is already its precision.
+    EXPECT_EQ(index.timeBase,
+              (motrack::FrameTimeBase{.numerator = reported.numerator,
+                                      .denominator = reported.denominator,
+                                      .precisionNumerator = reported.numerator,
+                                      .precisionDenominator = reported.denominator}));
     const double tick = index.timeBase.resolutionSeconds();
     for (const auto time : index.frameTimes)
         EXPECT_NEAR(time, std::round(time / tick) * tick, 1e-9) << time;
