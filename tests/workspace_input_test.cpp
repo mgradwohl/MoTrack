@@ -571,14 +571,19 @@ TEST(WorkspaceInput, MovieMetadataIsPreparedWithoutViewsAndInvalidMoviesFailBefo
 
 TEST(WorkspaceInput, MovieTimeBaseIsIndexedAndSavedWithTheFrameTimes)
 {
-    // The index records the stream time base the decoded frame times were quantized to (#331), and the
-    // native document keeps it beside them. Documents saved before #331 open with it unknown.
+    // The index records the stream time base the decoded frame times were quantized to (#331) and the precision
+    // inferred from the timestamps (#335), and the native document keeps both beside them. Documents saved before
+    // #331 open with the time base unknown, and documents saved before #335 with the precision unknown.
     QTemporaryDir temporary;
     auto input = motrack::prepareWorkspaceInput(fixture("linked-mov/linked-movie.trk"));
     ASSERT_TRUE(input.document);
     const auto& indexed = input.document->document;
     const auto timeBase = indexed.movieTimeBase;
     ASSERT_TRUE(timeBase.known());
+    // The fixture's 1/1000 s tick is already its timestamps' precision.
+    ASSERT_TRUE(timeBase.precisionKnown());
+    EXPECT_EQ(timeBase.precisionNumerator, timeBase.numerator);
+    EXPECT_EQ(timeBase.precisionDenominator, timeBase.denominator);
     const double tick = timeBase.resolutionSeconds();
     for (const auto time : indexed.movieFrameTimes)
     {
@@ -588,7 +593,7 @@ TEST(WorkspaceInput, MovieTimeBaseIsIndexedAndSavedWithTheFrameTimes)
     motrack::writeWorkspaceDocument(native, indexed);
     EXPECT_EQ(motrack::readWorkspaceDocument(native).movieTimeBase, timeBase);
 
-    const auto rewrite = [&native](const QJsonValue& value)
+    const auto rewrite = [&native](const char* key, const QJsonValue& value)
     {
         QFile file(native);
         if (!file.open(QIODevice::ReadOnly))
@@ -596,20 +601,54 @@ TEST(WorkspaceInput, MovieTimeBaseIsIndexedAndSavedWithTheFrameTimes)
         auto object = QJsonDocument::fromJson(file.readAll()).object();
         file.close();
         if (value.isUndefined())
-            object.remove("movieTimeBase");
+            object.remove(QString::fromLatin1(key));
         else
-            object.insert("movieTimeBase", value);
+            object.insert(QString::fromLatin1(key), value);
         const auto bytes = QJsonDocument(object).toJson();
         return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
     };
-    ASSERT_TRUE(rewrite(QJsonValue::Undefined));
+    // Saved before #335: the time base without a precision, so the tick applies.
+    ASSERT_TRUE(rewrite("movieTimestampPrecision", QJsonValue::Undefined));
+    const auto beforePrecision = motrack::readWorkspaceDocument(native).movieTimeBase;
+    EXPECT_EQ(beforePrecision, (motrack::FrameTimeBase{.numerator = timeBase.numerator, .denominator = timeBase.denominator}));
+    EXPECT_FALSE(beforePrecision.precisionKnown());
+    EXPECT_EQ(beforePrecision.resolutionSeconds(), tick);
+    // A precision is at least the tick and at most max(tick, 1 ms): 1 ms for a declared 1/16000 s (MKV remuxed to
+    // MP4, whose frame times are whole milliseconds like these), or the tick itself.
+    ASSERT_TRUE(rewrite("movieTimeBase", QJsonArray{1, 16000}));
+    for (const auto& valid : {QJsonArray{1, 1000}, QJsonArray{1, 16000}, QJsonArray{2, 4000}})
+    {
+        ASSERT_TRUE(rewrite("movieTimestampPrecision", valid));
+        const auto reopened = motrack::readWorkspaceDocument(native).movieTimeBase;
+        EXPECT_EQ(reopened.precisionNumerator, valid.at(0).toInt());
+        EXPECT_EQ(reopened.precisionDenominator, valid.at(1).toInt());
+    }
+    for (const auto& invalid : {QJsonValue(QJsonArray{1, 32000}),
+                                QJsonValue(QJsonArray{1, 999}),
+                                QJsonValue(QJsonArray{0, 1000}),
+                                QJsonValue(QJsonArray{1}),
+                                QJsonValue(QJsonArray{1, -1000}),
+                                QJsonValue("1/1000")})
+    {
+        ASSERT_TRUE(rewrite("movieTimestampPrecision", invalid));
+        EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
+    }
+    ASSERT_TRUE(rewrite("movieTimeBase", QJsonArray{1, 600}));
+    ASSERT_TRUE(rewrite("movieTimestampPrecision", QJsonArray{1, 1000})); // Finer than the 1/600 s tick.
+    EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
+    // The precision describes the time base's ticks, so it is not accepted without one.
+    ASSERT_TRUE(rewrite("movieTimeBase", QJsonValue::Undefined));
+    EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
+
+    // Saved before #331: neither.
+    ASSERT_TRUE(rewrite("movieTimestampPrecision", QJsonValue::Undefined));
     const auto earlier = motrack::readWorkspaceDocument(native);
     EXPECT_FALSE(earlier.movieTimeBase.known());
     EXPECT_EQ(earlier.movieFrameTimes, indexed.movieFrameTimes);
     for (const auto& invalid :
          {QJsonValue(QJsonArray{0, 600}), QJsonValue(QJsonArray{1}), QJsonValue(QJsonArray{1, -600}), QJsonValue("1/600")})
     {
-        ASSERT_TRUE(rewrite(invalid));
+        ASSERT_TRUE(rewrite("movieTimeBase", invalid));
         EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
     }
     // The time base describes frame times, so a document without them neither writes nor accepts one.
@@ -617,7 +656,7 @@ TEST(WorkspaceInput, MovieTimeBaseIsIndexedAndSavedWithTheFrameTimes)
     stale.movieFrameTimes.clear();
     motrack::writeWorkspaceDocument(native, stale);
     EXPECT_FALSE(motrack::readWorkspaceDocument(native).movieTimeBase.known());
-    ASSERT_TRUE(rewrite(QJsonArray{1, 600}));
+    ASSERT_TRUE(rewrite("movieTimeBase", QJsonArray{1, 600}));
     EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
 }
 

@@ -8,7 +8,9 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
@@ -112,6 +114,12 @@ TEST(CaptureEncoder, RecordsTheCameraFrameTimesThatTheMovieIndexReports)
     ASSERT_EQ(index.frameTimes.size(), 5u);
     for (std::size_t frame = 0; frame < EXPECTED_SECONDS.size(); ++frame)
         EXPECT_NEAR(index.frameTimes.at(frame), EXPECTED_SECONDS.at(frame), 1e-9) << frame;
+    // Camera times use the 1/90000 s ticks (33.333 ms is not a whole millisecond), so they keep it as their precision.
+    EXPECT_EQ(index.timeBase,
+              (motrack::FrameTimeBase{.numerator = 1,
+                                      .denominator = motrack::CaptureEncoder::TIMESCALE,
+                                      .precisionNumerator = 1,
+                                      .precisionDenominator = motrack::CaptureEncoder::TIMESCALE}));
     motrack::VideoReader reader(path);
     for (const auto& color : colors)
     {
@@ -121,6 +129,39 @@ TEST(CaptureEncoder, RecordsTheCameraFrameTimesThatTheMovieIndexReports)
         // Motion JPEG at the fixed quantizer keeps flat colours within a few levels.
         expectColor(decoded->image.pixel(32, 24), color.red(), color.green(), color.blue(), 6);
     }
+}
+
+TEST(CaptureEncoder, WholeMillisecondCameraTimesIndexWithMillisecondPrecision)
+{
+    // A camera clock of whole milliseconds at 30 fps (0, 33, 67, 100 ms...) written in 1/90000 s ticks, as a
+    // Matroska capture remuxed into a finer time base would be: FFmpeg reports the 1/90000 s time base, and the index
+    // infers from the timestamps that they are only precise to 1 ms (#335).
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("milliseconds.mov");
+    constexpr int FRAMES = 8;
+    {
+        motrack::CaptureEncoder encoder(path);
+        for (int frame = 0; frame < FRAMES; ++frame)
+        {
+            const auto milliseconds = std::llround(frame * 1000.0 / 30.0);
+            ASSERT_TRUE(encoder.write(motrack::captureImageFromQImage(solid(QColor(10 * frame, 80, 160))),
+                                      microseconds{5'000'000 + milliseconds * 1000}));
+        }
+        EXPECT_EQ(encoder.finish().frames, FRAMES);
+    }
+    const std::atomic_bool cancelled{false};
+    const auto index = motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled);
+    ASSERT_EQ(index.frameCount, FRAMES);
+    ASSERT_EQ(index.frameTimes.size(), static_cast<std::size_t>(FRAMES));
+    for (int frame = 0; frame < FRAMES; ++frame)
+        EXPECT_NEAR(
+            index.frameTimes.at(static_cast<std::size_t>(frame)), static_cast<double>(std::llround(frame * 1000.0 / 30.0)) / 1000.0, 1e-9)
+            << frame;
+    EXPECT_EQ(
+        index.timeBase,
+        (motrack::FrameTimeBase{
+            .numerator = 1, .denominator = motrack::CaptureEncoder::TIMESCALE, .precisionNumerator = 1, .precisionDenominator = 1000}));
+    EXPECT_EQ(index.timeBase.resolutionSeconds(), 0.001);
 }
 
 TEST(CaptureEncoder, SkipsFramesWhoseTimeDoesNotAdvanceAndRefusesANewFrameSize)
