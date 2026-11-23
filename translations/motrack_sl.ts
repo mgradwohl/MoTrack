@@ -117,6 +117,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Spustite, da odprete %n datoteko</numerusform><numerusform>Spustite, da odprete %n datoteki</numerusform><numerusform>Spustite, da odprete %n datoteke</numerusform><numerusform>Spustite, da odprete %n datotek</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n povezava do nelokalnih datotek bo preskočena.</numerusform><numerusform>%n povezavi do nelokalnih datotek bosta preskočeni.</numerusform><numerusform>%n povezave do nelokalnih datotek bodo preskočene.</numerusform><numerusform>%n povezav do nelokalnih datotek bo preskočenih.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Nekatere zahtevane datoteke so bile odprte z omejitvami.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Datoteka %1 je že odprta.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Preverjanje %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

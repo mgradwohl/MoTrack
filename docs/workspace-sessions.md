@@ -266,13 +266,14 @@ Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 ## Opening from the desktop
 
 Command-line arguments, drops and macOS `QFileOpenEvent`s all call `WorkspaceWindow::openFiles`, which
-uses the same context entry points as the menus. `launchFileKind` routes by suffix on the owner thread:
+uses the same context entry points as the menus. **Open project…** and **Open video…** call
+`openChosenFile`, which adds the chosen file to the same batch with its entry point (see below). `launchFileKind` routes by suffix on the owner thread:
 `.trk`/`.trz`/`.motrack` in any case are projects, suffixes Qt can read are one-image sequences with
 unknown timing, and every other file is a movie whose indexer reports unsupported formats.
 
-- **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
-  while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
-  for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
+- **Order and the input bound.** One requested or menu-chosen file prepares at a time, so tabs appear in
+  request order while **Open images…** or a camera recording can still use the other slot. When those hold
+  both slots, the batch waits for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
   up to 256 files. While any tabset is queued, prompting for a missing file or opening its files, the batch
   waits, so a requested `.trk` tabset's files keep its place; a file the batch had already checked is checked
   again afterwards. Save tabset waits for requested files.
@@ -288,16 +289,25 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
   replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). The tabset queue checks each
   file the same way before opening it, whether the tabset was requested or opened from the menu: an open
   file's tab is reused (and selected if it is the first listed experiment), and a saved tabset still lists
-  it. **Open project…** and **Open video…** in the menu do not check yet and open a second copy
-  ([#338](https://github.com/mgradwohl/MoTrack/issues/338)). A check blocked by an
-  unresponsive share cannot be interrupted: closing the window stops the batch and ignores the check's
-  late answer, but its worker waits for the file system.
+  it. A check blocked by an unresponsive share cannot be interrupted: closing the window stops the batch and
+  ignores the check's late answer, but its worker waits for the file system.
+- **Files chosen in the menu.** **Open project…** and **Open video…** queue their file with the entry point
+  the user chose, so it opens as a project or a movie whatever its suffix. It gets the same check, but
+  against the open sources only: a file chosen again is selected (its hidden view shown) if it is open, and
+  tried again if an earlier attempt failed ([#338](https://github.com/mgradwohl/MoTrack/issues/338)). The
+  status bar says it is already open. Like requested files it waits for a free slot, for a tabset that is
+  opening, and while a save, revert or close prompt runs; Save tabset waits for it. Until it starts opening, a
+  pending "Checking …" entry shows it at once, because its check may wait for an unresponsive share or for files
+  queued before it; **Cancel selected open** drops it wherever it waits, and the check's late answer is ignored.
+  Its problems (missing, failed, canceled) appear in the status bar, as menu opens always have, rather than in
+  the batch summary, and canceling it stops only that file. **Open images…** is not checked: it builds a new image-sequence
+  experiment with the chosen timing, which has no save destination until it is saved under a new name.
 - **Problems and notices.** Missing files, folders, web links, failed opens and unreadable archive member
   projects (an incomplete import) are problems. Skipped unsafe archive members and copies a standard save
   omits are notices: the file opened. Both are listed under the file's name in one window-modal summary
   after the batch, without a nested event loop, because the batch's next open replaces the status
   message. Canceling a requested
-  open stops its remaining files. Batches wait while a save, revert or close prompt runs its nested
+  open stops its remaining requested files; files chosen in the menu meanwhile stay queued. Batches wait while a save, revert or close prompt runs its nested
   event loop. Closing the window stops queued files before the close prompts run, and again before the
   window closes, so a request that arrived during the prompts opens only if the close is canceled.
   A hidden window shows no summary.

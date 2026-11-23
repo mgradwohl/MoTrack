@@ -117,6 +117,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Slip for at åbne %n fil</numerusform><numerusform>Slip for at åbne %n filer</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n link til filer, der ikke er lokale, springes over.</numerusform><numerusform>%n links til filer, der ikke er lokale, springes over.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Nogle af de ønskede filer blev åbnet med begrænsninger.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 er allerede åben.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Kontrollerer %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
