@@ -4513,6 +4513,12 @@ def compare_expression_reference(expected, actual):
             raise ValueError(f"{location}: evaluation count or comparison differs")
         for index, evaluation in enumerate(want["evaluations"]):
             compare_expression_values(evaluation, got["evaluations"][index], want["compare"], ulps, f"{location}[{index}]")
+    # UserFunction cases use only exact arithmetic, so their values and display text must be identical.
+    if len(expected["user_functions"]) != len(actual["user_functions"]):
+        raise ValueError("Expression oracle user function count differs")
+    for want, got in zip(expected["user_functions"], actual["user_functions"]):
+        if want != got:
+            raise ValueError(f"expression user function {want['id']}: definition, validity or values differ")
 
 
 @kernel_oracle("expression-oracle")
@@ -4534,7 +4540,8 @@ def check_expression_oracle(manifest, cache, java, record=False):
     compare_expression_reference(json.loads(EXPRESSION_REFERENCE.read_text(encoding="utf-8")), actual)
     evaluations = sum(len(case["evaluations"]) for case in actual["cases"])
     print(f"Expression oracle: {len(actual['cases'])} cases and {evaluations} evaluations match the fixture"
-          f" (SuryonoParser, Tracker {actual['reference']['tracker_version']})")
+          f" (SuryonoParser, Tracker {actual['reference']['tracker_version']}),"
+          f" with {len(actual['user_functions'])} UserFunction cases")
 
 
 COMMITTED_FIXTURES = ROOT / "tests/fixtures"
