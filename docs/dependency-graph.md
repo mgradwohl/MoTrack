@@ -110,7 +110,7 @@ It then checks what Tracker would bind if the file were reloaded:
 
 | Status | Meaning | Writer action |
 | --- | --- | --- |
-| Faithful | A reload binds the same target, or produces the same unresolved outcome and candidates. | Write the name. |
+| Faithful | A reload binds the same target, or produces the same unresolved outcome and the same set of candidates, in any order ([#350](https://github.com/mgradwohl/MoTrack/issues/350)). | Write the name. |
 | Ambiguous | Another eligible object now has the same label. | Refuse, or make an explicit edit. |
 | Unclassified | An object of an unverified class has the same label and could capture the reference. | Refuse, or make an explicit edit. |
 | Rebinds | A reload would bind a different object, for example an unresolved name that has become unique. | Refuse, or make an explicit edit. |

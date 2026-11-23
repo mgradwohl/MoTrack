@@ -5836,5 +5836,148 @@ class SamplingOracleTests(unittest.TestCase):
                 corpus.validate_sampling_reference(document, self.manifest)
 
 
+class ComposeCheckTests(unittest.TestCase):
+    """B2.3's comparison of the descriptor composition with B1's (compose-check and the round trip's report), no probe."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+
+    @staticmethod
+    def line(command, exported=True, equivalent=True, identical=True, description="both export the same 3 bytes"):
+        return json.dumps({"command": command, "exported": exported, "equivalent": equivalent, "identical": identical,
+                           "description": description}) + "\n"
+
+    def test_roundtrip_cases_list_each_opted_in_mode_once(self):
+        cases = [(case["id"], mode) for case, mode in corpus.roundtrip_cases(self.manifest)]
+        self.assertEqual(len(cases), len(set(cases)))
+        for expected in [("protractor", "mass"), ("protractor", "name"), ("independent-vectors", "create-vector"),
+                         ("multitab-images", "archive-group-forward"), ("linked-images", "paired-linked-images")]:
+            self.assertIn(expected, cases)
+        self.assertTrue(any(mode.startswith("media-vectors-") for _, mode in cases))
+        self.assertTrue(any("-movie-tracks-" in mode for _, mode in cases))
+        self.assertTrue(corpus.JAVA_AUTHORED_MODES <= {mode for _, mode in cases})
+
+    def test_composition_report_sets_and_restores_the_probe_variable(self):
+        path = self.root / "report.jsonl"
+        path.write_text("stale\n", encoding="utf-8")
+        with patch.dict(os.environ, {corpus.COMPOSE_REPORT: "earlier"}):
+            with corpus.composition_report(path):
+                self.assertEqual(os.environ[corpus.COMPOSE_REPORT], str(path))
+                self.assertFalse(path.exists())
+            self.assertEqual(os.environ[corpus.COMPOSE_REPORT], "earlier")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(corpus.COMPOSE_REPORT, None)
+            with corpus.composition_report(path):
+                pass
+            self.assertNotIn(corpus.COMPOSE_REPORT, os.environ)
+            with corpus.composition_report(None):
+                self.assertNotIn(corpus.COMPOSE_REPORT, os.environ)
+
+    def test_composition_reports_refuse_a_different_decision_or_bytes(self):
+        path = self.root / "report.jsonl"
+        with self.assertRaisesRegex(ValueError, "reported no compositions"):
+            corpus.read_composition_report(path, "label")
+        path.write_text(self.line("--export-mass") + self.line("--export-name", exported=False, identical=False, description="both refuse"),
+                        encoding="utf-8")
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(len(corpus.read_composition_report(path, "label")), 2)
+        self.assertIn("all 2 exports (1 exported with equal bytes, 1 refused, 1 of them for another reason)", output.getvalue())
+        for line in [self.line("--export-mass", equivalent=False, description="the exports differ from byte 4"),
+                     self.line("--export-name", exported=False, equivalent=False, description="B1 refuses (x), the descriptors export")]:
+            path.write_text(line, encoding="utf-8")
+            with self.subTest(line=line), self.assertRaisesRegex(ValueError, "differs from B1's in 1 of 1 exports"):
+                corpus.read_composition_report(path, "label")
+
+    def test_roundtrip_exports_use_the_roundtrip_inputs_and_probe_commands(self):
+        by_id = {case["id"]: case for case in self.manifest["cases"]}
+        project = self.root / "project.trk"
+        project.write_text('<?xml version="1.0" encoding="UTF-8"?>\n<object class="Panel">\n</object>\n', encoding="utf-8")
+        commands = []
+        modes = [("protractor", "mass", "motrack-export.trk"), ("protractor", "name", "motrack-export.trk"),
+                 ("linked-images", "packaged-images", "motrack-export.trz"), ("archived-images", "archive-images", "motrack-export.trz"),
+                 ("multitab-images", "archive-images", "motrack-export.trz"), ("independent-vectors", "snap-origin", "rejected-destination.trk")]
+        with patch.object(corpus, "project_path", return_value=project), \
+                patch.object(corpus, "run", side_effect=lambda command, **_: commands.append(command)):
+            for case_id, mode, _ in modes:
+                corpus.roundtrip_export("probe", self.manifest, self.root, by_id[case_id], mode, self.root / (case_id + "-" + mode))
+        for (case_id, mode, output), command in zip(modes, commands):
+            with self.subTest(case=case_id, mode=mode):
+                self.assertEqual(Path(command[-1]).name, output)
+                self.assertEqual(command[1], "--export-" + ("multitab-archive-images" if case_id == "multitab-images" else mode))
+        # The rename modes export the noted source, never the pinned original.
+        renamed = Path(commands[1][2])
+        self.assertEqual(renamed.name, "rename-source.trk")
+        self.assertIn("mass A and mass B are words in this note.", renamed.read_text(encoding="utf-8"))
+        self.assertEqual(Path(commands[3][2]).name, Path(by_id["archived-images"]["local_file"]).name)
+
+    def test_compose_check_compares_every_scenario_and_roundtrip_export_without_java(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] in {"protractor", "independent-vectors"}]
+        commands = []
+
+        def probe(command, **_):
+            commands.append(command)
+            if command[1] == "--compose-scenarios":
+                Path(command[3]).write_text(json.dumps({"imported": True, "scenarios": [
+                    {"scenario": "mass", "route": "media-free", "exported": True, "equivalent": True, "identical": True,
+                     "description": "same"}]}), encoding="utf-8")
+            else:
+                with open(os.environ[corpus.COMPOSE_REPORT], "a", encoding="utf-8") as report:
+                    report.write(self.line(command[1]))
+
+        with patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "project_path", return_value=self.root / "p.trk"), \
+                patch.object(corpus, "rename_source", return_value=self.root / "renamed.trk"), \
+                patch.object(corpus, "run", side_effect=probe), redirect_stdout(io.StringIO()) as output:
+            corpus.check_compositions(manifest, self.root / "cache", "probe", scratch=self.root / "scratch")
+        scenario_runs = [command for command in commands if command[1] == "--compose-scenarios"]
+        self.assertEqual(len(scenario_runs), 2)
+        # Outputs stay in a temporary directory of the scratch directory, never in the (possibly shared) cache, and are
+        # removed afterwards.
+        self.assertTrue(all(Path(command[-1]).resolve().is_relative_to(self.root / "scratch") for command in commands))
+        self.assertEqual(list((self.root / "scratch").iterdir()), [])
+        self.assertFalse((self.root / "cache").exists())
+        exports = [command[1] for command in commands if command[1] != "--compose-scenarios"]
+        expected = [mode for case, mode in corpus.roundtrip_cases(manifest) if mode not in corpus.JAVA_AUTHORED_MODES]
+        self.assertEqual(exports, ["--export-" + mode for mode in expected])
+        self.assertIn("all 2 scenarios of 2 cases", output.getvalue())
+        self.assertIn("need Tracker's resave or authoring", output.getvalue())
+        self.assertNotIn(corpus.COMPOSE_REPORT, os.environ)
+
+        def different(command, **_):
+            probe(command)
+            if command[1] == "--compose-scenarios":
+                document = json.loads(Path(command[3]).read_text(encoding="utf-8"))
+                document["scenarios"][0].update(equivalent=False, description="the exports differ from byte 9")
+                Path(command[3]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "project_path", return_value=self.root / "p.trk"), \
+                patch.object(corpus, "run", side_effect=different), redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(ValueError, "protractor/mass \\(media-free\\): the exports differ from byte 9"):
+            corpus.check_compositions(manifest, self.root / "cache", "probe", scratch=self.root / "scratch")
+
+    def test_the_roundtrip_fails_when_an_export_composes_differently(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] in {"archived-movie", "linked-mov", "secondary-images"}]
+        for case in manifest["cases"]:
+            if case["id"] != "archived-movie":
+                for key in [key for key in case if key.startswith("native_")]:
+                    del case[key]
+
+        def archive_tabs(*arguments):
+            with open(os.environ[corpus.COMPOSE_REPORT], "a", encoding="utf-8") as report:
+                report.write(self.line("--export-" + arguments[-1], equivalent=arguments[-1] != "archive-movie",
+                                       description="B1 exports, the descriptors refuse: x"))
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
+                patch.object(corpus, "check_archive_tabs", side_effect=archive_tabs), \
+                self.assertRaisesRegex(ValueError, "roundtrip: the descriptor composition differs from B1's in 1 of 8 exports"):
+            corpus.check_sessions(manifest, self.root, "java", "native-probe")
+        self.assertNotIn(corpus.COMPOSE_REPORT, os.environ)
+
+
 if __name__ == "__main__":
     unittest.main()
