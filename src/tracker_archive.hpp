@@ -22,6 +22,13 @@ inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 /// name stored or compared elsewhere (native companions, group membership) goes through it too (#308).
 [[nodiscard]] std::string archiveMemberKey(std::string_view member);
 
+/// Whether @p path names a Tracker experiment archive by its suffix, in any letter case: a `.trz`, or a `.zip`, which
+/// Tracker opens the same way (`ResourceLoader.isJarZipTrz`, #224). TrackerArchive::open reads either.
+[[nodiscard]] bool isTrackerArchivePath(const QString& path);
+/// Whether @p path names a `.zip` experiment archive. It is never a save target: Tracker never writes into the archive
+/// a tab came from, and its archive export always writes `.trz`. A standard save asks for a `.trz` instead (#224).
+[[nodiscard]] bool isTrackerZipPath(const QString& path);
+
 namespace detail
 {
 /// Whether a libarchive header warning is a member or link name that is not UTF-8 (hdrcharset=UTF-8), as opposed
@@ -33,6 +40,7 @@ namespace detail
 /// Members with unsafe names (absolute, drive-letter, UNC, '\', '.'/'..', empty-segment, control-character,
 /// reserved-device or overlong) are never extracted, listed as projects or used to resolve media; an
 /// unsafe project (.trk) name, or a media reference naming an unsafe member, rejects the archive.
+/// So does an archive with no project, which Tracker reports as "Not a Tracker file".
 class TrackerArchive
 {
   public:

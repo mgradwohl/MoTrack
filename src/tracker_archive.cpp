@@ -132,6 +132,16 @@ std::string archiveMemberKey(std::string_view member)
     return QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size())).normalized(QString::NormalizationForm_C).toStdString();
 }
 
+bool isTrackerArchivePath(const QString& path)
+{
+    return path.endsWith(".trz", Qt::CaseInsensitive) || isTrackerZipPath(path);
+}
+
+bool isTrackerZipPath(const QString& path)
+{
+    return path.endsWith(".zip", Qt::CaseInsensitive);
+}
+
 bool detail::isNameConversionWarning(std::string_view libarchiveError) noexcept
 {
     // libarchive's ZIP reader: "Pathname cannot be converted from UTF-8 to current locale." and the same for
@@ -265,7 +275,14 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
             result.m_Projects.append(member);
         }
     }
-    require(!result.m_Projects.isEmpty());
+    if (result.m_Projects.isEmpty())
+    {
+        // Tracker warns "Not a Tracker file" for a ZIP or TRZ without a .trk member and opens nothing (#224).
+        throw ProjectError(QCoreApplication::translate("TrackerArchive",
+                                                       "This archive contains no Tracker project (.trk file), so it is not a Tracker "
+                                                       "experiment.")
+                               .toStdString());
+    }
     // Standard saves drop only skipped members that duplicate an extracted member with the same file name
     // (the OSP JarTool absolute copies). Every other skipped member, Finder icons included, is kept.
     QSet<std::pair<QString, QByteArray>> extracted;

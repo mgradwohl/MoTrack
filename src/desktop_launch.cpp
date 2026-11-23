@@ -1,6 +1,7 @@
 #include "desktop_launch.hpp"
 
 #include "local_media_path.hpp"
+#include "workspace_input.hpp"
 #include "workspace_window.hpp"
 
 #include <QDir>
@@ -12,7 +13,6 @@
 #include <QUrl>
 
 #include <algorithm>
-#include <array>
 #include <utility>
 
 namespace motrack
@@ -44,11 +44,9 @@ void addRequest(RequestedFiles& requested, const QString& argument, const QStrin
 
 LaunchFileKind launchFileKind(const QString& path)
 {
-    const auto suffix = QFileInfo(path).suffix();
-    constexpr std::array PROJECT_SUFFIXES{"trk", "trz", "motrack"};
-    if (std::ranges::any_of(PROJECT_SUFFIXES,
-                            [&](const char* known) { return suffix.compare(QLatin1StringView(known), Qt::CaseInsensitive) == 0; }))
+    if (isWorkspaceProjectPath(path))
         return LaunchFileKind::Project;
+    const auto suffix = QFileInfo(path).suffix();
     if (!suffix.isEmpty() && QImageReader::supportedImageFormats().contains(suffix.toLower().toLatin1()))
         return LaunchFileKind::Image;
     return LaunchFileKind::Movie;

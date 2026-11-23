@@ -10,7 +10,6 @@
     <message><source>Open &amp;video…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Öppna &amp;video…</translation></message>
     <message><source>Open &amp;images…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Öppna &amp;bilder…</translation></message>
     <message><source>Open project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Öppna projekt</translation></message>
-    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack- och Tracker-projekt (*.motrack *.trk *.trz)</translation></message>
     <message><source>Open video</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Öppna video</translation></message>
     <message><source>Open image sequence</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Öppna bildsekvens</translation></message>
     <message><source>Images (%1)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Bilder (%1)</translation></message>
@@ -117,6 +116,7 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Släpp för att öppna %n fil</numerusform><numerusform>Släpp för att öppna %n filer</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n länk till filer som inte är lokala hoppas över.</numerusform><numerusform>%n länkar till filer som inte är lokala hoppas över.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Vissa begärda filer öppnades med begränsningar.</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack- och Tracker-projekt (*.motrack *.trk *.trz *.zip)</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
@@ -326,6 +326,7 @@
     <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -336,6 +337,7 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Ett medlemsnamn i detta Tracker-arkiv är inte giltig UTF-8-text, så arkivet kan inte öppnas. Tracker kan inte heller öppna det.</translation></message>
+    <message><source>This archive contains no Tracker project (.trk file), so it is not a Tracker experiment.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>motrack::QtCameraSource</name>

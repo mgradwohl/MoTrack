@@ -7,6 +7,7 @@
 #include "paired_save.hpp"
 #include "position_plot.hpp"
 #include "track_identity.hpp"
+#include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 #include "video_canvas.hpp"
 #include "video_reader.hpp"
@@ -82,6 +83,17 @@ QString physicalSourcePath(const QString& path)
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
 }
+
+/// Where choosing a Tracker destination starts: the current standard destination or, for a `.zip` experiment that has
+/// none, a `.trz` with the same name beside it. Tracker never writes into the `.zip` and exports archives as `.trz` (#224).
+QString initialTrackerPath(const QString& standard, const QString& source)
+{
+    if (!standard.isEmpty() || !isTrackerZipPath(source))
+        return standard;
+    const QFileInfo zip(source);
+    return zip.dir().filePath(zip.completeBaseName() + ".trz");
+}
+
 bool isLinkedMediaDocument(const WorkspaceDocument& document)
 {
     if (!document.trackerSource || document.archivePayload || document.archiveMember || !document.archiveReference.empty() ||
@@ -1819,6 +1831,14 @@ bool MainWindow::saveCurrentWorkspace()
 {
     if (viewRequiresPairedSave() || (m_Workspace && !viewStandardSavePath().isEmpty()))
         return saveTrackerWithRecoveryPrompt(viewStandardSavePath());
+    // A .zip experiment saves as a Tracker pair like any other Tracker input, but never into the .zip: the first save
+    // chooses a .trz, which later saves update (#224).
+    if (m_Workspace && isTrackerZipPath(viewSourcePath()))
+    {
+        statusBar()->showMessage(tr("Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.")
+                                     .arg(QFileInfo(viewSourcePath()).fileName()));
+        return chooseTrackerPath();
+    }
     return viewNativeSavePath().isEmpty() ? chooseWorkspacePath() : saveWorkspace(viewNativeSavePath());
 }
 
@@ -1938,7 +1958,7 @@ bool MainWindow::chooseTrackerPath()
     const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
     const auto path = chooseSaveFile(this,
                                      tr("Save Tracker project and MoTrack companion"),
-                                     viewStandardSavePath(),
+                                     initialTrackerPath(viewStandardSavePath(), viewSourcePath()),
                                      archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"),
                                      suffix);
     if (!path || checkpoint.identity != viewCheckpoint().identity)

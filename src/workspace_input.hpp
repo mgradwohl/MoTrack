@@ -35,10 +35,15 @@ struct PreparedWorkspaceInput
     std::optional<std::vector<TabsetItem>> tabset{};
 };
 
-/// Read a local .trk, .trz or .motrack with bounded archive/native readers and cancellation boundaries.
+/// Whether prepareWorkspaceInput reads @p path as a project, decided by its suffix in any letter case: `.trk`,
+/// `.motrack`, or a Tracker archive (`.trz`, or a `.zip`, which Tracker opens like a `.trz`, #224). Other files are media.
+[[nodiscard]] bool isWorkspaceProjectPath(const QString& path);
+
+/// Read a local .trk, .trz, .zip or .motrack with bounded archive/native readers and cancellation boundaries.
+/// A .zip is read exactly as a .trz, and its group has no standard save target (isTrackerZipPath).
 /// Never changes a live registry. An archive opens when at least one project is readable. A project
-/// that fails to import or uses an unsafe member name is reported instead; an unsafe project name,
-/// invalid media and malformed native files reject the entire source.
+/// that fails to import or uses an unsafe member name is reported instead; an archive without a project,
+/// an unsafe project name, invalid media and malformed native files reject the entire source.
 /// Legacy standalone native archive companions stay standalone; no member association is invented.
 /// A tabset .trk is expanded against its directory and the process working directory, not opened.
 /// This adapter probes/indexes available movies off the owner thread, including members without views.

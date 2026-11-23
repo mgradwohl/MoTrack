@@ -7,17 +7,22 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QDialog>
+#include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLocale>
 #include <QPushButton>
 #include <QScopeGuard>
 #include <QSemaphore>
+#include <QSignalSpy>
 #include <QSlider>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QToolButton>
 #include <gtest/gtest.h>
 
@@ -209,6 +214,119 @@ TEST(BoundWorkspace, HiddenArchiveMemberEditsAndUndoSurviveViewDestructionAndWho
     EXPECT_DOUBLE_EQ(workspace->session().project(source.documents[0]).pointMasses.front().mass, 8);
     ASSERT_TRUE(second.saveTrackerProject(standard));
     EXPECT_DOUBLE_EQ(motrack::readArchiveGroup(native).members[0].document.project.pointMasses.front().mass, 8);
+}
+
+QByteArray fileBytes(const QString& path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+
+/// The same name in the same folder, comparing folders by identity (the file dialog may resolve links, as on macOS).
+bool sameFolderAndName(const QString& path, const QString& expected)
+{
+    const QFileInfo actual(path);
+    const QFileInfo wanted(expected);
+    return actual.fileName() == wanted.fileName() &&
+           QFileInfo(actual.absolutePath()).canonicalFilePath() == QFileInfo(wanted.absolutePath()).canonicalFilePath();
+}
+
+TEST(BoundWorkspace, ZipExperimentsSaveToANewTrzPairAndNeverReplaceTheZip)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto zip = temporary.filePath("Library Lab.zip");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), zip));
+    const auto original = fileBytes(zip);
+    auto workspace = std::make_shared<motrack::WorkspaceContext>();
+    QSignalSpy opened(workspace.get(), &motrack::WorkspaceContext::inputOpened);
+    ASSERT_TRUE(workspace->openProject(zip));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !opened.empty(); }, 5000));
+    const auto documents = opened.front()[2].value<QList<QUuid>>();
+    ASSERT_EQ(documents.size(), 2);
+    auto& session = workspace->session();
+    ASSERT_EQ(session.document(documents[0]).archiveMember, "experiment.trk");
+    const auto source = session.sourceId(documents[0]);
+    EXPECT_EQ(session.sourcePath(source), QFileInfo(zip).absoluteFilePath());
+    EXPECT_TRUE(session.standardSavePath(source).isEmpty());
+    EXPECT_TRUE(session.nativeSavePath(source).isEmpty());
+    motrack::MainWindow view(workspace, documents[0]);
+    ASSERT_TRUE(editMass(view, 6));
+    // Tracker never writes into a .zip, and neither does MoTrack, even when the .zip is named as the destination.
+    EXPECT_FALSE(view.saveTrackerProject(zip));
+    EXPECT_EQ(fileBytes(zip), original);
+
+    // Save asks for a Tracker archive and its companion, offering a .trz with the .zip's name beside it, as Tracker's
+    // archive export always writes .trz.
+    auto* save = view.findChild<QAction*>("saveProject");
+    ASSERT_NE(save, nullptr);
+    const auto trz = temporary.filePath("Library Lab.trz");
+    QStringList offered;
+    QTimer poll;
+    QObject::connect(&poll,
+                     &QTimer::timeout,
+                     &view,
+                     [&]
+                     {
+                         auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                         if (!dialog)
+                             return;
+                         offered = dialog->selectedFiles();
+                         if (offered.size() == 1 && sameFolderAndName(offered.front(), trz))
+                             QMetaObject::invokeMethod(dialog, "accept");
+                     });
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &view,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    poll.start(10);
+    watchdog.start(10000);
+    save->trigger();
+    poll.stop();
+    watchdog.stop();
+    ASSERT_EQ(offered.size(), 1);
+    EXPECT_TRUE(sameFolderAndName(offered.front(), trz)) << offered.front().toStdString();
+    EXPECT_FALSE(view.isWindowModified());
+    EXPECT_EQ(fileBytes(zip), original);
+    EXPECT_EQ(QFileInfo(session.standardSavePath(source)).canonicalFilePath(), QFileInfo(trz).canonicalFilePath());
+    const auto companion = temporary.filePath("Library Lab.motrack");
+    EXPECT_EQ(QFileInfo(session.nativeSavePath(source)).canonicalFilePath(), QFileInfo(companion).canonicalFilePath());
+
+    // Later saves update that pair without asking again.
+    ASSERT_TRUE(editMass(view, 7));
+    int asked = 0;
+    QTimer refuse;
+    QObject::connect(&refuse,
+                     &QTimer::timeout,
+                     &view,
+                     [&]
+                     {
+                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                         {
+                             ++asked;
+                             dialog->reject();
+                         }
+                     });
+    refuse.start(10);
+    save->trigger();
+    refuse.stop();
+    EXPECT_EQ(asked, 0);
+    EXPECT_FALSE(view.isWindowModified());
+    EXPECT_EQ(fileBytes(zip), original);
+    const auto standard = motrack::TrackerArchive::open(trz);
+    EXPECT_EQ(standard.projects(), (QStringList{"experiment.trk", "second.trk"}));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(standard.projectPath("experiment.trk")).project.pointMasses.front().mass, 7);
+    // The companion embeds the original .zip bytes and reopens with the edit.
+    const auto native = motrack::readArchiveGroup(companion);
+    EXPECT_EQ(native.archive->sourceDigest(), QCryptographicHash::hash(original, QCryptographicHash::Sha256));
+    ASSERT_EQ(native.members.size(), 2u);
+    EXPECT_DOUBLE_EQ(native.members[0].document.project.pointMasses.front().mass, 7);
 }
 
 TEST(BoundWorkspace, RejectsDuplicateEditorsAndKeepsRecordsAfterLastViewReleasesTheWorkspace)

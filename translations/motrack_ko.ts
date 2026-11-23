@@ -10,7 +10,6 @@
     <message><source>Open &amp;video…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">비디오 열기(&amp;V)…</translation></message>
     <message><source>Open &amp;images…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이미지 열기(&amp;I)…</translation></message>
     <message><source>Open project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">프로젝트 열기</translation></message>
-    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack 및 Tracker 프로젝트 (*.motrack *.trk *.trz)</translation></message>
     <message><source>Open video</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">비디오 열기</translation></message>
     <message><source>Open image sequence</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이미지 시퀀스 열기</translation></message>
     <message><source>Images (%1)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이미지 (%1)</translation></message>
@@ -117,6 +116,7 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>놓아서 파일 %n개 열기</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>로컬이 아닌 파일에 대한 링크 %n개를 건너뜁니다.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">요청한 파일 중 일부를 제한된 상태로 열었습니다.</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack 및 Tracker 프로젝트 (*.motrack *.trk *.trz *.zip)</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
@@ -326,6 +326,7 @@
     <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -336,6 +337,7 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이 Tracker 아카이브의 멤버 이름이 올바른 UTF-8 텍스트가 아니므로 아카이브를 열 수 없습니다. Tracker에서도 열 수 없습니다.</translation></message>
+    <message><source>This archive contains no Tracker project (.trk file), so it is not a Tracker experiment.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>motrack::QtCameraSource</name>

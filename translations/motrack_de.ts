@@ -195,6 +195,7 @@
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>PositionPlot</name>
@@ -325,11 +326,6 @@
         <source>Open project</source>
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Projekt öffnen</translation>
-    </message>
-    <message>
-        <source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source>
-        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
-        <translation type="unfinished">MoTrack- und Tracker-Projekte (*.motrack *.trk *.trz)</translation>
     </message>
     <message>
         <source>Open video</source>
@@ -762,6 +758,11 @@
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Einige angeforderte Dateien wurden nur eingeschränkt geöffnet.</translation>
     </message>
+    <message>
+        <source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">MoTrack- und Tracker-Projekte (*.motrack *.trk *.trz *.zip)</translation>
+    </message>
 </context>
 
 <context>
@@ -1058,5 +1059,6 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Ein Mitgliedsname in diesem Tracker-Archiv ist kein gültiger UTF-8-Text, daher kann das Archiv nicht geöffnet werden. Tracker kann es ebenfalls nicht öffnen.</translation></message>
+    <message><source>This archive contains no Tracker project (.trk file), so it is not a Tracker experiment.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

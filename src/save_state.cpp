@@ -16,6 +16,8 @@ void SaveState::reset(const QString& source, DocumentSourceKind kind)
     m_Identity = std::move(identity);
     m_SourcePath = path;
     m_NativeSavePath = native;
+    // A Tracker .zip source gets no standard target. Tracker never writes into it and exports archives as .trz, so
+    // its first paired save chooses a .trz destination and the .zip stays untouched (#224).
     m_StandardSavePath = kind == DocumentSourceKind::Project &&
                                  (source.endsWith(".trk", Qt::CaseInsensitive) || source.endsWith(".trz", Qt::CaseInsensitive))
                              ? path

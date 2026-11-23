@@ -267,8 +267,10 @@ Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 
 Command-line arguments, drops and macOS `QFileOpenEvent`s all call `WorkspaceWindow::openFiles`, which
 uses the same context entry points as the menus. `launchFileKind` routes by suffix on the owner thread:
-`.trk`/`.trz`/`.motrack` in any case are projects, suffixes Qt can read are one-image sequences with
-unknown timing, and every other file is a movie whose indexer reports unsupported formats.
+`.trk`/`.trz`/`.zip`/`.motrack` in any case are projects (`isWorkspaceProjectPath`, which tabsets and the
+corpus probe use too), suffixes Qt can read are one-image sequences with unknown timing, and every other file
+is a movie whose indexer reports unsupported formats. A `.zip` is a Tracker experiment archive, as in Tracker
+([#224](https://github.com/mgradwohl/MoTrack/issues/224)); the declared desktop types leave `.zip` unclaimed.
 
 - **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
   while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
