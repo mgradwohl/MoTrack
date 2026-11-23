@@ -7,8 +7,11 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <numbers>
 #include <optional>
+#include <random>
 #include <span>
 #include <string>
 #include <utility>
@@ -817,6 +820,79 @@ TEST(CurveFit, CorrectedKeepsAnUnimprovableStartWithoutUncertainties)
     EXPECT_EQ(result.uncertainties, (std::vector<double>{0, 0}));
     EXPECT_EQ(result.uncertaintyStatus, (std::vector<UncertaintyStatus>{UncertaintyStatus::Undetermined, UncertaintyStatus::Undetermined}));
     EXPECT_TRUE(result.uncertaintyBand.empty());
+}
+
+/// Gaussian noise of standard deviation `sigma` by Box-Muller from mt19937_64, whose output (unlike
+/// std::normal_distribution's) is the same with every standard library.
+std::vector<double> gaussianNoise(std::vector<double> y, double sigma, std::uint64_t seed)
+{
+    std::mt19937_64 generator(seed);
+    const auto uniform = [&generator]
+    {
+        return static_cast<double>((generator() >> 11U) + 1) * 0x1.0p-53; // (0, 1]
+    };
+    for (double& value : y)
+    {
+        const double radius = std::sqrt(-2 * std::log(uniform()));
+        value += sigma * radius * std::cos(2 * std::numbers::pi * uniform());
+    }
+    return y;
+}
+
+/// Sinusoid parameters with a positive amplitude and the phase in [-pi, pi).
+std::vector<double> canonicalSine(std::vector<double> p)
+{
+    if (p[0] < 0)
+    {
+        p[0] = -p[0];
+        p[2] += std::numbers::pi;
+    }
+    p[2] -= 2 * std::numbers::pi * std::floor((p[2] + std::numbers::pi) / (2 * std::numbers::pi));
+    return p;
+}
+
+TEST(CurveFit, CorrectedSineGuessIgnoresNoiseCrossings)
+{
+    // Tracker's from-scratch guess counts every zero crossing about the mid-range, so noise on dense data adds
+    // crossings, the frequency guess is several times too high, and the fit ends at a local minimum (#310).
+    // Expected values are the generating parameters (0.8, 3, 0.4, -0.2) on x = 0 ... 10, within a few
+    // least-squares standard errors.
+    const std::vector<double> truth = {0.8, 3, 0.4, -0.2};
+    const FitFunction sine = builtInFit(BuiltInFit::Sinusoid);
+    struct Case
+    {
+        std::size_t points;
+        double sigma;
+        std::uint64_t seed;
+        bool tracker;
+    };
+    // 500 points with Gaussian noise at an amplitude signal-to-noise ratio of 10, and the issue's dense example
+    // (Tracker's guess there is B = 5.1, its fit rms 0.57; not rerun here, it takes most of this test's time).
+    for (const Case& c : {Case{.points = 500, .sigma = 0.08, .seed = 310, .tracker = true},
+                          Case{.points = 10000, .sigma = 0.005, .seed = 311, .tracker = false}})
+    {
+        SCOPED_TRACE(c.points);
+        const auto x = grid(0, 10.0 / static_cast<double>(c.points - 1), c.points);
+        const auto y = gaussianNoise(evaluate(sine, truth, x), c.sigma, c.seed);
+        if (c.tracker)
+        {
+            // Tracker ends at A = 0.061, B = 5.75 with rms 0.58, reported as Fitted with estimated uncertainties.
+            const FitResult tracker = fitCurve(sine, x, y, options(FitDialect::Tracker));
+            EXPECT_EQ(tracker.status, FitStatus::Fitted);
+            EXPECT_GT(std::abs(tracker.parameters[1] - truth[1]), 1.0);
+            EXPECT_GT(tracker.rmsDeviation, 3 * c.sigma);
+        }
+        const FitResult corrected = fitCurve(sine, x, y, options(FitDialect::Corrected));
+        EXPECT_EQ(corrected.status, FitStatus::Fitted);
+        const std::vector<double> fitted = canonicalSine(corrected.parameters);
+        // Standard errors at 500 points: about 0.005 (A, D), 0.0015 (B) and 0.01 (C).
+        EXPECT_NEAR(fitted[0], truth[0], 0.03);
+        EXPECT_NEAR(fitted[1], truth[1], 0.01);
+        EXPECT_NEAR(fitted[2], truth[2], 0.05);
+        EXPECT_NEAR(fitted[3], truth[3], 0.03);
+        EXPECT_NEAR(corrected.rmsDeviation, c.sigma, 0.1 * c.sigma);
+        EXPECT_EQ(corrected.uncertaintyStatus, std::vector<UncertaintyStatus>(4, UncertaintyStatus::Estimated));
+    }
 }
 
 TEST(CurveFit, SubstitutionCollisions)

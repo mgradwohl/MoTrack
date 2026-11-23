@@ -243,6 +243,66 @@ void sineGuess(const SortedData& data, std::vector<double>& params)
     params[2] = positiveSlope ? -phaseToFirstCrossing : PI - phaseToFirstCrossing;
 }
 
+/// A crossing of the offset counts only once the data move from beyond one threshold to beyond the other.
+constexpr double HYSTERESIS = 0.3;
+
+/// Corrected: Tracker's offset and amplitude, with frequency and phase from crossings counted with hysteresis
+/// at +-0.3 of the half range around the offset. Tracker counts every sign change, so noise on dense data adds
+/// crossings near each true one and the frequency guess is several times too high (MoTrack #310). A crossing
+/// lies at the mean of the first and last sign change between the thresholds; a crossing before the data
+/// first pass a threshold is not counted. Without two crossings the frequency falls back to Tracker's rule.
+void hysteresisSineGuess(const SortedData& data, std::vector<double>& params)
+{
+    const std::size_t count = data.x.size();
+    params[3] = (data.minimum + data.maximum) / 2;
+    params[0] = (data.maximum - data.minimum) / 2;
+    const double threshold = HYSTERESIS * params[0];
+    int side = 0;
+    std::optional<double> firstChange;
+    double lastChange = 0;
+    int crossings = 0;
+    double firstCrossing = 0;
+    double lastCrossing = 0;
+    bool positiveSlope = true;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const double shifted = data.y[i] - params[3];
+        if (i > 0)
+        {
+            const double previous = data.y[i - 1] - params[3];
+            if ((previous > 0) != (shifted > 0))
+            {
+                lastChange = data.x[i] - ((shifted / (shifted - previous)) * (data.x[i] - data.x[i - 1]));
+                firstChange = firstChange.value_or(lastChange);
+            }
+        }
+        const int beyond = shifted > threshold ? 1 : shifted < -threshold ? -1 : 0;
+        if (beyond == 0)
+        {
+            continue;
+        }
+        if (side != 0 && beyond != side && firstChange)
+        {
+            const double crossing = (*firstChange / 2) + (lastChange / 2);
+            ++crossings;
+            if (crossings == 1)
+            {
+                firstCrossing = crossing;
+                positiveSlope = beyond > 0;
+            }
+            lastCrossing = crossing;
+        }
+        side = beyond;
+        firstChange.reset();
+    }
+    const double xMinimum = data.x.front();
+    const double xMaximum = data.x.back();
+    params[1] = crossings > 1 ? (PI * static_cast<double>(crossings - 1)) / (lastCrossing - firstCrossing)
+                              : (PI * static_cast<double>(std::max(1, crossings))) / (xMaximum - xMinimum);
+    const double phaseToFirstCrossing = crossings > 0 ? params[1] * firstCrossing : 0;
+    params[2] = positiveSlope ? -phaseToFirstCrossing : PI - phaseToFirstCrossing;
+}
+
 /// Offset from three points equally spaced in x, then rate and magnitude through the end points.
 void exponentialGuess(const SortedData& data, std::vector<double>& params)
 {
@@ -480,7 +540,14 @@ initialGuess(BuiltInFit kind, std::span<const double> x, std::span<const double>
     {
     case BuiltInFit::Sinusoid:
     case BuiltInFit::DampedSine:
-        sineGuess(data, params);
+        if (dialect == FitDialect::Tracker)
+        {
+            sineGuess(data, params);
+        }
+        else
+        {
+            hysteresisSineGuess(data, params);
+        }
         break;
     case BuiltInFit::Exponential:
         exponentialGuess(data, params);
