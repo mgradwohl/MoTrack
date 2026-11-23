@@ -152,8 +152,10 @@ class Curve
         m_Values = std::move(values);
     }
 
-    /// f(x); `undefined` becomes true when a UserFunction evaluated to NaN (OSP returns 0 then).
-    [[nodiscard]] double value(double x, bool& undefined) const
+    /// f(x); `undefined` becomes true when a UserFunction evaluated to NaN (OSP returns 0 then). OSP passes an
+    /// infinity through as a value, so log(0) or an overflowing exp gives an infinite deviation; Corrected
+    /// treats it as undefined, like NaN (MoTrack #311).
+    [[nodiscard]] double value(double x, bool& undefined, FitDialect dialect) const
     {
         if (m_KnownPolynomial)
         {
@@ -161,7 +163,7 @@ class Curve
             return evaluatePolynomial(m_Coefficients, x);
         }
         const double result = m_Function->model(x, m_Values);
-        if (std::isnan(result))
+        if (std::isnan(result) || (dialect == FitDialect::Corrected && std::isinf(result)))
         {
             undefined = true;
             return 0.0;
@@ -225,14 +227,15 @@ struct Session
     }
 };
 
-/// getDevSquared: the sum of squared deviations, or NaN when a UserFunction evaluated to NaN.
+/// getDevSquared: the sum of squared deviations, or NaN when a UserFunction evaluated to NaN (Corrected:
+/// or to an infinity).
 double deviationSquared(const Curve& curve, Session& session)
 {
     bool undefined = false;
     double total = 0;
     for (std::size_t i = 0; i < session.points.size(); ++i)
     {
-        const double next = curve.value(session.points.x[i], undefined);
+        const double next = curve.value(session.points.x[i], undefined, session.dialect);
         const double deviation = next - session.points.y[i];
         total += deviation * deviation;
     }
@@ -283,7 +286,7 @@ UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Sess
         double sum = 0.0;
         for (std::size_t i = 0; i < points.size(); ++i)
         {
-            const double deviation = points.y[i] - curve.value(points.x[i], undefined);
+            const double deviation = points.y[i] - curve.value(points.x[i], undefined, session.dialect);
             sum += deviation * deviation;
         }
         return session.corrected() && undefined ? NOT_A_NUMBER : sum;

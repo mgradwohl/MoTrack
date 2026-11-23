@@ -28,7 +28,8 @@ enum class FitDialect : std::uint8_t
 ///
 /// The callback runs synchronously on the fitting thread, many times per fit. It reports an undefined
 /// value with NaN rather than throwing. Like OSP's `UserFunction`, the fitter treats a NaN value as 0 while
-/// minimizing and as a "non-real value" when measuring the deviation. An exception propagates out of
+/// minimizing and as a "non-real value" when measuring the deviation. OSP passes an infinity through as a
+/// value; the Corrected dialect treats it as undefined, like NaN. An exception propagates out of
 /// `fitCurve`, which has no side effects. Slice I4 binds user-defined fits to the K1 expression engine by
 /// compiling the expression over the variables {x, parameters...} and evaluating it here.
 using FitModel = std::function<double(double x, std::span<const double> parameters)>;
@@ -158,7 +159,8 @@ enum class FitStatus : std::uint8_t
     NothingToFit,
     /// Fewer valid points than free parameters: the values are unchanged.
     TooFewPoints,
-    /// The function is undefined (NaN) at a valid point for the starting values, so Tracker skips the fit.
+    /// The function is undefined (NaN; Corrected: also infinite) at a valid point for the starting values, so
+    /// the fit is skipped.
     UndefinedAtStart,
     /// A polynomial without a unique fit. Corrected: fewer distinct x values than coefficients (the values
     /// are unchanged). Tracker: the normal equations were singular, keeping or giving non-finite values.
@@ -216,7 +218,8 @@ struct FitResult
     /// Valid points used: Tracker drops NaN y (and, through `Dataset.append`, NaN or infinite x and
     /// infinite y while repeating its last points); Corrected drops every point with a non-finite value.
     std::size_t points = 0;
-    /// Tracker's "The function returns non-real values over this range" warning.
+    /// Tracker's "The function returns non-real values over this range" warning: a NaN value at a valid
+    /// point (Corrected: NaN or infinite).
     bool nonRealValues = false;
 };
 

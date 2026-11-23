@@ -572,6 +572,36 @@ TEST(CurveFit, CorrectedNeverFitsIntoUndefinedValues)
     EXPECT_DOUBLE_EQ(corrected.rmsDeviation, std::sqrt(sum / static_cast<double>(x.size())));
 }
 
+TEST(CurveFit, CorrectedTreatsInfiniteValuesAsUndefined)
+{
+    // From (1, 100, 0), exp(100 x) overflows to +inf for x > 7.1, so the start is undefined at the last six
+    // points. OSP passes the infinity through: Tracker minimizes from an infinite deviation, cannot leave it,
+    // and reports a fit with an infinite rms and no warning. Corrected treats +inf like NaN (#311).
+    const auto x = grid(0, 0.5, 21);
+    FitFunction exponential = builtInFit(BuiltInFit::Exponential);
+    const auto y = wiggle(evaluate(exponential, std::vector<double>{1.5, -0.3, 0.2}, x), 0.01);
+    exponential = withValues(exponential, std::vector<double>{1, 100, 0});
+    ASSERT_TRUE(std::isinf(exponential.model(x.back(), std::vector<double>{1, 100, 0})));
+    const FitResult tracker = fitCurve(exponential, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_EQ(tracker.status, FitStatus::Fitted);
+    EXPECT_TRUE(std::isinf(tracker.rmsDeviation));
+    EXPECT_FALSE(tracker.nonRealValues);
+    const FitResult corrected = fitCurve(exponential, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(corrected.status, FitStatus::UndefinedAtStart);
+    EXPECT_EQ(corrected.method, FitMethod::None);
+    EXPECT_TRUE(corrected.nonRealValues);
+    EXPECT_TRUE(std::isnan(corrected.rmsDeviation));
+    EXPECT_EQ(corrected.parameters, (std::vector<double>{1, 100, 0}));
+    EXPECT_TRUE(corrected.uncertainties.empty());
+    // A start defined everywhere fits the same data; the minimizers reject the vectors that overflow.
+    const FitResult fitted =
+        fitCurve(withValues(exponential, std::vector<double>{1, -1, 0}), x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(fitted.status, FitStatus::Fitted);
+    EXPECT_FALSE(fitted.nonRealValues);
+    EXPECT_TRUE(std::isfinite(fitted.rmsDeviation));
+    expectNear(std::vector<double>{1.5, -0.3, 0.2}, fitted.parameters, 0.05);
+}
+
 /// Gauss-Newton least squares for A*exp(B*x)+C, solving the 3x3 normal equations by Cramer's rule.
 std::vector<double> exponentialLeastSquares(std::span<const double> x, std::span<const double> y, std::vector<double> p)
 {
