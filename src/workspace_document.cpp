@@ -744,6 +744,23 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         result.movieTimeBase = {.numerator = integer(parts.at(0), 1), .denominator = integer(parts.at(1), 1)};
         require(!result.movieFrameTimes.empty());
     }
+    // Optional since #335: [numerator, denominator] of the precision inferred for the timestamps, beside the time
+    // base. As inferred, it is at least the tick and at most max(tick, 1 ms). Older documents leave it unknown, and
+    // the tick then applies.
+    if (const auto precision = input.value("movieTimestampPrecision"); !precision.isUndefined() && !precision.isNull())
+    {
+        const auto parts = array(precision, 2);
+        auto& timeBase = result.movieTimeBase;
+        timeBase.precisionNumerator = integer(parts.at(0), 1);
+        timeBase.precisionDenominator = integer(parts.at(1), 1);
+        require(timeBase.known());
+        // Compare p = pn / pd with the tick n / d and with 1/1000 s in 64-bit integers (each product is below 2^62).
+        const auto precisionTimesDenominator = std::int64_t{timeBase.precisionNumerator} * timeBase.denominator;
+        const auto tickTimesPrecisionDenominator = std::int64_t{timeBase.numerator} * timeBase.precisionDenominator;
+        require(precisionTimesDenominator >= tickTimesPrecisionDenominator &&
+                (precisionTimesDenominator == tickTimesPrecisionDenominator ||
+                 std::int64_t{timeBase.precisionNumerator} * 1000 <= timeBase.precisionDenominator));
+    }
     if (preserved && (project.lengthUnit.empty() || (!project.clip.frameDurationMs && project.clip.mediaReferences.empty())))
     {
         // Native files written before MoTrack applied Tracker's loader defaults (#214) stored the unset values
@@ -845,9 +862,10 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
     {
         frameTimes.append(time);
     }
-    // The time base describes the frame times, so it is written only with them.
+    // The time base describes the frame times, so it is written only with them, and the precision only with it.
     const auto& timeBase = document.movieTimeBase;
     const bool writeTimeBase = timeBase.known() && !document.movieFrameTimes.empty();
+    const bool writePrecision = writeTimeBase && timeBase.precisionKnown();
     const QJsonObject clipObject{{"firstFrame", clip.firstFrame},
                                  {"stepSize", clip.stepSize},
                                  {"stepCount", clip.stepCount ? QJsonValue(*clip.stepCount) : QJsonValue::Null},
@@ -878,6 +896,8 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
         {"archiveMember", document.archiveMember ? QJsonValue(QString::fromStdString(*document.archiveMember)) : QJsonValue::Null},
         {"movieFrameTimes", frameTimes},
         {"movieTimeBase", writeTimeBase ? QJsonValue(QJsonArray{timeBase.numerator, timeBase.denominator}) : QJsonValue::Null},
+        {"movieTimestampPrecision",
+         writePrecision ? QJsonValue(QJsonArray{timeBase.precisionNumerator, timeBase.precisionDenominator}) : QJsonValue::Null},
         {"clip", clipObject}};
 }
 

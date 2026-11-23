@@ -611,7 +611,9 @@ def file_tail(file, limit):
 
 
 @contextmanager
-def private_display():
+def private_display(*, abstract_socket=False):
+    """Start and own a private Xvfb display. `abstract_socket` adds `-nolisten unix`, so the server listens only on
+    Linux's abstract socket: WSLg mounts /tmp/.X11-unix read-only, where the default server never becomes ready."""
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     executable = shutil.which("Xvfb")
@@ -630,8 +632,8 @@ def private_display():
         try:
             try:
                 server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
-                                           "-nolisten", "tcp"], pass_fds=(writer,),
-                                          stdout=subprocess.DEVNULL, stderr=log)
+                                           "-nolisten", "tcp", *(["-nolisten", "unix"] if abstract_socket else [])],
+                                          pass_fds=(writer,), stdout=subprocess.DEVNULL, stderr=log)
             finally:
                 os.close(writer)
             # A cold start on a loaded runner can exceed a few seconds; a healthy server answers at once.
@@ -2812,7 +2814,7 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
           "resaved byte for byte by MoTrack; MoTrack's edited tabset reopened with every tab by Tracker)")
 
 
-def check_sessions(manifest, cache, java, probe=None):
+def check_sessions(manifest, cache, java, probe=None, *, abstract_socket=False):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     modes = [("linked-movie", "native_linked_movie_roundtrip"),
@@ -2889,7 +2891,8 @@ def check_sessions(manifest, cache, java, probe=None):
     javac = java_path.with_name("javac")
     reports = cache / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary, private_display() as display:
+    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary, \
+            private_display(abstract_socket=abstract_socket) as display:
         root = Path(temporary)
         classes = root / "classes"
         classes.mkdir()
@@ -4250,7 +4253,7 @@ def tracker_state_input(case, cache, directory):
     return isolated, case["project_member"]
 
 
-def check_state_oracle(manifest, cache, java, *, record=False):
+def check_state_oracle(manifest, cache, java, *, record=False, abstract_socket=False):
     """Dump Tracker's loaded state for every corpus case and diff it with the committed dumps (O3/O4)."""
     if sys.platform != "linux":
         raise ValueError("The Tracker state oracle requires Linux with Xvfb (it uses the application loader)")
@@ -4264,7 +4267,8 @@ def check_state_oracle(manifest, cache, java, *, record=False):
         shutil.rmtree(generated)
     generated.mkdir(parents=True)
     dumps, errors, failures, compared, bounded = {}, {}, [], 0, []
-    with tempfile.TemporaryDirectory(prefix="state-", dir=cache) as temporary, private_display() as display:
+    with tempfile.TemporaryDirectory(prefix="state-", dir=cache) as temporary, \
+            private_display(abstract_socket=abstract_socket) as display:
         root = Path(temporary)
         classes = root / "classes"
         classes.mkdir()
@@ -5783,6 +5787,9 @@ def main():
     parser.add_argument("--redownload", action="store_true", help="discover-library: re-pin every file instead of reusing verified ones")
     parser.add_argument("--check", action="store_true", help="library-census: compare with the committed census instead of writing it")
     parser.add_argument("--jobs", type=int, default=1, help="library-census: experiments processed concurrently (local only)")
+    parser.add_argument("--xvfb-abstract-socket", action="store_true",
+                        help="session/roundtrip/state-oracle: the private Xvfb listens only on its abstract socket "
+                             "(-nolisten unix), for hosts such as WSLg whose /tmp/.X11-unix is read-only")
     args = parser.parse_args()
     if args.record and args.command not in {"reference", "state-oracle", "state-check"} and args.command not in KERNEL_ORACLES:
         parser.error("--record is only valid for the reference, state-oracle and state-check commands and the kernel oracles")
@@ -5802,6 +5809,8 @@ def main():
         parser.error("--redownload is only valid for discover-library")
     if (args.check or args.jobs != 1) and args.command != "library-census":
         parser.error("--check and --jobs are only valid for library-census")
+    if args.xvfb_abstract_socket and args.command not in {"session", "roundtrip", "state-oracle"}:
+        parser.error("--xvfb-abstract-socket is only valid for the session, roundtrip and state-oracle commands")
     if args.command in LIBRARY_COMMANDS:
         # The library module reuses this module's helpers; share one instance when run as a script.
         sys.modules.setdefault("corpus", sys.modules[__name__])
@@ -5812,7 +5821,7 @@ def main():
     manifest = load_manifest()
     cache = args.cache.resolve()
     if args.command == "state-oracle":
-        check_state_oracle(manifest, cache, args.java, record=args.record)
+        check_state_oracle(manifest, cache, args.java, record=args.record, abstract_socket=args.xvfb_abstract_socket)
     elif args.command == "state-check":
         check_state_native(manifest, cache, args.probe, record=args.record)
     elif args.command == "state-diff":
@@ -5824,7 +5833,8 @@ def main():
     elif args.command in KERNEL_ORACLES:
         globals()[KERNEL_ORACLES[args.command]](manifest, cache, args.java, record=args.record)
     elif args.command in {"session", "roundtrip"}:
-        check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+        check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None,
+                       abstract_socket=args.xvfb_abstract_socket)
     elif args.command == "xml-oracle":
         check_xml_oracle(manifest, cache, args.java, args.probe, args.reports, args.o2_only)
     elif args.command == "library-oracle":

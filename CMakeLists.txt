@@ -88,7 +88,7 @@ target_compile_options(motrack_expression PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
 # Qt-free ports of Tracker's point-mass derivatives and motion filters (docs/motion-kernels.md).
 add_library(motrack_motion STATIC src/science/motion/motion_derivatives.cpp src/science/motion/bounce_derivatives.cpp
-    src/science/motion/motion_filters.cpp src/science/motion/numerical_derivative.cpp)
+    src/science/motion/motion_filters.cpp src/science/motion/numerical_derivative.cpp src/science/motion/timestamp_precision.cpp)
 target_include_directories(motrack_motion PUBLIC src)
 target_compile_options(motrack_motion PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 # Java Math semantics shared by the kernels checked against OSP (src/science/java_math.hpp; #263).
@@ -138,7 +138,8 @@ add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp 
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/capture_encoder.cpp src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
-target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
+# The index infers the timestamps' precision with the Qt-free motion kernels (#335).
+target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg motrack_motion)
 
 # Qt-free port of the Data Tool curve fitter and its minimizers (docs/curve-fitting.md).
 add_library(motrack_fit STATIC src/science/fit/curve_fit.cpp src/science/fit/built_in_fits.cpp src/science/fit/fit_format.cpp
@@ -349,7 +350,8 @@ if(BUILD_TESTING)
     set_source_files_properties(tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp
         PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     # Motion kernels: FilterSelfTest, analytic expectations and the Java reference fixture.
-    set(motrack_motion_tests tests/science/filter_self_test.cpp tests/science/motion_kernels_test.cpp tests/science/motion_reference_test.cpp)
+    set(motrack_motion_tests tests/science/filter_self_test.cpp tests/science/motion_kernels_test.cpp tests/science/motion_reference_test.cpp
+        tests/science/timestamp_precision_test.cpp)
     target_sources(motrack_tests PRIVATE ${motrack_motion_tests})
     target_link_libraries(motrack_tests PRIVATE motrack_motion)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_MOTION_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/motion-reference.json")

@@ -4628,6 +4628,34 @@
       "provenance": "Authored by tools/reference/FrameDataFixture.java empty-units mode with checksum-pinned Tracker 6.3.5 serializers; empty time_unit and mass_unit strings are saved through the XMLControl API because 6.3.5's saver writes neither (#315); reproduced byte-for-byte; no MoTrack output used."
     },
     {
+      "id": "finite-derivatives",
+      "local_file": "fixtures/finite-derivatives.trk",
+      "file": "finite-derivatives.trk",
+      "bytes": 9431,
+      "sha256": "e956862952d175accaac19baed133330377ae6dbec207614e3a84d4f25716925",
+      "tracker_version": "6.3.5",
+      "features": [
+        "finite-velocity",
+        "five-point-acceleration",
+        "missing-clip-step",
+        "clip-step-size",
+        "nonzero-start-frame",
+        "clip-start-time",
+        "stepper-frame-duration",
+        "rotated-calibration",
+        "offset-origin",
+        "nonuniform-scale",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R09",
+        "R14"
+      ],
+      "expected": "expected/finite-derivatives.json",
+      "provenance": "Authored by tools/reference/FiniteDerivativesFixture.java with checksum-pinned Tracker 6.3.5 serializers (trailing null elements omitted as TrackerPanel's saver does): a 16-step media-free clip from frame 4 with step size 3, 30 fps and a 400 ms start time, a fixed 30-degree calibration and 15 dyadic marks, quartic in x and cubic in y, with step 8 missing (#332); reproduced byte-for-byte; no MoTrack output used."
+    },
+    {
       "id": "center-of-mass",
       "native_center_name_roundtrip": true,
       "local_file": "fixtures/center-of-mass.trk",
