@@ -1232,6 +1232,7 @@ try
             items.push_back(
                 QJsonObject{{"status", static_cast<int>(std::to_underlying(item.status))},
                             {"file", item.file},
+                            {"member", item.member},
                             {"relative", QString::fromStdString(item.entry.relative)},
                             {"absolute", item.entry.absolute ? QJsonValue(QString::fromStdString(*item.entry.absolute)) : QJsonValue()}});
         QSaveFile output(args[3]);

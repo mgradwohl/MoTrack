@@ -6,6 +6,7 @@
 #include "model/tracker_loaders.hpp"
 #include "osp/render.hpp"
 #include "osp/value.hpp"
+#include "tracker_archive.hpp"
 #include "tracker_import.hpp"
 
 #include <QDir>
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <ranges>
 #include <set>
 #include <utility>
@@ -233,6 +235,57 @@ void editEntry(SourceEdits& edits, const TrackerTabset::EntryNodes& nodes, const
     return path.endsWith(".trk", Qt::CaseInsensitive);
 }
 
+/// The `.trk` member names of each archive one operation looks at, read once per archive.
+class ArchiveMembers
+{
+  public:
+    [[nodiscard]] bool contains(const QString& archive, const QString& member)
+    {
+        auto found = m_Names.find(archive);
+        if (found == m_Names.end())
+            found = m_Names.emplace(archive, trackerArchiveProjectNames(archive)).first;
+        return found->second && found->second->contains(member.normalized(QString::NormalizationForm_C));
+    }
+
+  private:
+    std::map<QString, std::optional<QSet<QString>>> m_Names;
+};
+
+/// The existing target that `slot` names, joined to `base` unless that is empty. ResourceLoader never reads a path
+/// with an archive marker as a plain file, so a slot naming an archive member names that member or nothing.
+[[nodiscard]] std::optional<TabsetTarget> existingTarget(const QString& slot, const QString& base, ArchiveMembers& members)
+{
+    const auto joined = [&](const QString& path)
+    {
+        return base.isEmpty() ? path : QDir(base).filePath(path);
+    };
+    if (const auto named = tabsetArchiveMember(slot.toStdString()))
+    {
+        const auto archive = existingFile(joined(QString::fromStdString(named->archive)));
+        auto member = QString::fromStdString(named->member);
+        if (!archive || !members.contains(*archive, member))
+            return std::nullopt;
+        return TabsetTarget{.file = *archive, .member = std::move(member)};
+    }
+    return existingFile(joined(slot)).transform([](QString file) { return TabsetTarget{.file = std::move(file)}; });
+}
+
+[[nodiscard]] std::optional<TabsetTarget>
+resolveTarget(const TabsetEntry& entry, const QString& tabsetDirectory, const QString& workingDirectory, ArchiveMembers& members)
+{
+    const auto relative = QString::fromStdString(entry.relative);
+    if (!relative.isEmpty() && QDir::isRelativePath(QDir::fromNativeSeparators(relative)))
+    {
+        // java.io.File(parent, child) joins even an absolute child, so only relative slots use these bases.
+        for (const auto& base : {tabsetDirectory, workingDirectory})
+            if (!base.isEmpty())
+                if (auto found = existingTarget(relative, base, members))
+                    return found;
+    }
+    return entry.absolute.and_then([&](const std::string& absolute)
+                                   { return existingTarget(QString::fromStdString(absolute), {}, members); });
+}
+
 class Expansion
 {
   public:
@@ -256,14 +309,24 @@ class Expansion
                 m_Full = true;
                 break;
             }
-            const auto file = resolveTabsetEntry(entry, base, m_WorkingDirectory);
-            if (!file)
+            const auto target = resolveTarget(entry, base, m_WorkingDirectory, m_Members);
+            if (!target)
             {
                 append(entry, tabsetPath, TabsetItemStatus::Missing);
                 continue;
             }
+            const auto* file = &target->file;
             // Canonical keys keep large sets linear; hard-linked aliases may still open separately.
             const auto key = tabsetIdentityKey(*file);
+            if (!target->member.isEmpty())
+            {
+                // A member opens once, and not after its whole archive, which shows every member.
+                if (m_Seen.contains(key) || !m_Seen.insert(tabsetTargetKey(*file, target->member)).second)
+                    append(entry, tabsetPath, TabsetItemStatus::Duplicate);
+                else
+                    append(entry, tabsetPath, TabsetItemStatus::Resolved, *file, {}, target->member);
+                continue;
+            }
             if (std::ranges::find(m_Stack, key) != m_Stack.end())
             {
                 append(entry, tabsetPath, TabsetItemStatus::Cycle);
@@ -313,14 +376,24 @@ class Expansion
             throw ProjectError("Workspace opening canceled.");
     }
 
-    void append(const TabsetEntry& entry, const QString& tabset, TabsetItemStatus status, QString file = {}, std::string diagnostic = {})
+    void append(const TabsetEntry& entry,
+                const QString& tabset,
+                TabsetItemStatus status,
+                QString file = {},
+                std::string diagnostic = {},
+                QString member = {})
     {
-        m_Items.push_back(
-            {.entry = entry, .tabset = tabset, .file = std::move(file), .status = status, .diagnostic = std::move(diagnostic)});
+        m_Items.push_back({.entry = entry,
+                           .tabset = tabset,
+                           .file = std::move(file),
+                           .member = std::move(member),
+                           .status = status,
+                           .diagnostic = std::move(diagnostic)});
     }
 
     QString m_WorkingDirectory;
     const std::atomic_bool* m_Cancelled;
+    ArchiveMembers m_Members;
     std::vector<QString> m_Stack;
     std::set<QString> m_Seen;
     std::vector<TabsetItem> m_Items;
@@ -527,18 +600,49 @@ TabsetEntry tabsetEntry(const QString& file, const QString& tabsetDirectory)
     return {.absolute = absolute.toStdString(), .relative = tabsetRelativePath(absolute, tabsetDirectory).toStdString()};
 }
 
+std::optional<TabsetArchiveMember> tabsetArchiveMember(std::string_view path)
+{
+    // ResourceLoader.isZipEntry: the first "!/" after an archive extension. Tracker writes forward slashes.
+    constexpr std::string_view MARKER = "!/";
+    constexpr std::string_view EXTENSION = ".trz";
+    const auto marker = path.find(MARKER);
+    if (marker == std::string_view::npos || marker < EXTENSION.size() || marker + MARKER.size() == path.size())
+        return std::nullopt;
+    const auto archive = path.substr(0, marker);
+    const auto lower = [](char character)
+    {
+        return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+    };
+    if (!std::ranges::equal(archive.substr(archive.size() - EXTENSION.size()), EXTENSION, {}, lower))
+        return std::nullopt;
+    return TabsetArchiveMember{.archive = std::string(archive), .member = std::string(path.substr(marker + MARKER.size()))};
+}
+
+TabsetEntry tabsetMemberEntry(const QString& archive, const QString& member, const QString& tabsetDirectory)
+{
+    auto entry = tabsetEntry(archive, tabsetDirectory);
+    const auto suffix = "!/" + member.toStdString();
+    entry.relative += suffix;
+    entry.absolute = entry.absolute.value_or(std::string{}) + suffix;
+    return entry;
+}
+
+std::optional<TabsetTarget> resolveTabsetTarget(const TabsetEntry& entry, const QString& tabsetDirectory, const QString& workingDirectory)
+{
+    ArchiveMembers members;
+    return resolveTarget(entry, tabsetDirectory, workingDirectory, members);
+}
+
 std::optional<QString> resolveTabsetEntry(const TabsetEntry& entry, const QString& tabsetDirectory, const QString& workingDirectory)
 {
-    const auto relative = QString::fromStdString(entry.relative);
-    if (!relative.isEmpty() && QDir::isRelativePath(QDir::fromNativeSeparators(relative)))
-    {
-        // java.io.File(parent, child) joins even an absolute child, so only relative slots use these bases.
-        for (const auto& base : {tabsetDirectory, workingDirectory})
-            if (!base.isEmpty())
-                if (auto found = existingFile(QDir(base).filePath(relative)))
-                    return found;
-    }
-    return entry.absolute.and_then([](const std::string& absolute) { return existingFile(QString::fromStdString(absolute)); });
+    return resolveTabsetTarget(entry, tabsetDirectory, workingDirectory)
+        .transform([](TabsetTarget&& target) { return std::move(target.file); });
+}
+
+QString tabsetTargetKey(const QString& canonical, const QString& member)
+{
+    const auto key = tabsetIdentityKey(canonical);
+    return member.isEmpty() ? key : key + "!/" + member.normalized(QString::NormalizationForm_C);
 }
 
 QString tabsetBase(const TrackerTabset& tabset, const QString& tabsetPath)
@@ -573,29 +677,40 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
     QSet<QString> listed;
     for (const auto& file : files)
         listed.insert(tabsetIdentityKey(file));
+    ArchiveMembers members;
     // The file each existing entry names now, in Tracker's search order, and which listed files a nested tabset that
     // is kept opens: those stay represented by the nested tabset's entry instead of getting entries of their own.
     std::vector<QString> named;
+    // The canonical file each entry names now (the archive for a member), and the member; empty when there is none.
+    std::vector<QString> targets;
+    std::vector<QString> memberNames;
     // Whether an entry names a file the user closed: one that has both its name and its identity.
     std::vector<bool> dropped;
     std::vector<bool> nested;
     QSet<QString> throughNested;
+    // Listed archives that entries naming their members stand for.
+    QSet<QString> throughMembers;
     // An entry naming the tabset itself is a cycle, not a nested tabset.
     const auto self = existingFile(tabsetPath).transform(tabsetIdentityKey).value_or(QString{});
     if (existing)
         for (const auto& entry : existing->entries)
         {
-            const auto file = resolveTabsetEntry(entry, base, workingDirectory);
-            const auto keys = file.transform(tabsetFileKeys);
+            const auto target = resolveTarget(entry, base, workingDirectory, members);
+            const auto keys = target.transform([](const TabsetTarget& found) { return tabsetFileKeys(found.file); });
             named.push_back(keys.transform(&TabsetFileKeys::key).value_or(QString{}));
+            const bool member = target && !target->member.isEmpty();
+            targets.push_back(target ? target->file : QString{});
+            memberNames.push_back(member ? target->member : QString{});
             dropped.push_back(keys && std::ranges::contains(closed, *keys));
             nested.push_back(false);
-            if (!file || named.back() == self || !isTrackerXmlFile(*file) || listed.contains(named.back()) || dropped.back() ||
-                !isTrackerTabsetFile(*file))
+            if (member && !dropped.back() && listed.contains(named.back()))
+                throughMembers.insert(named.back());
+            if (!target || member || named.back() == self || !isTrackerXmlFile(target->file) || listed.contains(named.back()) ||
+                dropped.back() || !isTrackerTabsetFile(target->file))
                 continue;
             try
             {
-                for (const auto& item : expandTrackerTabset(*file, workingDirectory))
+                for (const auto& item : expandTrackerTabset(target->file, workingDirectory))
                     if (item.status == TabsetItemStatus::Resolved)
                     {
                         throughNested.insert(tabsetIdentityKey(item.file));
@@ -609,11 +724,43 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
             }
         }
     std::vector<bool> used(named.size(), false);
+    const auto isMember = [&](std::size_t index)
+    {
+        return !memberNames[index].isEmpty();
+    };
     // Entries whose file is not listed keep their place unless the user closed that file: a file that failed to open,
-    // was not found, or was left unopened by a canceled open stays in the tabset, as an unchanged file would.
+    // was not found, or was left unopened by a canceled open stays in the tabset, as an unchanged file would. Every
+    // entry of a listed archive that member entries stand for keeps its place too: each member entry is a tab of its
+    // own, not a repeat, and the archive's tabs need not be adjacent.
+    const auto inPlace = [&](std::size_t index)
+    {
+        return throughMembers.contains(named[index]);
+    };
     const auto retained = [&](std::size_t index)
     {
-        return !listed.contains(named[index]) && !dropped[index];
+        return (isMember(index) || inPlace(index) || !listed.contains(named[index])) && !dropped[index];
+    };
+    // An entry stays as written while its relative path still finds what it names from the base, or when a new entry
+    // would be the same; otherwise (say after the tabset moved alone) it is rewritten, so Tracker finds the file again.
+    // A member entry is rewritten still naming its member.
+    const auto current = [&](std::size_t index, const QString& file, const QString& key)
+    {
+        const auto& entry = existing->entries[index];
+        const auto relative = QString::fromStdString(entry.relative);
+        const auto& member = memberNames[index];
+        if (!base.isEmpty() && QDir::isRelativePath(QDir::fromNativeSeparators(relative)))
+        {
+            if (member.isEmpty())
+            {
+                if (const auto found = existingFile(QDir(base).filePath(relative)); found && tabsetIdentityKey(*found) == key)
+                    return entry;
+            }
+            else if (const auto found = existingTarget(relative, base, members);
+                     found && tabsetIdentityKey(found->file) == key && found->member == member)
+                return entry;
+        }
+        auto fresh = member.isEmpty() ? tabsetEntry(file, base) : tabsetMemberEntry(file, member, base);
+        return fresh == entry ? entry : fresh;
     };
     std::vector<TabsetEntry> result;
     // New entries wait for the next kept entry, so that unopened entries before it keep their positions.
@@ -630,33 +777,30 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
             if (!used[next] && retained(next))
             {
                 used[next] = true;
+                if (inPlace(next))
+                {
+                    result.push_back(current(next, targets[next], named[next])); // Open: its archive is listed.
+                    continue;
+                }
                 result.push_back(existing->entries[next]);
                 if (changes && !nested[next])
                     changes->unopened.push_back(existing->entries[next]);
             }
     };
+    // The entry of a listed file itself; member entries are kept where they are instead.
     const auto find = [&](const QString& key, std::size_t begin, std::size_t end) -> std::optional<std::size_t>
     {
         for (auto index = begin; index < end; ++index)
-            if (!used[index] && named[index] == key)
+            if (!used[index] && !isMember(index) && named[index] == key)
                 return index;
         return std::nullopt;
-    };
-    // An entry stays as written while its relative path still finds the file from the base, or when a new entry would
-    // be the same; otherwise (say after the tabset moved alone) it is rewritten, so Tracker finds the file again.
-    const auto current = [&](std::size_t index, const QString& file, const QString& key)
-    {
-        const auto& entry = existing->entries[index];
-        const auto relative = QString::fromStdString(entry.relative);
-        if (!base.isEmpty() && QDir::isRelativePath(QDir::fromNativeSeparators(relative)))
-            if (const auto found = existingFile(QDir(base).filePath(relative)); found && tabsetIdentityKey(*found) == key)
-                return entry;
-        auto fresh = tabsetEntry(file, base);
-        return fresh == entry ? entry : fresh;
     };
     for (const auto& file : files)
     {
         const auto key = tabsetIdentityKey(file);
+        // An archive that member entries stand for keeps all its entries where they are (passTo).
+        if (throughMembers.contains(key))
+            continue;
         auto found = find(key, next, named.size());
         const bool ahead = found.has_value();
         if (!found)
@@ -678,7 +822,7 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
             used[index] = true;
             result.push_back(current(index, file, key));
             ++index;
-        } while (index < named.size() && !used[index] && named[index] == key);
+        } while (index < named.size() && !used[index] && !isMember(index) && named[index] == key);
         if (ahead)
             next = index;
     }

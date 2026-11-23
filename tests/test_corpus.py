@@ -360,6 +360,17 @@ class CorpusTests(unittest.TestCase):
                 if command[1] == "--save-tabset":
                     target = Path(command[2])
                     files = [Path(file).name for file in command[3:]]
+                    if target.name == "members.trk":
+                        # The checker's own set with an archive member entry; MoTrack adds a tab and keeps the rest.
+                        self.assertEqual(files, ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"])
+                        text = target.read_text(encoding="utf-8")
+                        self.assertIn("<property name=\"[1]\" type=\"string\">../lesson é/multitab-images.trz!/second.trk</property>",
+                                      text)
+                        kept = text.removesuffix(corpus.TABSET_CLOSING)
+                        if mutation == "member-dropped":
+                            kept = kept.replace("!/second.trk", "")
+                        target.write_text(kept + "\n        <!-- added -->\n" + corpus.TABSET_CLOSING, encoding="utf-8")
+                        return
                     if target.name == "tracker-tabset.trk":
                         self.assertEqual(files, ["linked-images.trk", "multitab-images.trz"])
                         if mutation == "resave":
@@ -378,12 +389,20 @@ class CorpusTests(unittest.TestCase):
                     self.assertEqual(display, ":77")
                     args = command[command.index("TrackerTabsetReference") + 1:]
                     edited = Path(args[0]).read_text(encoding="utf-8").endswith("edited")
+                    member = Path(args[0]).name == "members.trk"
                     self.assertEqual(args[2], "4" if edited else "3")
                     # Tracker opens the relocated copy; the original folder no longer exists.
                     self.assertEqual(Path(args[0]).parent.parent.name, "relocated-input")
                     self.assertFalse(Path(args[0]).parent.parent.with_name("input").exists())
                     lesson = Path(args[0]).parent.parent / "lesson é"
                     tabs = tracker_tabs(lesson, edited)
+                    if member:
+                        # Just the listed member, where it is listed, then the other experiments.
+                        self.assertTrue(Path(args[0]).parent.parent.parent.name.endswith("-moved-again-members"))
+                        tabs = [tab("second", lesson / "multitab-images.trz", "secondary-images"), tabs[0],
+                                tab("secondary-images.trk", lesson / "secondary-images.trk", "secondary-images")]
+                        if mutation == "member-whole":
+                            tabs = tabs[:1] + [tab("experiment", lesson / "multitab-images.trz", "linked-images")] + tabs[1:2]
                     if mutation == "order":
                         tabs = tabs[1:] + tabs[:1]
                     elif mutation == "mass":
@@ -403,6 +422,24 @@ class CorpusTests(unittest.TestCase):
                     return
                 if command[1] == "--read-tabset":
                     target = Path(command[2])
+                    if target.name == "members.trk":
+                        lesson = target.parent.parent / "lesson é"
+                        items = [{"status": 0, "file": str(lesson / "multitab-images.trz"), "member": "second.trk"},
+                                 {"status": 0, "file": str(lesson / "linked-images.trk"), "member": ""}]
+                        if mutation == "member-unresolved":
+                            items[0] = {"status": 1, "file": "", "member": ""}
+                        Path(command[3]).write_text(json.dumps(items), encoding="utf-8")
+                        return
+                    if target.parent.name == "tracker-members":
+                        # Tracker's own save of that set lists the archive for the member's tab.
+                        self.assertTrue(target.parent.parent.name.endswith("-moved-again-members"))
+                        lesson = target.parent.parent / "relocated-input" / "lesson é"
+                        items = [{"status": 0, "file": str(lesson / name), "member": ""}
+                                 for name in ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"]]
+                        if mutation == "member-resave":
+                            items[0]["member"] = "second.trk"
+                        Path(command[3]).write_text(json.dumps(items), encoding="utf-8")
+                        return
                     if target.name == "lesson.trk":
                         # The edited set is read after the tree moved once more.
                         self.assertTrue(target.parent.parent.parent.name.endswith("-moved-again"))
@@ -426,7 +463,7 @@ class CorpusTests(unittest.TestCase):
             return run
 
         for mutation in [None, "order", "mass", "path", "unresolved", "resave", "rewritten", "edited-order", "edited-missing",
-                         "edited-unresolved"]:
+                         "edited-unresolved", "member-unresolved", "member-dropped", "member-whole", "member-resave"]:
             root = self.root / f"tabset-{mutation}"
             root.mkdir()
             with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=fake(mutation)):
@@ -435,9 +472,57 @@ class CorpusTests(unittest.TestCase):
                     report = json.loads((self.root / "reports" / "tabset-roundtrip.json").read_text(encoding="utf-8"))
                     self.assertEqual(report["verification_level"], "motrack_tabset_roundtrip")
                     self.assertEqual(len(report["tracker_edited_session"]["tabs"]), 4)
+                    self.assertEqual([tab["title"] for tab in report["tracker_member_session"]["tabs"]],
+                                     ["second", "linked-images.trk", "secondary-images.trk"])
+                    self.assertEqual(report["motrack_read_members"][0]["member"], "second.trk")
                 else:
                     with self.assertRaises(ValueError):
                         corpus.check_tabset(manifest, self.root, "java", self.root / "classes", root, ":77", "probe")
+
+    def test_published_tabset_resolves_its_archive_member_and_saves_back_unchanged_or_is_skipped_uncached(self):
+        import corpus_library
+        tabset_id, archive_id, member = corpus.PUBLISHED_TABSET
+        files = {tabset_id: b'<object class="org.opensourcephysics.cabrillo.tracker.TFrame"/>', archive_id: b"PK archive"}
+        names = {tabset_id: "Bungeemodelenergy02.trk", archive_id: "Bungeemodelenergy.trz"}
+        experiments = [{"id": key, "file": f"{key}{Path(names[key]).suffix}", "original_name": names[key], "bytes": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest()} for key, data in files.items()]
+        manifest = {"experiments": experiments}
+
+        def fake(mutation):
+            def run(command):
+                target = Path(command[2])
+                self.assertEqual(target.name, "Bungeemodelenergy02.trk")
+                if command[1] == "--read-tabset":
+                    item = {"status": 0, "file": str(target.with_name("Bungeemodelenergy.trz")), "member": member}
+                    if mutation == "unresolved":
+                        item = {"status": 1, "file": "", "member": ""}
+                    Path(command[3]).write_text(json.dumps([item]), encoding="utf-8")
+                elif command[1] == "--save-tabset":
+                    self.assertEqual(Path(command[3]).name, "Bungeemodelenergy.trz")
+                    if mutation == "changed":
+                        target.write_bytes(b"rewritten")
+                else:
+                    self.fail(f"unexpected command {command}")
+            return run
+
+        with patch.object(corpus_library, "load_library_manifest", return_value=manifest):
+            with patch.object(corpus, "run") as run, redirect_stdout(io.StringIO()) as output:
+                corpus.check_published_tabset(self.root, "probe")
+            run.assert_not_called()
+            self.assertIn("skipped", output.getvalue())
+            for entry in experiments:
+                path = corpus_library.cache_path(self.root, entry)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(files[entry["id"]])
+            for mutation in [None, "unresolved", "changed"]:
+                with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=fake(mutation)), \
+                        redirect_stdout(io.StringIO()) as output:
+                    if mutation is None:
+                        corpus.check_published_tabset(self.root, "probe")
+                        self.assertIn("passed", output.getvalue())
+                    else:
+                        with self.assertRaises(ValueError):
+                            corpus.check_published_tabset(self.root, "probe")
 
     def test_private_display_waits_for_a_cold_start_and_reports_xvfb_diagnostics(self):
         output = {"text": b"(EE) Fatal server error: Cannot establish any listening sockets"}
