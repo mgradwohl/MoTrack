@@ -4,6 +4,7 @@
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
+#include "number_input.hpp"
 #include "paired_save.hpp"
 #include "position_plot.hpp"
 #include "track_identity.hpp"
@@ -19,7 +20,6 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QDoubleSpinBox>
 #include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -465,10 +465,8 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
                 {
                     return;
                 }
-                bool accepted = false;
-                const auto rate = QInputDialog::getDouble(
-                    this, tr("Image sequence timing"), tr("Frames per second (0 if unknown)"), 0.0, 0.0, 1000.0, 3, &accepted);
-                if (accepted)
+                const auto rate = askNumber(this, tr("Image sequence timing"), tr("Frames per second (0 if unknown)"), 0.0, 0.0, 1000.0);
+                if (rate)
                 {
                     QCollator collator;
                     collator.setNumericMode(true);
@@ -478,7 +476,7 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
                                           const auto order = collator.compare(left, right);
                                           return order < 0 || (order == 0 && left < right);
                                       });
-                    openImageSequence(paths, rate);
+                    openImageSequence(paths, *rate);
                 }
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
@@ -1502,8 +1500,8 @@ void MainWindow::setSelectedPointMassValue()
     setPlaying(false);
     const auto index = static_cast<std::size_t>(selected);
     const auto request = m_RequestGeneration.load();
-    const QLocale locale;
-    const auto before = locale.toString(viewProject().pointMasses.at(index).mass, 'g', 15);
+    // Without digit grouping, so that editing the shown value cannot make it ambiguous.
+    const auto before = editableNumber(viewProject().pointMasses.at(index).mass);
     const auto massUnit = QString::fromStdString(viewProject().massUnit);
     const auto label = massUnit.isEmpty() ? tr("Mass") : tr("Mass (%1)").arg(massUnit);
     bool accepted = false;
@@ -1513,15 +1511,15 @@ void MainWindow::setSelectedPointMassValue()
     {
         return;
     }
-    bool valid = false;
-    const auto mass = locale.toDouble(text, &valid);
-    if (valid && viewHistory().setPointMassValue(viewProject(), index, mass))
+    const auto mass = parseUserNumber(text);
+    if (mass && viewHistory().setPointMassValue(viewProject(), index, *mass))
     {
         refreshEditViews(selected);
     }
     else
     {
-        statusBar()->showMessage(tr("Enter a finite, positive mass."));
+        statusBar()->showMessage(!mass && mass.error() == NumberInputError::Ambiguous ? ambiguousNumberMessage()
+                                                                                       : tr("Enter a finite, positive mass."));
     }
 }
 
@@ -1766,19 +1764,22 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
     dialog.setObjectName("calibrationDialog");
     dialog.setWindowTitle(tr("Calibration Stick"));
     auto* layout = new QFormLayout(&dialog);
-    auto* length = new QDoubleSpinBox;
+    // A text field, not a QDoubleSpinBox, so a classic "2.5" pasted with comma-decimal formats is not read as 25.
+    auto* length = new QLineEdit(editableNumber(1.0));
     length->setObjectName("knownDistance");
-    length->setDecimals(6);
-    length->setRange(0.000001, 1'000'000'000.0);
-    length->setValue(1.0);
     auto* unit = new QLineEdit(viewProject().lengthUnit.empty() ? QStringLiteral("m") : QString::fromStdString(viewProject().lengthUnit));
     unit->setObjectName("lengthUnit");
+    auto* hint = new QLabel;
+    hint->setObjectName("knownDistanceHint");
     layout->addRow(tr("Known distance"), length);
+    layout->addRow(hint);
     layout->addRow(tr("Length unit"), unit);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     layout->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    requireNumber(*length, 0.000001, 1'000'000'000.0, *buttons, *hint);
+    length->selectAll();
     const bool accepted = dialog.exec() == QDialog::Accepted;
     m_Calibrate->setChecked(false);
     if (!accepted)
@@ -1786,11 +1787,12 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
         return;
     }
 
-    if (viewHistory().calibrateDistance(viewProject(),
-                                        {.frame = frame,
-                                         .imageDeltaX = delta.x(),
-                                         .imageDeltaY = delta.y(),
-                                         .knownLength = length->value(),
+    const auto knownLength = parseUserNumber(length->text(), length->locale());
+    if (knownLength && viewHistory().calibrateDistance(viewProject(),
+                                                       {.frame = frame,
+                                                        .imageDeltaX = delta.x(),
+                                                        .imageDeltaY = delta.y(),
+                                                        .knownLength = *knownLength,
                                          .defaultOriginX = imageSize.width() / 2.0,
                                          .defaultOriginY = imageSize.height() / 2.0,
                                          .unit = unit->text().trimmed().toStdString()}))
@@ -2322,7 +2324,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     m_MeasureAngle->setEnabled(!frame.image.isNull());
     refreshAxesOverlay();
     m_Plot->selectFrame(frame.number);
-    const auto label = tr("Frame %1").arg(frame.number);
+    const auto label = tr("Frame %1").arg(dataDisplayLocale().toString(frame.number));
     m_FrameLabel->setText(label);
     QList<QPointF> points;
     for (const auto& track : viewProject().pointMasses)
@@ -2530,7 +2532,7 @@ void MainWindow::requestMovieFrame(int frame)
     m_MeasureDistance->setEnabled(false);
     m_MeasureAngle->setEnabled(false);
     m_Plot->selectFrame(frame);
-    m_FrameLabel->setText(tr("Frame %1").arg(frame));
+    m_FrameLabel->setText(tr("Frame %1").arg(dataDisplayLocale().toString(frame)));
     if (!m_Playing)
     {
         m_Video->display({}, {}, tr("Decoding frame…"));

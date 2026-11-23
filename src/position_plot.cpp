@@ -58,6 +58,19 @@ void PositionPlot::setFitVisible(bool visible)
     update();
 }
 
+PositionPlot::AxisLabels PositionPlot::axisLabels() const
+{
+    if (m_Series.samples.empty())
+    {
+        return {};
+    }
+    const auto locale = dataDisplayLocale();
+    return {.top = locale.toString(m_Bounds.top, 'g', 5),
+            .bottom = locale.toString(m_Bounds.bottom, 'g', 5),
+            .left = locale.toString(m_Bounds.left, 'g', 5),
+            .right = m_Bounds.left != m_Bounds.right ? locale.toString(m_Bounds.right, 'g', 5) : QString{}};
+}
+
 QString PositionPlot::fitSummary() const
 {
     if (!m_Fit)
@@ -99,15 +112,15 @@ void PositionPlot::paintEvent(QPaintEvent* /*event*/)
     }
 
     const auto area = plotArea();
-    const auto locale = dataDisplayLocale();
+    const auto labels = axisLabels();
     painter.drawText(QRectF(0, 0, width(), area.top()), Qt::AlignCenter, m_VerticalLabel);
     painter.drawText(QRectF(0, height() - 20, width(), 20), Qt::AlignCenter, m_HorizontalLabel);
-    painter.drawText(QRectF(2, area.top() - 8, 50, 16), Qt::AlignRight, locale.toString(m_Bounds.top, 'g', 5));
-    painter.drawText(QRectF(2, area.bottom() - 8, 50, 16), Qt::AlignRight, locale.toString(m_Bounds.bottom, 'g', 5));
-    painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignLeft, locale.toString(m_Bounds.left, 'g', 5));
-    if (m_Bounds.left != m_Bounds.right)
+    painter.drawText(QRectF(2, area.top() - 8, 50, 16), Qt::AlignRight, labels.top);
+    painter.drawText(QRectF(2, area.bottom() - 8, 50, 16), Qt::AlignRight, labels.bottom);
+    painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignLeft, labels.left);
+    if (!labels.right.isEmpty())
     {
-        painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignRight, locale.toString(m_Bounds.right, 'g', 5));
+        painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignRight, labels.right);
     }
     painter.setPen(palette().mid().color());
     painter.drawRect(area);

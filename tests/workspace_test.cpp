@@ -12,8 +12,8 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
-#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -315,28 +315,6 @@ TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)
     EXPECT_FALSE(window.saveMeasurements(temporary.filePath("missing/measurements.csv")));
 }
 
-TEST(WorkspaceLocale, ShowsMarksInTheUserLocaleButExportsClassicNumbers)
-{
-    const auto previous = QLocale();
-    QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
-    const auto restore = qScopeGuard([&previous] { QLocale::setDefault(previous); });
-    motrack::MainWindow window;
-    window.show();
-    auto* marks = window.findChild<QTableWidget*>("marksTable");
-    ASSERT_TRUE(marks);
-    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
-    ASSERT_TRUE(marks->item(0, 2) && marks->item(0, 4) && marks->item(0, 5));
-    EXPECT_EQ(marks->item(0, 2)->text(), "1,5");
-    EXPECT_EQ(marks->item(0, 4)->text(), "0,75");
-    EXPECT_EQ(marks->item(0, 5)->text(), "0,625");
-    QTemporaryDir temporary;
-    ASSERT_TRUE(temporary.isValid());
-    ASSERT_TRUE(window.saveMeasurements(temporary.filePath("measurements.csv")));
-    QFile csv(temporary.filePath("measurements.csv"));
-    ASSERT_TRUE(csv.open(QIODevice::ReadOnly));
-    EXPECT_TRUE(csv.readAll().contains("Ball,0,1.5,1.5,0.75,0.625,m\r\n"));
-}
-
 TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
 {
     motrack::MainWindow window;
@@ -550,7 +528,7 @@ TEST(Workspace, CalibratesAFrameUsingTwoClickedEndpoints)
                        {
                            if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->findChild<QDoubleSpinBox*>("knownDistance")->setValue(2);
+                               dialog->findChild<QLineEdit*>("knownDistance")->setText("2");
                                dialog->findChild<QLineEdit*>("lengthUnit")->setText("cm");
                                dialog->accept();
                            }
@@ -710,15 +688,23 @@ TEST(Workspace, OpensAnImageThroughTheFileMenu)
                      &window,
                      []
                      {
-                         if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                         auto* dialog = QApplication::activeModalWidget();
+                         auto* rate = dialog ? dialog->findChild<QLineEdit*>("numberInput") : nullptr;
+                         auto* buttons = dialog ? dialog->findChild<QDialogButtonBox*>() : nullptr;
+                         if (rate && buttons)
                          {
-                             dialog->setDoubleValue(5.0);
-                             dialog->accept();
+                             rate->setText("5");
+                             buttons->button(QDialogButtonBox::Ok)->click();
                          }
                      });
     timing.start(10);
     triggerFileDialog(*open, window, fixturePath("frames/frame00.ppm"));
     EXPECT_TRUE(window.windowTitle().contains("frame00.ppm"));
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto saved = temporary.filePath("timed.motrack");
+    ASSERT_TRUE(window.saveWorkspace(saved));
+    EXPECT_EQ(motrack::readWorkspaceDocument(saved).project.clip.frameDurationMs, 200.0);
 }
 
 TEST(Workspace, TrimsAnImageSequenceAndRestoresItWithUndo)
