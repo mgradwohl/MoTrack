@@ -117,6 +117,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Deixeu anar per obrir %n fitxer</numerusform><numerusform>Deixeu anar per obrir %n fitxers</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>S’ometrà %n enllaç a fitxers no locals.</numerusform><numerusform>S’ometran %n enllaços a fitxers no locals.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Alguns fitxers sol·licitats s’han obert amb limitacions.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 ja és obert.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">S'està comprovant %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
