@@ -91,7 +91,8 @@ struct LinearFit
 /// Plots one quantity of a point mass against time (seconds, or frame numbers when untimed).
 ///
 /// `frameTimes` are decoded movie times in seconds from the movie's first frame, indexed by original frame
-/// number, and `frameTimeBase` is the stream time base they were quantized to. Without frame times the saved
+/// number, and `frameTimeBase` is the stream time base they were quantized to, with the precision inferred from
+/// the timestamps; its resolutionSeconds() is what the evenly spaced test allows. Without frame times the saved
 /// constant timing applies. Positions are world coordinates in the project's length unit (image pixels when
 /// uncalibrated), velocity is per second, acceleration per second squared, momentum and kinetic energy use
 /// the point mass's mass. Sample frames are original frame numbers; horizontal values include
@@ -101,8 +102,8 @@ struct LinearFit
 /// (x[k+1] - x[k-1]) / 2 and acceleration (2x[k-2] - x[k-1] - 2x[k] - x[k+1] + 2x[k+2]) / 7 per step, scaled
 /// by the mean step interval (motrack_motion's pointMassDerivatives). A value needs every clip step of its
 /// window (three for velocity, five for acceleration); missing values stay absent, never zero. Where decoded
-/// times are not evenly spaced within the time base, velocity is the time-aware three-point slope and
-/// acceleration the time-aware five-point least-squares fit (measuredTimeDerivatives; #87, #331).
+/// times are not evenly spaced within the timestamps' precision, velocity is the time-aware three-point slope and
+/// acceleration the time-aware five-point least-squares fit (measuredTimeDerivatives; #87, #331, #335).
 [[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project,
                                          std::size_t track,
                                          PlotQuantity quantity,

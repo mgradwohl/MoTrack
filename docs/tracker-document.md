@@ -31,11 +31,11 @@ refusing, native files whose preserved source the current reader cannot read.
 ## Starting point after B1
 
 - `LegacyProject` ([legacy_project.hpp](../src/legacy_project.hpp)) is the editable model, built from B1's typed
-  loads ([tracker_loaders.hpp](../src/tracker_loaders.hpp)), which keep each object's `osp::NodeId` and are then
+  loads ([tracker_loaders.hpp](../src/model/tracker_loaders.hpp)), which keep each object's `osp::NodeId` and are then
   discarded. `TrackEdits` ([track_edits.hpp](../src/track_edits.hpp)) resolves list positions to a `TrackId`
   when an edit is recorded.
 - The standard writer ([tracker_writer.cpp](../src/tracker_writer.cpp)) diffs a fresh import of the preserved XML
-  against the live model and composes [`SourceEdits`](../src/source_edits.hpp); its patch functions mix edits with
+  against the live model and composes [`SourceEdits`](../src/model/source_edits.hpp); its patch functions mix edits with
   Tracker-behavior checks, and it refuses unless importing its output gives exactly the intended project. Renames
   and deletions also rewrite reference slots of untyped owners and saved views ([tracker_rename.cpp](../src/tracker_rename.cpp)).
 - Native v5 and v6 store the original XML, the reduced model as JSON and, since v4, bindings as ordinals in
@@ -280,8 +280,9 @@ and the baseline, so undoing back to the imported state exports the original byt
 The last row is deliberately broad. Creating a track named like an unresolved saved name, such as "C" while an
 Unknown center of mass holds "C", makes Tracker bind that name on reload; `renderName` reports `Rebinds` and
 export refuses, which today only B1's unique-name schema guard achieves. Export order is B1's: bound objects in
-baseline order, then created point masses, then created vectors, each in ascending identity. The presentation
-order of the track list is separate and is stored by native v7.
+baseline order, then created point masses, then created vectors, each in ascending identity. The track list
+follows the export order, and no separate presentation order is stored; B3.5b switches both to ascending identity
+across families ([track UI design](track-ui.md#rows)).
 
 The patch functions in `tracker_writer.cpp` currently combine edits and checks. B2.3 separates them: the
 descriptors compose, and the checks that encode Tracker's behavior become admission checks on the composed
@@ -329,7 +330,7 @@ metadata replaces the reduced model:
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
 | `objects` | The identity sidecar: one entry per identity with its ID, allocation range (`counter` or `countdown`), class, baseline path or none, and `live` or `removed` |
-| `state` | Every typed field of every live typed object, in full, by field id, and for each edited field the writer's reading of the baseline as `base` (below). Also the class list of placeholders and the presentation order of `tracks` |
+| `state` | Every typed field of every live typed object, in full, by field id, and for each edited field the writer's reading of the baseline as `base` (below). Also the class list of placeholders. No presentation order: the track list follows the export order |
 | `media` | The media extension and the `WorkspaceDocument` media fields that v5 stores today |
 | `extensions` | Optional named MoTrack data, written back unchanged by readers that do not know it |
 
@@ -518,12 +519,17 @@ R02–R04 rows of the migration plan and the status line of this document.
 **B2.4a — Type switch** (after B2.2 and B2.3)
 - Content: `WorkspaceDocument::project` becomes `TrackerDocument`; the `TrackEdits` façade; sessions, groups and
   Revert on typed baselines with owner-held revisions; non-edit updates as document operations. Export still
-  runs B1's writer over the legacy view, and native files stay v5 and v6.
+  runs B1's writer over the legacy view, and native files stay v5 and v6. `DocumentParts::trackOrder` and its
+  validation are removed: the track list follows the export order ([track UI design](track-ui.md#rows)), which
+  B2.2's commands keep `trackOrder` equal to until then, and the v1–6 conversion compares each family's tracks by
+  identity.
 - Files: `src/workspace_document.*`, `src/document_session.*`, `src/archive_group_session.*`,
   `src/workspace_session.*`, `src/workspace_input.cpp`, `src/main_window.*`, `src/bound_workspace.cpp`,
   `src/track_edits.*`, `src/track_identity.*`, `src/tracker_archive.*`, `src/tracker_image_package.cpp`,
-  `src/paired_save.cpp`, `src/measurements.*`; `docs/workspace-sessions.md`. Existing tests change only where
-  they build a `LegacyProject` directly.
+  `src/paired_save.cpp`, `src/measurements.*`, `src/model/tracker_document.*`, `src/model/commands.*`,
+  `src/legacy_view.cpp`; `docs/workspace-sessions.md`. Existing tests change only where they build a
+  `LegacyProject` directly, and where `trackOrder` is dumped or checked: `tests/model/document_dump.hpp`, the
+  `tests/fixtures/native/*.document.json` dumps and `tests/model/legacy_view_parity_test.cpp`.
 - Exit: the full wave-1 gate on Windows, macOS and Linux CI with no user-visible change; the two-document
   isolation tests pass.
 
@@ -536,7 +542,8 @@ R02–R04 rows of the migration plan and the status line of this document.
 
 **B2.5 — Native version 7** (after B2.4a, parallel with B2.4b; its codec needs only B2.1)
 - Content: the v7 reader and writer for standalone documents and groups, `readerRevision` and `base` handling,
-  allocation ranges and the countdown low-water mark, #317.
+  allocation ranges and the countdown low-water mark, #317. It never reads or writes a presentation order of
+  `tracks`, which B2.4a has removed from `DocumentParts`.
 - Files: new `src/native_document.*`; `src/workspace_document.cpp`, `src/workspace_document_codec.hpp`,
   `src/archive_group.cpp`; `tests/workspace_document_test.cpp`, `tests/archive_group_test.cpp`; `tools/corpus.py`
   for the native route; `docs/native-format.md`, `docs/workspace-sessions.md`.

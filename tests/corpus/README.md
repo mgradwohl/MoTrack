@@ -424,7 +424,10 @@ The `session` and `roundtrip` commands require Linux with Xvfb installed and com
 the adjacent JDK `javac`. It starts and owns a new Xvfb server using `-displayfd` to allocate its display;
 Java always uses that display, even when the contributor already has a desktop `DISPLAY`. The runner
 terminates only its own server on success or failure, with bounded startup/shutdown waits. It refuses
-to run on Windows. CI's Ubuntu runner supplies Xvfb and Java 17. Each case gets a fresh private Java home
+to run on Windows. CI's Ubuntu runner supplies Xvfb and Java 17. WSLg mounts `/tmp/.X11-unix`
+read-only, where the default server never becomes ready; pass `--xvfb-abstract-socket` (also to
+`state-oracle`) to add `-nolisten unix`, so the private server listens only on Linux's abstract socket.
+Each case gets a fresh private Java home
 and output directory. Save and reopen each get a fresh JVM/private home, a 30-second loader
 deadline inside the 45-second subprocess limit, and a 256 MiB heap. This avoids collisions between
 Tracker's static drawing/snapping registries when distinct application windows reuse panel IDs.
@@ -592,6 +595,29 @@ compare bytes:
 
 ```sh
 java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/FrameDataFixture.java frame-shift /temporary/path/frame-shift.trk
+```
+
+## Finite velocities and accelerations
+
+[FiniteDerivativesFixture.java](../../tools/reference/FiniteDerivativesFixture.java) authors `finite-derivatives`
+(#332) with the pinned serializers: a media-free clip of 16 steps from frame 4 with step size 3, a 30 fps
+`StepperClipControl` and a 400 ms start time, a fixed calibration with origin (252.5, 318.75), a 30° angle and 125
+and 100 px per m, and a point mass of 0.75 kg with marks at steps 0–7 and 9–15 (step 8, frame 28, is
+missing). Its image positions are dyadic polynomials in the step k, x = 100 + 16k + 0.75k² − 0.0625k³ + k⁴/256
+and y = 400 − 40k + 2.5k² + 0.03125k³, so the saved marks are exact. Its loaded-state dump is the first whose
+finite accelerations are compared: Tracker's own `refreshData` gives velocities at steps 1–6 and 10–14 and
+five-point accelerations at steps 2–5 and 11–13, and `state-check` compares them with MoTrack on every platform.
+
+The test suite checks the committed dump against closed forms rather than against a transcription of Tracker.
+For a + bk + ck² + dk³ + ek⁴ the stencils give b + 2ck + 3dk² + d + e(4k³ + 4k) px per step and
+2c + 6dk + e(12k² + 62/7) px per step²; the step time is (k · 33.333333333333336 · 3 + 400) ms, and world
+components undo the calibration. The quartic term separates Tracker's five-point fit from a three-point
+difference (12k² + 2) and the five-point central difference (12k²), which agree on a cubic; at step 2 they give
+871/896, 121/128 and 15/16 px per step² on x, and the test requires Tracker's. Regenerate the fixture to a fresh
+path and compare bytes:
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/FiniteDerivativesFixture.java /temporary/path/finite-derivatives.trk
 ```
 
 ## Partly fixed calibration export
