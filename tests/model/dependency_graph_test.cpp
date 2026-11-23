@@ -920,6 +920,62 @@ TEST(DependencyGraph, RenamesAreLabelsThatNeitherRebindNorInvalidate)
     EXPECT_FALSE(graph.dependencies(data(3))[0].target); // Never bound by name after load.
     EXPECT_TRUE(graph.planSince(computed).order.empty());
     EXPECT_TRUE(graph.isCurrent(geometry(3), computed));
+
+    // An object without a readable name has no label again.
+    ASSERT_TRUE(graph.renameObject(id(1), std::nullopt));
+    EXPECT_FALSE(graph.object(id(1))->label);
+    EXPECT_FALSE(graph.renameObject(id(9), "missing"));
+}
+
+TEST(DependencyGraph, TheRevisionFloorMarksEveryNodeChangedAboveBothGraphs)
+{
+    // The incoming value of an assignment: a graph whose own revisions are lower than the live graph's.
+    DependencyGraph incoming;
+    add(incoming, 1, "A");
+    add(incoming, 2, "center", CENTER_OF_MASS);
+    depend(incoming, geometry(2), geometry(1));
+    ASSERT_TRUE(incoming.removeObject(id(1)));
+    const auto own = incoming.revision();
+    const Revision outgoing{40};
+
+    const auto floored = incoming.markAllChanged(Revision{outgoing.value + 1});
+    EXPECT_EQ(floored, Revision{41});
+    EXPECT_EQ(incoming.revision(), floored);
+    for (const auto node : allNodes({2}))
+    {
+        EXPECT_EQ(incoming.effectiveRevision(node), floored);
+        // Nothing computed against either value stays current.
+        EXPECT_FALSE(incoming.isCurrent(node, outgoing));
+        EXPECT_FALSE(incoming.isCurrent(node, own));
+        EXPECT_TRUE(incoming.isCurrent(node, floored));
+    }
+    EXPECT_EQ(planned(incoming.planSince(outgoing)), (std::set<NodeKey>{definition(2), geometry(2), data(2)}));
+    // Retired identities and dangling references are untouched.
+    EXPECT_TRUE(incoming.wasRemoved(id(1)));
+    EXPECT_EQ(incoming.dependencies(geometry(2)).size(), 1u);
+
+    // A floor at or below the graph's own revision is ignored; the step itself is never skipped.
+    EXPECT_EQ(incoming.markAllChanged(Revision{3}), Revision{42});
+    EXPECT_EQ(incoming.effectiveRevision(geometry(2)), Revision{42});
+    DependencyGraph empty;
+    EXPECT_EQ(empty.markAllChanged(Revision{}), Revision{1});
+}
+
+TEST(DependencyGraph, RemovalRecordsCompareByValue)
+{
+    DependencyGraph graph;
+    add(graph, 1, "A");
+    add(graph, 2, "center", CENTER_OF_MASS);
+    depend(graph, geometry(2), geometry(1));
+    const auto copy = graph;
+    auto removed = graph.removeObject(id(2));
+    auto again = DependencyGraph(copy).removeObject(id(2));
+    ASSERT_TRUE(removed);
+    ASSERT_TRUE(again);
+    EXPECT_EQ(*removed, *again);
+    auto different = *again;
+    different.geometryDependencies.clear();
+    EXPECT_NE(*removed, different);
 }
 
 TEST(DependencyGraph, CopiesAreIndependentSnapshots)

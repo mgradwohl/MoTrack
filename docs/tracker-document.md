@@ -5,13 +5,16 @@ This is the design and implementation plan for slice B2 of wave 1 in the
 `WorkspaceDocument::project`, ID-addressed commands, native v7 with v1–6 readers; `LegacyProject` read-only."
 **Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the
 typed document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy
-view and the conversion from the reduced model; nothing in the application uses them yet. B2.3 is implemented
+view and the conversion from the reduced model. B2.2 adds the ID-addressed commands and `DocumentHistory`
+([commands.hpp](../src/model/commands.hpp), [document_history.hpp](../src/model/document_history.hpp)), at parity with
+`TrackEdits`. B2.3 is implemented
 ([PR #355](https://github.com/mgradwohl/MoTrack/pull/355), [`tracker_compose.hpp`](../src/tracker_compose.hpp)): the descriptor composition makes B1's decision, with B1's bytes,
 on every writer test, corpus case and fixture, and O8 covers the bytes outside nodes (#316); production export still
-uses B1's composition. B2.2, B2.4 and B2.5 are not implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
+uses B1's composition. Nothing in the application uses the commands or the descriptor composition yet. B2.4 and B2.5
+are not implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
 then moves the track list, selection and inspector to identities and deletes
 `LegacyProject` and the legacy writer; B4 makes O3–O8 required checks. Wave 2 families build on this model and
-on the [dependency graph](dependency-graph.md) (C0), a library that no loader or command uses yet.
+on the [dependency graph](dependency-graph.md) (C0), which the typed document builds and the commands maintain.
 
 The wave-1 exit gate holds after every slice: the 237 edited actual-Tracker cases, all native migrations,
 paired save and recovery, and the workspace tests pass. B2 intends no user-visible change except the
@@ -178,7 +181,11 @@ advances the graph's revision several times. Assignment never skips this step, e
 revision is already high, because a node's effective revision can still be low; only an explicit floor call
 ignores a floor at or below the graph's own revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
 document revision), and snapshots carry that stamp. Revert keeps the runtime identity, so that key protects
-against a rewind only because the document revision always advances on assignment.
+against a rewind only because the document revision always advances on assignment. The allocators never rewind
+either: an assignment or an update takes the higher counter and the lower countdown low-water mark of the outgoing
+and incoming values (`installedValue`), so a reverted value keeps the counter's high-water mark and no identity a
+discarded or recorded edit holds is handed out again. A history belongs to the live document it is first given and
+refuses any other.
 
 ### Behind `WorkspaceDocument::project`
 
@@ -216,8 +223,12 @@ composition.
 
 Today's edits map onto these: creation is `Insert`; rename, mass, unit labels, marks and vector samples are
 `SetField`; calibration (keys and length label together) and clip range or timing are each a `Batch`; deletion
-is `Remove`. `DocumentHistory` keeps `TrackEdits`' per-output save heads, `isModified` and `invalidateSaved`;
-`SaveState` checkpoints keep using the history revision.
+is `Remove`. A mark is a `SetField` of `framedata`, batched with one of `keyFrames` when B1's key rule changes them:
+for a bound point mass the baseline's keys without its removed marks and with every mark that differs from the
+baseline's, for a created one every mark (`setMark`). `DocumentHistory` keeps `TrackEdits`' per-output save heads,
+`isModified` and `invalidateSaved`; `SaveState` checkpoints keep using the history revision. A command that advances
+the counter leaves every saved output stale, as creation does today; the countdown low-water mark is not saved before
+native v7.
 
 ### Validation and atomicity
 
@@ -237,14 +248,27 @@ commit is then a sequence of `noexcept` pointer swaps, so it cannot stop half wa
 member against the state that the previous members produce and commits once. A refused command leaves the
 document, the history, both revisions and the save heads unchanged. Undo and redo check the same
 preconditions, the current value against the entry's `after` or `before`, and refuse without moving the head,
-as `TrackEdits` does now.
+as `TrackEdits` does now. The domain checks apply to new values only, since an undo restores whatever the object
+held, an unreadable baseline value included. The clip's invariants apply in every direction, except that an undo
+that restores exactly the timeline its command started from is accepted, so a legacy timing that is not constant
+returns as it was (`TrackEdits`' rule).
+
+Deliberate differences from `TrackEdits`, which the B2.4a façade keeps or reconciles: a command must change something,
+so a calibration that changes nothing records no undo entry, where `TrackEdits` records one; and new names and units
+pass the codecs, so creating a track with a name standard export cannot store (empty, surrounding white space, the
+packed view separators) is refused, where `TrackEdits` accepts any name on creation and export refuses it later. A new
+object saves only the fields commands edit (and a coordinate system's fixed flags); a key list returns to an unsaved
+or unreadable value only when that is the baseline's own reading.
 
 ### Undo, redo and dependencies
 
 Undo and redo apply inverses with `CyclePolicy::Record`, so they restore an earlier state even when it holds a
 cycle read from a file. Redoing a creation restores the stored object and its ID instead of allocating a new
-one. `Remove` keeps the binding and the `RemovedObject`; undoing it brings back the same identity, its own edges
-and every reference that dangled, and export writes the original node again. A history belongs to one live
+one. A removed object that is bound keeps its slot in the `Removed` state; an unbound one (a created track, an
+inserted coordinate system) leaves the document while its history entry keeps it, its identity kept from reuse by the
+allocators, and returns to the place its entry recorded. `Remove` keeps the binding and the `RemovedObject`; undoing
+it brings back the same identity, its own edges and every reference that dangled, and export writes the original
+node again. A history belongs to one live
 document and is cleared when the document is replaced; native files store no history.
 
 ### Deleting referenced objects

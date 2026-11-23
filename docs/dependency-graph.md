@@ -10,10 +10,11 @@ not identity, as the [source name and reference design](tracker-name-references.
 
 This slice is a Qt-free library, `motrack_dependencies`
 ([dependency_graph.hpp](../src/model/dependencies/dependency_graph.hpp),
-[name_binding.hpp](../src/model/dependencies/name_binding.hpp)). No loader, command, view or
-evaluator uses it yet. It changes no file format and no application behavior. The typed model (B2) and
-the families (C1 to C8) will connect to it as described below. Implementing this core is not native
-evaluation of any dependent track and is not evidence of Tracker parity.
+[name_binding.hpp](../src/model/dependencies/name_binding.hpp)). The typed document (B2.1) builds a
+graph from its objects and reference slots, and its ID-addressed commands (B2.2) maintain it; no view or
+evaluator uses it yet. It changes no file format and no application behavior. The families (C1 to C8)
+will connect to it as described below. Implementing this core is not native evaluation of any dependent
+track and is not evidence of Tracker parity.
 
 ## Model
 
@@ -69,6 +70,13 @@ evaluation of any dependent track and is not evidence of Tracker parity.
   lists exactly the nodes invalidated after R, in evaluation order. A rename does not invalidate any
   node, because names do not affect values. `planSince` rebuilds the topology on every call, so an
   evaluator running at drag rate should plan once per committed revision, not once per mouse event.
+- **Revision floor.** Revisions are compared only within one graph and its copies, but a document owner
+  replaces its value (opening, Revert) with one whose graph counted separately, possibly lower.
+  `markAllChanged(floor)` marks every live node changed at a new revision, the next one or `floor` when that
+  is later. Assignment calls it on a copy of the incoming graph with the outgoing live graph's revision + 1,
+  so the new revision is max(incoming + 1, outgoing + 1) and `isCurrent(node, R)` fails for every R computed
+  against either value. The step is never skipped: a floor at or below the graph's own revision is ignored
+  and the revision still advances by one.
 - **Threads.** The graph is a value. A copy is an independent snapshot that workers may read
   concurrently. Only the owning thread mutates the document's graph. A mutation can throw only
   std::bad_alloc. The graph is derived state, so after such a failure it is rebuilt from the document.
