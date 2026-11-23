@@ -117,6 +117,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Відпустіть, щоб відкрити %n файл</numerusform><numerusform>Відпустіть, щоб відкрити %n файли</numerusform><numerusform>Відпустіть, щоб відкрити %n файлів</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n посилання на нелокальні файли буде пропущено.</numerusform><numerusform>%n посилання на нелокальні файли буде пропущено.</numerusform><numerusform>%n посилань на нелокальні файли буде пропущено.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Деякі запитані файли відкрито з обмеженнями.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Файл %1 уже відкрито.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Перевірка %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

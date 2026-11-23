@@ -117,6 +117,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Pudota avataksesi %n tiedoston</numerusform><numerusform>Pudota avataksesi %n tiedostoa</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n linkki muihin kuin paikallisiin tiedostoihin ohitetaan.</numerusform><numerusform>%n linkkiä muihin kuin paikallisiin tiedostoihin ohitetaan.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Joitakin pyydettyjä tiedostoja avattiin rajoitetusti.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 on jo auki.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tarkistetaan %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
