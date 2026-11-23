@@ -2,7 +2,10 @@
 
 #include "filesystem_path.hpp"
 #include "measurements.hpp"
+#include "model/tracker_document.hpp"
 #include "osp_layout.hpp"
+#include "track_edits.hpp"
+#include "tracker_import.hpp"
 #include "tracker_writer.hpp"
 
 #include <QFile>
@@ -98,11 +101,11 @@ TEST(LegacyProject, ImportsSparseVectorComponentsInImageCoordinates)
         <object class="org.opensourcephysics.cabrillo.tracker.Vector">
           <property name="name">Displacement</property>
           <property name="framedata">
+            <property name="[0]">null</property>
             <property name="[7]"><object>
               <property name="xtail">2.5</property><property name="ytail">3</property>
               <property name="xcomponent">4</property><property name="ycomponent">-1</property>
             </object></property>
-            <property name="[0]">null</property>
           </property>
         </object>
       </property></property>)"));
@@ -383,11 +386,12 @@ TEST(LegacyProject, LeavesFramesWhereTrackersLoaderIgnoresTheFrameShift)
     const auto unstarted = load("", shift);
     EXPECT_EQ(unstarted.clip.firstFrame, 0);
     EXPECT_EQ(frames(unstarted.pointMasses.front().marks), (std::vector<int>{2}));
-    // Java cannot load an array whose last index is unreadable; MoTrack keeps it unshifted, as it read it before #313.
-    const auto unreadable = motrack::parseLegacyProject(
-        projectXml(shiftedClip(start(3), shift) + "<property name='tracks'>" +
-                   massTrack("mass", massFrame(2, 2, 2) + "<property name='[x]'>null</property>") + "</property>"));
-    EXPECT_EQ(frames(unreadable.pointMasses.front().marks), (std::vector<int>{2}));
+    // Java cannot load an array whose last index is unreadable, so Tracker loads none of the tracks; MoTrack refuses the
+    // file (#315), where it kept the array unshifted before.
+    EXPECT_THROW(static_cast<void>(motrack::parseLegacyProject(
+                     projectXml(shiftedClip(start(3), shift) + "<property name='tracks'>" +
+                                massTrack("mass", massFrame(2, 2, 2) + "<property name='[x]'>null</property>") + "</property>"))),
+                 motrack::ProjectError);
 }
 
 TEST(LegacyProject, CountsATrailingNullElementInTheArrayLengthTheShiftUses)
@@ -422,8 +426,9 @@ TEST(LegacyProject, ReadsTrackArraysAsJavaAssignsTheirSlots)
     const auto unordered = load(massFrame(3, 3, 30) + massFrame(1, 1, 10) + massFrame(4, 4, 40)).pointMasses.front();
     EXPECT_EQ(unordered.marks,
               (std::vector<motrack::Mark>{{.frame = 1, .x = 1, .y = 10}, {.frame = 3, .x = 3, .y = 30}, {.frame = 4, .x = 4, .y = 40}}));
-    // Java cannot place an out-of-order index; MoTrack keeps reading such an array in file order, as before (#315).
-    EXPECT_EQ(frames(load(massFrame(4, 4, 4) + massFrame(2, 2, 2)).pointMasses.front().marks), (std::vector<int>{2, 4}));
+    // Java cannot place an index beyond the last element's, so Tracker loads none of the file's tracks; MoTrack refuses
+    // the file (#315, RefusesArraysTrackersLoaderCannotBuild).
+    EXPECT_THROW(static_cast<void>(load(massFrame(4, 4, 4) + massFrame(2, 2, 2))), motrack::ProjectError);
     // Vectors follow the same slots.
     const auto vectors = motrack::parseLegacyProject(projectXml(R"(<property name='tracks'><property name='item'>
         <object class='org.opensourcephysics.cabrillo.tracker.Vector'><property name='framedata'>
@@ -461,10 +466,11 @@ TEST(LegacyProject, KeepsTheLastOfDuplicateCalibrationKeysAsTrackerDoes)
         coordSystem(coordKey(0, 320, 240, 0, 2, 4))));
     ASSERT_TRUE(single.calibration && single.calibration->keyframes.size() == 1u);
     EXPECT_EQ(single.calibration->keyframes.front().frame, 0);
-    // An index Java's array loader cannot place (out of order or negative) leaves the project uncalibrated.
+    // An index Java's array loader cannot place (out of order or negative) makes Tracker's load fail, so MoTrack refuses
+    // the file (#315); before, it imported the project uncalibrated.
     for (const auto& keys : {coordKey(4, 1, 1, 0, 1, 1) + coordKey(0, 1, 1, 0, 1, 1), coordKey(-1, 1, 1, 0, 1, 1)})
     {
-        EXPECT_FALSE(motrack::parseLegacyProject(projectXml(coordSystem(keys))).calibration.has_value());
+        EXPECT_THROW(static_cast<void>(motrack::parseLegacyProject(projectXml(coordSystem(keys)))), motrack::ProjectError);
     }
 }
 
@@ -584,6 +590,204 @@ TEST(LegacyProject, AppliesTrackerLoaderDefaultsForUnsavedClipControlAndLengthUn
     EXPECT_EQ(reopened.massUnit, "g");
     EXPECT_EQ(reopened.lengthUnit, "m");
     EXPECT_EQ(reopened.clip.frameDurationMs, 100.0);
+}
+
+std::string corpusFixtureText(std::string_view name)
+{
+    QFile file(QString::fromUtf8(MOTRACK_CORPUS_FIXTURES) + '/' + QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size())));
+    return file.open(QIODevice::ReadOnly) ? file.readAll().toStdString() : std::string{};
+}
+
+TEST(LegacyProject, ShowsASavedMassUnitAsTrackerDoesAndKeepsTheDefaultTimeUnit)
+{
+    // #315, observed with Tracker 6.3.5's application loader on the corpus empty-units case: TrackerPanel.Loader assigns
+    // `mass_unit` as saved, so Tracker shows no mass unit, while VideoPanel.setTimeUnit ignores an empty `time_unit`.
+    const auto xml = corpusFixtureText("empty-units.trk");
+    ASSERT_NE(xml.find(R"(<property name="mass_unit" type="string"></property>)"), std::string::npos);
+    ASSERT_NE(xml.find(R"(<property name="time_unit" type="string"></property>)"), std::string::npos);
+    const auto units = motrack::parseLegacyProject(xml);
+    EXPECT_EQ(units.massUnit, "");
+    EXPECT_EQ(units.timeUnit, "s");
+    EXPECT_EQ(units.lengthUnit, "m");
+    // A missing mass unit keeps the default; one saved with another type is null in Java (which hides every unit
+    // label) and empty here, as for length_unit. Tracker keeps a saved label's spaces.
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml("")).massUnit, "kg");
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml("<property name='mass_unit' type='int'>7</property>")).massUnit, "");
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml("<property name='mass_unit' type='string'> g </property>")).massUnit, " g ");
+    // Reading revisions before 3, reproduced only for native migration, showed "kg".
+    const auto earlier = motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml), motrack::TrackerReading::LastTrackSlot);
+    EXPECT_EQ(earlier.project.massUnit, "kg");
+    EXPECT_EQ(motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml)).project.massUnit, "");
+}
+
+TEST(LegacyProject, ExportKeepsAnEmptyMassUnitAndWritesAnEditedOne)
+{
+    auto imported = motrack::parseTrackerProject(corpusFixtureText("empty-units.trk"));
+    auto& project = imported.project;
+    motrack::TrackEdits edits;
+    // A mass edit leaves the empty label as saved; Linux CI's corpus round trip (empty-units/mass) reopens the export in
+    // Tracker and checks that it shows no mass unit.
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 3.75));
+    const auto massEdit = motrack::renderTrackerProject(project, imported.source);
+    EXPECT_NE(massEdit.find(R"(<property name="mass_unit" type="string"></property>)"), std::string::npos);
+    EXPECT_NE(massEdit.find(R"(<property name="mass" type="double">3.75</property>)"), std::string::npos);
+    EXPECT_EQ(motrack::parseLegacyProject(massEdit), project);
+    // "kg" is now an edit of the empty label rather than the default: export writes it, so Tracker shows it.
+    ASSERT_TRUE(edits.setMassUnit(project, "kg"));
+    const auto unitEdit = motrack::renderTrackerProject(project, imported.source);
+    EXPECT_NE(unitEdit.find(R"(<property name="mass_unit" type="string">kg</property>)"), std::string::npos);
+    EXPECT_EQ(motrack::parseLegacyProject(unitEdit).massUnit, "kg");
+    EXPECT_EQ(motrack::parseLegacyProject(unitEdit).timeUnit, "s");
+    EXPECT_NE(unitEdit.find(R"(<property name="time_unit" type="string"></property>)"), std::string::npos);
+}
+
+std::string refusalOf(const std::string& xml)
+{
+    try
+    {
+        static_cast<void>(motrack::parseLegacyProject(xml));
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        return error.what();
+    }
+    return "accepted";
+}
+
+std::string trackArrayRefusal(std::string_view track, std::string_view array, bool noClass)
+{
+    return "Tracker cannot load the tracks of this file: the \"" + std::string(array) + "\" array of track \"" + std::string(track) +
+           (noClass ? "\" has no class." : "\" has an element whose index is unreadable or beyond the last element's.") +
+           " Tracker opens the file without any of its tracks.";
+}
+
+TEST(LegacyProject, RefusesArraysTrackersLoaderCannotBuild)
+{
+    // #315. Each variant edits tests/fixtures/native/baseline.trk or image-sequence.trk once. Tracker 6.3.5's
+    // application loader (TrackerSessionReference under a private Xvfb display) opened every track-array variant and
+    // the class-less `tracks` with none of the file's tracks (OSP's collectionValue catches the exception and returns
+    // null), and failed to load the coordinate and image-path variants; it loaded the unordered and compact controls.
+    const auto base = fixtureText("native/baseline.trk");
+    const auto images = fixtureText("image-sequence.trk");
+    const std::string massClass = R"( class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;")";
+    const auto mass = [&](std::string_view from, std::string_view to)
+    {
+        return replaced(base, from, to);
+    };
+    // Mass A's [0] [1] [3] become [0] [5] [3]: the last index sets the length 4, so [5] has no slot.
+    EXPECT_EQ(refusalOf(fixtureText("unloadable-track-frames.trk")), trackArrayRefusal("mass A", "framedata", false));
+    EXPECT_EQ(fixtureText("unloadable-track-frames.trk"),
+              mass(R"(<property name="[1]" type="object">)", R"(<property name="[5]" type="object">)"));
+    EXPECT_EQ(refusalOf(mass(massClass, "")), trackArrayRefusal("mass A", "framedata", true));
+    // The second point mass too, after a loadable first one.
+    auto secondClassless = base;
+    secondClassless.replace(secondClassless.rfind(massClass), massClass.size(), "");
+    EXPECT_EQ(refusalOf(secondClassless), trackArrayRefusal("mass B", "framedata", true));
+    EXPECT_EQ(refusalOf(mass(R"(<property name="keyFrames" type="array" class="[I">)", R"(<property name="keyFrames" type="array">)")),
+              trackArrayRefusal("mass A", "keyFrames", true));
+    const std::string compactKeys = "                    <property name=\"array\" type=\"string\">{0,1,3}</property>\n";
+    EXPECT_EQ(refusalOf(mass(compactKeys,
+                             "                    <property name=\"[1]\" type=\"int\">3</property>\n"
+                             "                    <property name=\"[0]\" type=\"int\">0</property>\n")),
+              trackArrayRefusal("mass A", "keyFrames", false));
+    EXPECT_EQ(refusalOf(mass(compactKeys,
+                             "                    <property name=\"[0]\" type=\"int\">0</property>\n"
+                             "                    <property name=\"[1]\" type=\"int\">3</property>\n")),
+              "accepted");
+    const std::string vectorName = "                <property name=\"name\" type=\"string\">vector v</property>\n";
+    const auto vectorFrames = [](std::string_view arrayClass, int first, int second)
+    {
+        std::string frames = R"(                <property name="framedata" type="array")" + std::string(arrayClass) + ">\n";
+        for (const auto index : {first, second})
+        {
+            frames += "                    <property name=\"[" + std::to_string(index) +
+                      "]\" type=\"object\">\n"
+                      "                        <object class=\"org.opensourcephysics.cabrillo.tracker.Vector$FrameData\">\n"
+                      "                            <property name=\"xtail\" type=\"double\">1.0</property>\n"
+                      "                            <property name=\"ytail\" type=\"double\">2.0</property>\n"
+                      "                            <property name=\"xcomponent\" type=\"double\">3.0</property>\n"
+                      "                            <property name=\"ycomponent\" type=\"double\">4.0</property>\n"
+                      "                        </object>\n"
+                      "                    </property>\n";
+        }
+        return frames + "                </property>\n";
+    };
+    const std::string vectorClass = R"( class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;")";
+    EXPECT_EQ(refusalOf(replaced(base, vectorName, vectorName + vectorFrames(vectorClass, 2, 0))),
+              trackArrayRefusal("vector v", "framedata", false));
+    EXPECT_EQ(refusalOf(replaced(base, vectorName, vectorName + vectorFrames("", 1, 2))), trackArrayRefusal("vector v", "framedata", true));
+    EXPECT_EQ(refusalOf(replaced(base, vectorName, vectorName + vectorFrames(vectorClass, 0, 2))), "accepted");
+    EXPECT_EQ(refusalOf(mass(R"(<property name="tracks" type="collection" class="java.util.ArrayList">)",
+                             R"(<property name="tracks" type="collection">)")),
+              "Tracker cannot load the tracks of this file: its \"tracks\" list has no class. Tracker opens the file without any of its "
+              "tracks.");
+    // The calibration and the image sequence: Tracker cannot open the file.
+    EXPECT_EQ(refusalOf(fixtureText("classless-coords.trk")),
+              "Tracker cannot open this file: the calibration's \"framedata\" array has no class.");
+    EXPECT_EQ(fixtureText("classless-coords.trk"), mass(R"( class="[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;")", ""));
+    // The calibration's only key [0] gets a copy [2] before it, so the last index 0 leaves [2] without a slot.
+    const std::string key = "                <property name=\"[0]\" type=\"object\">\n                    <object "
+                            "class=\"org.opensourcephysics.media.core.ImageCoordSystem$FrameData\">";
+    const std::string keyEnd = "                </property>\n";
+    const auto keyStart = base.find(key);
+    const auto keyBlock = base.substr(keyStart, base.find(keyEnd, keyStart) + keyEnd.size() - keyStart);
+    EXPECT_EQ(refusalOf(mass(key, replaced(keyBlock, "\"[0]\"", "\"[2]\"") + key)),
+              "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is unreadable or "
+              "beyond the last element's.");
+    auto reversed = replaced(replaced(replaced(images, R"("[0]" type="string">frames/frame00)", R"("[X]" type="string">frames/frame00)"),
+                                      R"("[2]" type="string">frames/frame02)",
+                                      R"("[0]" type="string">frames/frame02)"),
+                             "\"[X]\"",
+                             "\"[2]\"");
+    EXPECT_EQ(refusalOf(reversed),
+              "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is unreadable or beyond "
+              "the last element's.");
+    EXPECT_EQ(refusalOf(replaced(images, R"( class="[Ljava.lang.String;")", "")),
+              "Tracker cannot open this file: the image sequence's \"paths\" array has no class.");
+    // A control Tracker loads: unordered indices within the last one's (mass A's [1] [0] [3]). MoTrack examines only the
+    // arrays of the objects it reads; those of untyped tracks are preserved unread.
+    const auto unordered = motrack::parseLegacyProject(
+        replaced(replaced(replaced(base,
+                                   "<property name=\"[0]\" type=\"object\">\n                        <object "
+                                   "class=\"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData\">\n                            "
+                                   "<property name=\"x\" type=\"double\">100.0",
+                                   "<property name=\"[X]\" type=\"object\">\n                        <object "
+                                   "class=\"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData\">\n                            "
+                                   "<property name=\"x\" type=\"double\">100.0"),
+                          R"(<property name="[1]" type="object">)",
+                          R"(<property name="[0]" type="object">)"),
+                 "[X]",
+                 "[1]"));
+    EXPECT_EQ(unordered.pointMasses.front().marks,
+              (std::vector<motrack::Mark>{
+                  {.frame = 0, .x = 110, .y = 78.5}, {.frame = 1, .x = 100, .y = 80}, {.frame = 3, .x = 130, .y = 77.25}}));
+    const std::string axes = "                <property name=\"name\" type=\"string\">axes</property>\n";
+    EXPECT_EQ(refusalOf(replaced(
+                  base, axes, axes + "                <property name=\"framedata\" type=\"array\">\n                </property>\n")),
+              "accepted");
+}
+
+TEST(LegacyProject, UnloadableMessagesMatchTheTypedImport)
+{
+    // Without a translator, B1's translated refusals are the typed import's English ones.
+    using motrack::tracker::UnloadablePlace;
+    using motrack::tracker::UnloadableShape;
+    for (const auto place :
+         {UnloadablePlace::ImagePaths, UnloadablePlace::Coordinates, UnloadablePlace::TrackList, UnloadablePlace::TrackArray})
+    {
+        for (const auto shape : {UnloadableShape::MissingClass, UnloadableShape::UnplacedIndex})
+        {
+            const motrack::tracker::Unloadable problem{
+                .place = place, .shape = shape, .container = {}, .property = "keyFrames", .track = "%2 & \"%1\""};
+            EXPECT_EQ(motrack::detail::unloadableMessage(problem), motrack::model::unloadableMessage(problem));
+        }
+    }
+    const auto named = motrack::model::unloadableMessage({.place = UnloadablePlace::TrackArray,
+                                                          .shape = UnloadableShape::MissingClass,
+                                                          .container = {},
+                                                          .property = "framedata",
+                                                          .track = "%2 & \"%1\""});
+    EXPECT_EQ(named, trackArrayRefusal("%2 & \"%1\"", "framedata", true));
 }
 
 } // namespace

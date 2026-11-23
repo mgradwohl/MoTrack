@@ -415,7 +415,7 @@ bool keepsSamples(
                               });
 }
 
-/// Takes the values the current reading's fixes change (#313/#314) from that reading, all or nothing, when every stored
+/// Takes the values the current reading's fixes change (#313-#315) from that reading, all or nothing, when every stored
 /// value they cover is exactly what the document's earlier reading gave the same source. A native file cannot tell an
 /// unedited old reading from an edit, so any other stored value, or a frame shift that would drop marks or move them off
 /// their clip steps, leaves every stored value as it is: the source associations are dropped, so standard export
@@ -450,6 +450,14 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
     {
         if (!before.calibration && !project.calibration)
             migrated.calibration = after.calibration;
+        else
+            outdated = true;
+    }
+    // #315: the earlier reader showed an empty or unreadable saved mass unit as "kg", the label it then stored.
+    if (before.massUnit != after.massUnit && project.massUnit != after.massUnit)
+    {
+        if (project.massUnit == before.massUnit)
+            migrated.massUnit = after.massUnit;
         else
             outdated = true;
     }
@@ -615,20 +623,32 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         result.archiveReference = string(archive);
     }
-    // Read the preserved source once with the current reader. A source saved by an earlier MoTrack that this
-    // reader refuses cannot be exported or re-associated, so explain that instead of a bare XML error.
+    // Read the preserved source once with the current reader. A source saved by an earlier MoTrack that this reader
+    // cannot parse cannot be kept as a Tracker source, so explain that instead of a bare XML error.
+    std::shared_ptr<const osp::Source> parsed;
     std::optional<detail::ImportedTracker> preserved;
     if (result.trackerSource)
     {
         try
         {
-            preserved = detail::importTracker(detail::parseTrackerXml(result.trackerSource->xml));
+            parsed = detail::parseTrackerXml(result.trackerSource->xml);
         }
         catch (const ProjectError& error)
         {
             throw ProjectError(std::string("The copy of the original Tracker file kept in this MoTrack project can no longer be read (") +
                                error.what() +
                                ") Open the project with the MoTrack version that saved it, or import the original Tracker file again.");
+        }
+        try
+        {
+            preserved = detail::importTracker(parsed);
+        }
+        catch (const ProjectError& error)
+        {
+            // The reader parses the source but refuses to import it, for example because Tracker cannot load it either
+            // (#315). The stored values open native-only, unchanged: nothing is re-associated or migrated, standard
+            // export refuses, and the window says why on every open (docs/native-format.md).
+            result.trackerSourceRefusal = error.what();
         }
     }
     auto& project = result.project;
@@ -643,10 +663,11 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         project.timeUnit = string(unit);
     }
-    else if (preserved)
+    else if (parsed)
     {
-        // Earlier native files retained this label only in the original Tracker XML.
-        project.timeUnit = preserved->project.timeUnit;
+        // Earlier native files retained this label only in the original Tracker XML, which holds it even where the
+        // reader refuses the rest.
+        project.timeUnit = preserved ? preserved->project.timeUnit : detail::timeUnitLabel(tracker::loadPanel(*parsed));
     }
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
@@ -672,6 +693,12 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         }
     }
     validateTrackIdentities(project);
+    if (result.trackerSource && result.trackerSource->bindings && !result.trackerSourceRefusal.empty())
+    {
+        // Nothing binds to a refused source; its bindings must still not contradict the document itself.
+        static_cast<void>(detail::trackerBindingsMatch(*result.trackerSource->bindings, project, detail::ImportedTracker{}));
+        result.trackerSource->bindings.reset();
+    }
     if (preserved && result.trackerSource && result.trackerSource->bindings &&
         !detail::trackerBindingsMatch(*result.trackerSource->bindings, project, *preserved))
     {
@@ -739,10 +766,11 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         migrateTrackerReading(result, *preserved);
     }
-    else
+    else if (!result.trackerSource)
     {
         result.trackerReading = CURRENT_TRACKER_READING; // No source: there is no reading to follow.
     }
+    // A refused source keeps the reading its stored values follow: this reader cannot check or migrate them.
     validateArchive(result);
     return result;
 }

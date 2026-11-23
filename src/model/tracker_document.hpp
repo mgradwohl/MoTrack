@@ -55,11 +55,13 @@ enum class AllocationRange : std::uint8_t
 
 /// The loader revision this build reads Tracker sources with (native v5's `trackerReading`, v7's `readerRevision`):
 /// 1 applies Tracker's clip frame shift and the last of duplicate coordinate keys (#313, #314), 2 also takes Java's
-/// slots for track frames (part of #315). Native versions 1 to 4 count as revision 0.
-inline constexpr std::uint32_t CURRENT_READER_REVISION = 2;
+/// slots for track frames, and 3 shows a saved mass unit as saved, an empty one included (#315). Native versions 1 to 4
+/// count as revision 0.
+inline constexpr std::uint32_t CURRENT_READER_REVISION = 3;
 
 /// The first countdown identity; also the low-water mark of a document that has handed out none below it.
-inline constexpr std::uint64_t COUNTDOWN_START = std::numeric_limits<std::uint64_t>::max();
+// Parenthesized, so a max() macro of <windows.h> included before this header cannot expand here.
+inline constexpr std::uint64_t COUNTDOWN_START = (std::numeric_limits<std::uint64_t>::max)();
 
 /// One addressable object.
 struct ObjectSlot
@@ -182,6 +184,10 @@ class TrackerDocument // NOLINT(bugprone-exception-escape)
     std::shared_ptr<const DependencyGraph> m_Graph;
     std::vector<ReferenceIssue> m_ReferenceIssues;
 };
+
+/// The English refusal of a source whose containers Tracker's loader cannot build (#315), which `importBaseline` and
+/// B1's import both give. `motrack_project` shows the same text through Qt's translation (legacy_project.cpp).
+[[nodiscard]] std::string unloadableMessage(const tracker::Unloadable& problem);
 
 /// One step of a baseline path: the child ordinal under the parent node and the property name there.
 struct PathStep

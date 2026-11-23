@@ -287,7 +287,7 @@ std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> read
 /// defect of the bound conversion (B2.1).
 void requireTypedNative(const motrack::WorkspaceDocument& document, const std::string& label)
 {
-    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated;
+    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated || !document.trackerSourceRefusal.empty();
     const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, dropped, document.trackerReading);
     if (!motrack::keepsRecordedAssociations(typed, document.trackerSource, dropped, document.trackerReading))
     {

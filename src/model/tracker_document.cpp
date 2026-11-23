@@ -84,8 +84,8 @@ template <typename T> FrameSeries<T> series(Indexed<T> frames, std::string_view 
 /// How many leading slots Tracker's application loader removes from a track's `framedata` before the track reads it,
 /// or none when it removes the whole array (#313; see legacy_project.cpp): TrackerIO's adjustFrameData drops the
 /// first `shift` slots (when positive) of every track array of Java length above 1, so saved index n loads at frame
-/// n - shift. An array no longer than the shift loads no frames, and one of length 1 is unchanged. An array whose last
-/// index Java cannot read stays unshifted, as before #313.
+/// n - shift. An array no longer than the shift loads no frames, and one of length 1 is unchanged. An array whose
+/// indices Java cannot place is refused before (#315); the compact form, which holds no frame objects, stays unshifted.
 template <typename Data> std::optional<std::int32_t> droppedSlots(const tracker::FrameArray<Data>& array, std::int32_t shift)
 {
     const auto last = array.frames.empty() ? Read<std::int32_t>(0) : array.frames.back().element.index;
@@ -102,8 +102,8 @@ template <typename Data> std::optional<std::int32_t> droppedSlots(const tracker:
 }
 
 /// A track's object elements as Java's array loader keeps them (reading revision 2): in index order, a later element
-/// of an index replacing an earlier one, a null one included. Where Java cannot place the indices, every object element
-/// in file order, as MoTrack read them before (#315 decides refusals).
+/// of an index replacing an earlier one, a null one included. Arrays whose indices Java cannot place are refused before
+/// (#315); the compact form, whose "array" element is no frame object, reads in file order and yields no frames.
 template <typename Data>
 std::vector<const tracker::Frame<Data>*> trackFrames(const osp::Source& source, const tracker::FrameArray<Data>& array)
 {
@@ -199,8 +199,9 @@ VectorState vector(const osp::Source& source, const tracker::VectorLoad& loaded,
 }
 
 /// The coordinate system as B1 presents it, or nothing where B1 imports no calibration: another class, a reference
-/// frame, no usable keys, or indices Java cannot place. Keys take Java's slots, so the last of duplicate keys wins
-/// (#314), and never shift: TrackerPanel loads `coords` without the frame adjuster.
+/// frame, no usable keys, or keys in the compact form. Keys take Java's slots, so the last of duplicate keys wins
+/// (#314), and never shift: TrackerPanel loads `coords` without the frame adjuster. Indices Java cannot place are
+/// refused before (#315).
 std::optional<CoordinatesState> coordinates(const osp::Source& source, const tracker::PanelLoad& panel)
 {
     if (!panel.coords || panel.coords->className != tracker::COORD_SYSTEM_CLASS || !loadedName(panel.referenceFrame).empty())
@@ -551,6 +552,44 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
 
 } // namespace
 
+std::string unloadableMessage(const tracker::Unloadable& problem)
+{
+    // Keep these texts equal to the translated ones in legacy_project.cpp (LegacyProject.UnloadableMessagesMatchTheTypedImport).
+    const bool noClass = problem.shape == tracker::UnloadableShape::MissingClass;
+    std::string text;
+    switch (problem.place)
+    {
+    case tracker::UnloadablePlace::ImagePaths:
+        text = noClass ? "Tracker cannot open this file: the image sequence's \"paths\" array has no class."
+                       : "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
+                         "unreadable or beyond the last element's.";
+        break;
+    case tracker::UnloadablePlace::Coordinates:
+        text = noClass ? "Tracker cannot open this file: the calibration's \"framedata\" array has no class."
+                       : "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is "
+                         "unreadable or beyond the last element's.";
+        break;
+    case tracker::UnloadablePlace::TrackList:
+        text = noClass ? "Tracker cannot load the tracks of this file: its \"tracks\" list has no class. Tracker opens the file "
+                         "without any of its tracks."
+                       : "Tracker cannot load the tracks of this file: its \"tracks\" list has an element whose index is unreadable "
+                         "or beyond the last element's. Tracker opens the file without any of its tracks.";
+        break;
+    case tracker::UnloadablePlace::TrackArray:
+    {
+        text = noClass ? "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has no class. Tracker opens "
+                         "the file without any of its tracks."
+                       : "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an element whose index "
+                         "is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.";
+        // Substitute the property first, so a track name containing "%2" stays as it is (as QString's multi-arg does).
+        text.replace(text.find("%2"), 2, problem.property);
+        text.replace(text.find("%1"), 2, problem.track);
+        break;
+    }
+    }
+    return text;
+}
+
 std::string_view associationsName(Associations associations) noexcept
 {
     switch (associations)
@@ -596,6 +635,10 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
     if (panel.className != tracker::TRACKER_PANEL_CLASS)
     {
         return invalid("Expected a TrackerPanel project.");
+    }
+    if (const auto problem = tracker::findUnloadable(source, panel))
+    {
+        return invalid(unloadableMessage(*problem));
     }
     DocumentParts parts{.baseline = std::move(baseline), .associations = Associations::Known};
     auto& objects = parts.objects;

@@ -30,9 +30,10 @@ is a synthetic, media-free Tracker document in OSP's layout: two point masses (w
 without samples (B1 exports no vector samples beside point masses), coordinate axes, a fixed calibration and a
 selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden with B2.1's build (on
 `main` with #330) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit
-them, and review every changed golden.
+them, and review every changed golden. (Since #315 changed the reading, the generator's `.motrack` output differs from
+the committed files, which keep B2.1's bytes: write it to a scratch directory and copy only the goldens.)
 
-- `v5-plain.motrack` is the current version-5 writer's output (`trackerReading` 2) after the fixture edits: rename,
+- `v5-plain.motrack` is B2.1's version-5 writer's output (`trackerReading` 2) after the fixture edits: rename,
   mark, unmark and weigh a point mass, change the mass unit, delete the second point mass, create and mark another,
   rename the vector, calibrate in centimeters and change the clip range and timing. `v5-archive.motrack` (one edited
   member) and `v6-group.motrack` (both edited members) embed
@@ -54,8 +55,21 @@ them, and review every changed golden.
   (a clip `frameshift`, a repeated calibration key, an empty saved `mass_unit`) as reading revision 0, the reader
   before the loader-fidelity fixes (#313–#315), read it. Opening migrates `v4-duplicate-keys` (the current reading's
   calibration is adopted); `v4-frame-shift` stays at revision 0 with its associations dropped, because the shift
-  would drop stored marks, and the typed document keeps revision 0 without transforming its values again.
+  would drop stored marks, and the typed document keeps revision 0 without transforming its values again. Since #315,
+  `v4-empty-mass-unit` migrates its stored `kg` to the empty label.
+- `v5-empty-mass-unit`, `v5-edited-empty-mass-unit`, `v5-unloadable-track-frames` and `v5-classless-coords` were
+  written by the reader before #315's revision 3 (`main` at `2525d90`, `trackerReading` 2) with a scratch driver that
+  imports one Tracker file, optionally sets the mass unit, and calls `writeWorkspaceDocument`. Their sources are
+  `tests/corpus/fixtures/empty-units.trk` (unedited, and with the mass unit set to `g`), `unloadable-track-frames.trk`
+  and `classless-coords.trk` below. The first migrates to the empty label; the second stays outdated with its `g`; the
+  last two hold sources the current reader refuses and open native-only with every stored value.
 
 Each `*.document.json` is the typed document the fixture converts into (`tests/model/document_dump.hpp`), with the
 baseline's SHA-256, and each `*.export.txt` is B1's standard export of it, the exported member for archives, or
 `refused:` and B1's reason.
+
+`unloadable-track-frames.trk` and `classless-coords.trk` are `native/baseline.trk` with one edit each (#315): mass A's
+`framedata` element `[1]` renamed `[5]`, so its indices `[0] [5] [3]` leave `[5]` beyond the length the last element
+sets, and the calibration's `framedata` without its `class` attribute. Tracker 6.3.5's application loader opened the
+first without any of its tracks and could not open the second (`TrackerSessionReference` under a private Xvfb display,
+checked for #315); MoTrack refuses both.

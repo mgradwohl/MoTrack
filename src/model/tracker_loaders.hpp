@@ -225,6 +225,52 @@ struct TabsetLoad
     std::vector<TabsetTabLoad> tabElements{}; ///< Elements of `tabs` in file order, when it is an array.
 };
 
+/// Why OSP's loader cannot build an array or collection (#315). XMLControlElement.arrayValue resolves the component
+/// type from the `class` attribute before it reads any element, and collectionValue instantiates that class, so a
+/// missing class throws a NullPointerException. An indexed array (one not in the compact "array" form) is sized by its
+/// last element's index, so an element whose index Integer.parseInt cannot read, or one beyond the last element's,
+/// throws while the array is filled.
+enum class UnloadableShape : std::uint8_t
+{
+    MissingClass,
+    UnplacedIndex,
+};
+
+/// The shape of `container` (an array or collection property) that Java cannot load, or none.
+[[nodiscard]] std::optional<UnloadableShape> unloadableShape(const osp::Source& source, osp::NodeId container);
+
+/// Where Tracker 6.3.5's application loader meets a container it cannot load, among the ones MoTrack reads.
+enum class UnloadablePlace : std::uint8_t
+{
+    /// The ImageVideo `paths`: the exception escapes TrackerPanel.Loader, so Tracker cannot open the file.
+    ImagePaths,
+    /// The ImageCoordSystem `framedata` of the panel's `coords`: Tracker cannot open the file either.
+    Coordinates,
+    /// The panel's `tracks` collection itself: collectionValue catches the exception and returns null, so Tracker
+    /// opens the file without any of its tracks.
+    TrackList,
+    /// A point mass's `framedata` or `keyFrames`, or a vector's `framedata`: the exception leaves the track's loader
+    /// and collectionValue drops the whole `tracks` collection, as for `TrackList`.
+    TrackArray,
+};
+
+struct Unloadable
+{
+    UnloadablePlace place = UnloadablePlace::TrackArray;
+    UnloadableShape shape = UnloadableShape::MissingClass;
+    osp::NodeId container{};
+    /// The container's property name: `paths`, `framedata`, `tracks` or `keyFrames`.
+    std::string property{};
+    /// The track's saved name (TTrack.Loader's `name`), or "" when unreadable; only for `TrackArray`.
+    std::string track{};
+};
+
+/// The first container of the objects MoTrack models that Tracker's loader cannot build, in its loading order: the
+/// video's `paths` (ImageVideo only), the coordinate system's `framedata` (ImageCoordSystem only), the `tracks`
+/// collection, then each point mass's `framedata` and `keyFrames` and each vector's `framedata` in `tracks` order.
+/// Other objects are preserved, not read, so their containers are not examined.
+[[nodiscard]] std::optional<Unloadable> findUnloadable(const osp::Source& source, const PanelLoad& panel);
+
 /// Loads the root object. The caller checks its class.
 [[nodiscard]] PanelLoad loadPanel(const osp::Source& source);
 /// Loads a tabset's root object. The caller checks its class and the shape of `tabs`.

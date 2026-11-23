@@ -154,8 +154,11 @@ before B1 hold ordinals from MoTrack's former DOM reader; where OSP's line reade
 longer match. Such stale associations are dropped on open rather than guessed: the measurements and source
 stay, the window shows a persistent note, and standard export is refused until the original Tracker file is
 imported again. Associations that contradict the native document itself (unreserved, duplicate or
-wrong-kind IDs) still fail. A preserved source that the current reader refuses fails to open with a message
-saying so, and the native file is left unchanged.
+wrong-kind IDs) still fail. A preserved source that the current reader cannot parse fails to open with a message
+saying so, and the native file is left unchanged. One it parses but refuses to import, such as a source Tracker cannot
+load either ([#315](https://github.com/mgradwohl/MoTrack/issues/315)), opens native-only: every stored value is kept
+as saved, the associations are dropped, the earlier `trackerReading` is kept, standard export refuses, and the window
+names the reason on every open. A native save keeps the source bytes, which then only have to parse.
 
 ### Tracker reading revisions
 
@@ -168,7 +171,8 @@ version-5 bodies takes `trackerReading` as their reader revision.
 | --- | --- |
 | 0, or absent | Before #313/#314: track frames at their saved indices and no calibration for duplicate coordinate keys. Every file written before this field. |
 | 1 | Revision 0 plus Tracker 6.3.5's frame shift and last-wins duplicate coordinate keys (below). Written only by development builds of #330. |
-| 2 | Revision 1 plus track `framedata` read as Java assigns array slots (below). Written by #330. |
+| 2 | Revision 1 plus track `framedata` read as Java assigns array slots (below). Written by #330 and later builds before #315. |
+| 3 | Revision 2 plus a saved `mass_unit` shown as saved, an empty one included (below). Written since #315. |
 
 A higher revision than the build knows is refused with a message naming a newer MoTrack, and the file is not changed.
 The current revision applies Tracker 6.3.5's loader:
@@ -185,8 +189,17 @@ The current revision applies Tracker 6.3.5's loader:
 - **Duplicate coordinate keys.** The last `[n]` element wins, a null one included, as OSP's array loader assigns slots.
   Revision 0 stored no calibration for such a source.
 - **Track slots (part of #315).** Point-mass and vector `framedata` follow the same rule, so a null `[n]` after an
-  element `[n]` removes that sample. An array whose indices Java cannot place, which Tracker cannot load at all, keeps
-  being read in file order, as before.
+  element `[n]` removes that sample.
+- **Mass unit (#315).** `TrackerPanel.Loader` assigns a saved `mass_unit` as it is, so an empty one shows no unit;
+  revisions 0–2 showed `kg`. A label saved with another property type is null in Java, which hides every unit label;
+  MoTrack shows it empty, as it does such a `length_unit`. `VideoPanel.setTimeUnit` ignores an empty `time_unit`, so
+  that label keeps `s` in every revision; its trimming and digit rule is [#356](https://github.com/mgradwohl/MoTrack/issues/356).
+- **Arrays Tracker cannot load (#315).** OSP's array loader needs the `class` attribute and sizes an indexed array by
+  its last element's index. An array without a class, or with an index that is unreadable or beyond the last
+  element's, makes Tracker open the file without any of its tracks (a point mass's `framedata` or `keyFrames`, a
+  vector's `framedata`, or a `tracks` collection without a class) or fail to open it (the calibration's `framedata`,
+  an image sequence's `paths`). Import refuses such a file in every revision, naming the array; arrays of untyped
+  objects are preserved unread. Revisions 0–2 read track arrays in file order and such a calibration as none.
 
 Opening a file of an earlier revision compares its stored values with that revision's and the current reading of the
 preserved source and takes the current reading's values, all or nothing, when both conditions hold where the
@@ -197,6 +210,7 @@ readings differ:
   slots) or moved off its clip step. A clip start held at frame 0 and a negative shift both move samples off their
   steps, so such documents are not migrated.
 - **Calibration:** the earlier reading and the stored document both have none.
+- **Mass unit:** the stored label equals the earlier reading's (`kg` for an empty or unreadable saved label) or already the current one.
 
 A native file cannot tell an edit from an unedited earlier value, so anything else keeps every stored value: nothing
 is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so

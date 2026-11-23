@@ -560,7 +560,7 @@ varying vector coordinates have their own later corpus section. This case must n
 
 ## Frame shift and duplicate coordinate keys
 
-[FrameDataFixture.java](../../tools/reference/FrameDataFixture.java) authors two loader cases with the pinned
+[FrameDataFixture.java](../../tools/reference/FrameDataFixture.java) authors these two loader cases, and the empty-unit case below, with the pinned
 serializers, omitting trailing null array elements as TrackerPanel's saver does. Tracker 6.3.5 writes neither shape,
 so each mode makes one documented change to the saved document; expectations come from Tracker, never from MoTrack.
 
@@ -583,6 +583,18 @@ compare bytes:
 java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/FrameDataFixture.java frame-shift /temporary/path/frame-shift.trk
 ```
 
+## Empty unit labels
+
+`FrameDataFixture.java`'s `empty-units` mode (#315) saves empty `time_unit` and `mass_unit` strings, which Tracker
+6.3.5's saver never writes, beside a media-free clip of five steps, a fixed calibration (origin (320, 240), 2 px per m)
+and `mass A` (1.5 kg) with marks at frames 0, 2 and 4. `TrackerPanel.Loader` assigns the mass label as saved, so
+Tracker shows no mass unit, but passes the time label to `VideoPanel.setTimeUnit`, which ignores an empty one, so the
+time unit stays `s`; the XML reference models that rule (`TrackerReference.timeUnit`). The case's standard round trip
+(`native_mass_roundtrip`) multiplies the mass by 2.5, so Tracker reopens MoTrack's export with the empty label kept.
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/FrameDataFixture.java empty-units /temporary/path/empty-units.trk
+```
 ## Partly fixed calibration export
 
 [MixedCalibrationFixture.java](../../tools/reference/MixedCalibrationFixture.java) uses pinned public

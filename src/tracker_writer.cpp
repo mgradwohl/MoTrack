@@ -1497,9 +1497,14 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
+    if (!document.trackerSourceRefusal.empty())
+        throw ProjectError("Tracker export is unavailable: this MoTrack cannot read the copy of the original Tracker file kept in the "
+                           "project (" +
+                           document.trackerSourceRefusal + ")");
     if (document.trackerReadingOutdated)
-        throw ProjectError("Tracker export is unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame "
-                           "shift or duplicate calibration keys, and they could not be updated safely. Import the Tracker file again.");
+        throw ProjectError("Tracker export is unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, "
+                           "frame data or mass unit differently, and the measurements it saved could not be updated safely. Import "
+                           "the Tracker file again.");
     const auto& source = *document.trackerSource;
     require(!document.useDisplayOrientation && !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
     require(document.movie ? document.alignMovieToClip && !document.movieFrameTimes.empty() : document.movieFrameTimes.empty());

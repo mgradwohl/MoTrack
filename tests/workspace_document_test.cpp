@@ -1,6 +1,7 @@
 #include "workspace_document.hpp"
 
 #include "archive_fixture.hpp"
+#include "legacy_view.hpp"
 #include "main_window.hpp"
 #include "measurements.hpp"
 #include "paired_save.hpp"
@@ -924,6 +925,202 @@ TEST(WorkspaceDocument, MigratesTrackSlotsOfRevisionOneOnlyWhenNoMarkIsDropped)
     EXPECT_EQ(markFrames(agreed.project.pointMasses.front()), (std::vector<int>{1, 3}));
 }
 
+/// A native fixture written by the reader before #315's revision 3 (2525d90; provenance in tests/fixtures/README.md).
+QString pre315Fixture(const char* name)
+{
+    return QString::fromUtf8(MOTRACK_FIXTURES) + "/native/" + name;
+}
+
+QString sourceNoticeAfterOpening(const QString& path)
+{
+    motrack::MainWindow window;
+    if (!window.loadProject(path))
+        return "not opened";
+    const auto* notice = window.findChild<QLabel*>("sourceNotice");
+    return notice == nullptr || notice->isHidden() ? QString{} : notice->text();
+}
+
+TEST(WorkspaceDocument, MigratesTheMassUnitEarlierReadersDefaultedForAnEmptyLabel)
+{
+    // The reader before revision 3 stored "kg" for the corpus empty-units case's empty `mass_unit`; Tracker 6.3.5 shows
+    // no mass unit there and the default time unit "s" for its empty `time_unit` (#315).
+    const auto path = pre315Fixture("v5-empty-mass-unit.motrack");
+    const auto stored = QJsonDocument::fromJson(readBytes(path)).object();
+    ASSERT_EQ(stored.value("trackerReading"), static_cast<int>(motrack::TrackerReading::LastTrackSlot));
+    ASSERT_EQ(stored.value("massUnit"), "kg");
+    const auto document = motrack::readWorkspaceDocument(path);
+    EXPECT_FALSE(document.trackerReadingOutdated);
+    EXPECT_TRUE(document.trackerReadingMigrated);
+    EXPECT_EQ(document.trackerReading, motrack::CURRENT_TRACKER_READING);
+    EXPECT_TRUE(document.trackerSourceRefusal.empty());
+    ASSERT_TRUE(document.trackerSource && document.trackerSource->bindings);
+    EXPECT_EQ(document.project.massUnit, "");
+    EXPECT_EQ(document.project.timeUnit, "s");
+    // Nothing else changed: the migrated document is a fresh import of its source, and exports the source unchanged.
+    EXPECT_EQ(document.project, motrack::parseLegacyProject(document.trackerSource->xml));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, *document.trackerSource), document.trackerSource->xml);
+    EXPECT_TRUE(sourceNoticeAfterOpening(path).startsWith("Measurements an earlier MoTrack saved were updated"));
+
+    // A native save records the current reading, and the next open neither migrates nor explains again.
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("migrated.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    const auto root = QJsonDocument::fromJson(readBytes(native)).object();
+    EXPECT_EQ(root.value("trackerReading"), static_cast<int>(motrack::CURRENT_TRACKER_READING));
+    EXPECT_EQ(root.value("massUnit"), "");
+    const auto reopened = motrack::readWorkspaceDocument(native);
+    EXPECT_EQ(reopened.project, document.project);
+    EXPECT_FALSE(reopened.trackerReadingMigrated);
+    EXPECT_TRUE(sourceNoticeAfterOpening(native).isEmpty());
+}
+
+TEST(WorkspaceDocument, KeepsAMassUnitEditedOnAnEmptyLabelAndExplainsWhy)
+{
+    // The same source with the mass unit set to "g" before #315: neither reading gives "g", so it cannot be told from an
+    // edit made on top of a misreading; the stored values stay, export refuses and every open explains why.
+    const auto path = pre315Fixture("v5-edited-empty-mass-unit.motrack");
+    ASSERT_EQ(QJsonDocument::fromJson(readBytes(path)).object().value("massUnit"), "g");
+    const auto document = motrack::readWorkspaceDocument(path);
+    EXPECT_TRUE(document.trackerReadingOutdated);
+    EXPECT_FALSE(document.trackerReadingMigrated);
+    EXPECT_EQ(document.trackerReading, motrack::TrackerReading::LastTrackSlot);
+    ASSERT_TRUE(document.trackerSource);
+    EXPECT_FALSE(document.trackerSource->bindings);
+    EXPECT_EQ(document.project.massUnit, "g");
+    QTemporaryDir temporary;
+    try
+    {
+        motrack::writeTrackerDocument(temporary.filePath("export.trk"), document, {});
+        ADD_FAILURE() << "Standard export wrote values of an earlier reading.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(std::string_view(error.what()).starts_with("Tracker export is unavailable: an earlier MoTrack")) << error.what();
+    }
+    EXPECT_FALSE(QFileInfo::exists(temporary.filePath("export.trk")));
+    const auto resaved = temporary.filePath("resaved.motrack");
+    motrack::writeWorkspaceDocument(resaved, document);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(resaved)).object().value("trackerReading"),
+              static_cast<int>(motrack::TrackerReading::LastTrackSlot));
+    EXPECT_TRUE(motrack::readWorkspaceDocument(resaved).trackerReadingOutdated);
+    EXPECT_TRUE(sourceNoticeAfterOpening(resaved).startsWith("Tracker export unavailable: an earlier MoTrack read")) << "note";
+}
+
+TEST(WorkspaceDocument, OpensStoredValuesNativeOnlyWhereTheReaderRefusesThePreservedSource)
+{
+    // The reader before #315 imported both sources, which Tracker 6.3.5 cannot load: mass A's framedata [0] [5] [3]
+    // (stored in file order at frames 0, 3 and 5), and a calibration array without a class (stored as the calibration).
+    // The current reader refuses them, so the stored values open native-only and nothing is lost.
+    for (const auto* name : {"v5-unloadable-track-frames.motrack", "v5-classless-coords.motrack"})
+    {
+        SCOPED_TRACE(name);
+        const auto path = pre315Fixture(name);
+        const auto stored = QJsonDocument::fromJson(readBytes(path)).object();
+        ASSERT_FALSE(stored.value("trackerSource").toObject().value("bindings").toArray().isEmpty());
+        const auto document = motrack::readWorkspaceDocument(path);
+        ASSERT_TRUE(document.trackerSource);
+        std::string refusal;
+        try
+        {
+            static_cast<void>(motrack::parseLegacyProject(document.trackerSource->xml));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            refusal = error.what();
+        }
+        ASSERT_FALSE(refusal.empty());
+        EXPECT_EQ(document.trackerSourceRefusal, refusal);
+        EXPECT_FALSE(document.trackerSource->bindings);
+        EXPECT_FALSE(document.trackerReadingOutdated || document.trackerReadingMigrated || document.trackerBindingsReset);
+        EXPECT_EQ(document.trackerReading, motrack::TrackerReading::LastTrackSlot);
+        // Every stored value is as saved.
+        const auto& project = document.project;
+        ASSERT_EQ(project.pointMasses.size(), 2u);
+        EXPECT_EQ(project.pointMasses.front().name, "mass A");
+        EXPECT_EQ(markFrames(project.pointMasses.front()),
+                  std::string_view(name).starts_with("v5-unloadable") ? (std::vector<int>{0, 3, 5}) : (std::vector<int>{0, 1, 3}));
+        ASSERT_TRUE(project.calibration);
+        EXPECT_EQ(project.calibration->keyframes.front().scaleX, 50.0);
+        EXPECT_EQ(project.vectors.size(), 1u);
+        EXPECT_EQ(project.nextTrackId, 4u);
+        QTemporaryDir temporary;
+        try
+        {
+            motrack::writeTrackerDocument(temporary.filePath("export.trk"), document, {});
+            ADD_FAILURE() << "Standard export wrote a source Tracker cannot load.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_EQ(std::string(error.what()),
+                      "Tracker export is unavailable: this MoTrack cannot read the copy of the original Tracker "
+                      "file kept in the project (" +
+                          refusal + ")");
+        }
+        EXPECT_FALSE(QFileInfo::exists(temporary.filePath("export.trk")));
+        // A native save keeps the source bytes and the earlier reading; the next open refuses the source again.
+        const auto resaved = temporary.filePath("resaved.motrack");
+        motrack::writeWorkspaceDocument(resaved, document);
+        const auto root = QJsonDocument::fromJson(readBytes(resaved)).object();
+        EXPECT_EQ(root.value("trackerReading"), static_cast<int>(motrack::TrackerReading::LastTrackSlot));
+        EXPECT_TRUE(root.value("trackerSource").toObject().value("bindings").isNull());
+        const auto reopened = motrack::readWorkspaceDocument(resaved);
+        EXPECT_EQ(reopened.project, project);
+        ASSERT_TRUE(reopened.trackerSource);
+        EXPECT_EQ(reopened.trackerSource->xml, document.trackerSource->xml);
+        EXPECT_EQ(reopened.trackerSourceRefusal, refusal);
+        // B2.1's conversion keeps every stored value, with stale associations.
+        const auto typed = motrack::typedDocumentFromReduced(project, document.trackerSource, true, document.trackerReading);
+        EXPECT_EQ(typed.associations(), motrack::model::Associations::Stale);
+        EXPECT_EQ(motrack::legacyProject(typed), project);
+        const auto note = sourceNoticeAfterOpening(path);
+        EXPECT_TRUE(note.startsWith("Tracker export unavailable: this MoTrack cannot read the copy")) << note.toStdString();
+        EXPECT_TRUE(note.contains(QString::fromStdString(refusal))) << note.toStdString();
+    }
+    // A file from before the time unit was stored recovers it from the refused source's panel too.
+    auto root = QJsonDocument::fromJson(readBytes(pre315Fixture("v5-unloadable-track-frames.motrack"))).object();
+    auto source = root.value("trackerSource").toObject();
+    auto xml = QByteArray::fromBase64(source.value("xmlBase64").toString().toLatin1());
+    xml.replace("    <property name=\"description\"",
+                "    <property name=\"time_unit\" type=\"string\">ms</property>\n    <property name=\"description\"");
+    source.insert("xmlBase64", QString::fromLatin1(xml.toBase64()));
+    root.insert("trackerSource", source);
+    root.remove("timeUnit");
+    QTemporaryDir temporary;
+    const auto untimed = temporary.filePath("untimed.motrack");
+    ASSERT_TRUE(writeBytes(untimed, QJsonDocument(root).toJson()));
+    const auto recovered = motrack::readWorkspaceDocument(untimed);
+    EXPECT_FALSE(recovered.trackerSourceRefusal.empty());
+    EXPECT_EQ(recovered.project.timeUnit, "ms");
+}
+
+TEST(WorkspaceDocument, ConvertsNativeFilesThatStoreEmptyUnitLabels)
+{
+    // No MoTrack build writes an empty time unit, and none before #315 an empty mass unit, but a native file can hold
+    // them; B2.4a's reader converts through typedDocumentFromReduced, which must open such a file.
+    auto root = QJsonDocument::fromJson(readBytes(pre315Fixture("v5-empty-mass-unit.motrack"))).object();
+    root.insert("massUnit", "");
+    root.insert("timeUnit", "");
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("empty-labels.motrack");
+    ASSERT_TRUE(writeBytes(path, QJsonDocument(root).toJson()));
+    const auto document = motrack::readWorkspaceDocument(path);
+    EXPECT_EQ(document.project.massUnit, "");
+    EXPECT_EQ(document.project.timeUnit, "");
+    EXPECT_FALSE(document.trackerReadingOutdated);
+    // The empty mass unit is Tracker's reading and stays bound; an empty time unit, which Tracker never loads, keeps
+    // every stored value with stale associations.
+    const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, false, document.trackerReading);
+    EXPECT_EQ(motrack::legacyProject(typed), document.project);
+    EXPECT_EQ(typed.associations(), motrack::model::Associations::Stale);
+    auto massOnly = document.project;
+    massOnly.timeUnit = "s";
+    const auto bound = motrack::typedDocumentFromReduced(massOnly, document.trackerSource, false, document.trackerReading);
+    EXPECT_EQ(bound.associations(), motrack::model::Associations::Known);
+    EXPECT_EQ(motrack::legacyProject(bound), massOnly);
+    // Without a source, both labels are native-only values.
+    const auto unsourced = motrack::typedDocumentFromReduced(document.project, std::nullopt);
+    EXPECT_EQ(motrack::legacyProject(unsourced), document.project);
+}
 TEST(WorkspaceDocument, RejectsInvalidOptionalFrameDurationsBeforeReplacingExistingFile)
 {
     QTemporaryDir temporary;
