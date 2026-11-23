@@ -83,6 +83,7 @@ on a unit-scale signal), as in Tracker.
 - `measuredTimeDerivatives(clip, positions, stepTimesSeconds, timeResolutionSeconds)` is MoTrack's
   extension for measured (decoded) step times; `evenlySpacedWindow`, `quadraticSlope` and
   `leastSquaresCurvature` are its parts (see [workspace measurements](#workspace-measurements)).
+  `TimestampPrecision` and `timestampPrecision` infer the timestamp precision that sets its resolution (#335).
 - `MovingAverageFilter`, `ButterworthFilter` and `SavitzkyGolayFilter` normalize their parameters like
   Tracker's setters; `applyMotionFilter`, `filterPositions` and `filterRmsDeviation` apply them.
   `butterworthSampleRateHz` is the dialog's rate rule.
@@ -184,13 +185,36 @@ Time scaling depends on where the times come from:
 - **Decoded movie frame times** (`measuredTimeDerivatives`, #331). These are seconds from the movie's first
   frame, per original frame number. The decoder takes them from the stream's time base (the tick of its
   timestamps, for example 1/1000 s in Matroska/WebM or 1/600 s in many phone recordings) and rescales them to
-  whole nanoseconds. The index records that time base, and the native document saves it with the times.
+  whole nanoseconds. The index records that time base and the precision inferred from the timestamps (below),
+  and the native document saves both with the times.
+  - **Timestamp precision** (#335; `TimestampPrecision` in `timestamp_precision.hpp`). A file can declare a
+    finer time base than its timestamps have. FFmpeg's MP4 muxer doubles a time base coarser than 1/10000 s, so
+    MKV or WebM remuxed to MP4 without re-encoding (for example OBS "remux to MP4") declares 1/16000 s while its
+    timestamps stay whole milliseconds. The index therefore infers the precision from the integer timestamps:
+    when the tick is finer than 1 ms and every timestamp's offset from the first is a whole number of
+    milliseconds, the precision is 1 ms; otherwise it is the time base. In short, max(time base, 1 ms) when every
+    timestamp is a whole millisecond. The precision takes the time base's place in the evenly spaced test.
+    - *Genuine variable timing on a fine time base is unaffected:* one timestamp off the millisecond lattice
+      keeps the time base for the whole movie, so timing that uses the finer ticks is classified as before.
+    - *Not the greatest common divisor of the offsets:* that can grow to a frame interval (a constant
+      1001/30000 s rate gives 1001 ticks, and a dropped frame would pass as rounding), or to the common factor
+      of a few genuine intervals. For example, 40 and 40.5 ms frames on 1/90000 s share 45 ticks, which would
+      hide a rate change worth 0.26 m/s² for 2 m/s.
+    - *Limits:* a movie whose every timestamp is a whole millisecond is treated like a Matroska file, whatever
+      its declared tick. A frame displaced by up to 1 ms from the grid then cannot be told from rounding, with
+      the per-sample and per-window bounds below at a 1 ms tick: 0.85 and 1.7 m/s² at 3.3 m/s and 30 fps. Larger
+      displacements, such as dropped frames, stay uneven. Other coarse clocks counted in finer ticks (for
+      example 1/600 s timestamps in a 1/90000 s stream) are not detected; they keep the declared time base, and
+      their rounding gets the fit as before #335.
+    - The native document saves the precision as `movieTimestampPrecision` beside `movieTimeBase`: at least the
+      tick and at most max(tick, 1 ms). A document saved before #335 has none, so the tick applies until the
+      movie is indexed again.
   - **Evenly spaced windows** get Tracker's stencils above, bit for bit with Tracker on the same times.
     A window counts as evenly spaced when every interior time lies within the timestamp resolution of the
-    evenly spaced grid between its end times: max(time base, 1 ns), plus 1 ns for the rescaling and 8 ulps.
+    evenly spaced grid between its end times: max(precision, 1 ns), plus 1 ns for the rescaling and 8 ulps.
     That is the most that rounding the timestamps of a constant rate can move a time, so constant-rate video
     is never mistaken for variable timing. For velocity's three steps this says the two intervals agree within
-    2 × max(time base, 1 ns) (+2 ns). For five steps it checks each time against the grid rather than only the
+    2 × max(precision, 1 ns) (+2 ns). For five steps it checks each time against the grid rather than only the
     spread of the intervals. The interval spread would leave a frame two ticks late exactly on the boundary,
     and nanosecond rounding would then decide.
   - **Other windows** use time-aware estimates. Velocity is the slope at the step's time of the quadratic
@@ -220,18 +244,33 @@ Time scaling depends on where the times come from:
         the interior weights.
       - At 3.3 m/s that is 1.4 and 2.8 m/s² for 1/600 s ticks at 30 fps, and 0.009 and 0.019 m/s² for
         1/90000 s.
+    - *A declared time base finer than the timestamps* (#335): with the inferred 1 ms precision, MKV or WebM
+      remuxed to MP4 (1/16000 s) gets Tracker's values like the original file: |a| < 1e-9 for steady motion at
+      30, 29.97 and 60 fps. With the declared time base alone the 33/34 ms intervals counted as unequal, and the
+      fit reported 0.26, 0.26 and 1.0 m/s² for 2 m/s.
     - *Unknown time base* (a document saved before #331, until its movie is indexed again, which happens on
       opening): nanosecond resolution is assumed. Constant-rate video with coarse timestamps then gets the
-      five-point fit on its rounded times: up to 0.26 m/s² at 30 fps and 1.0 m/s² at 60 fps for 2 m/s.
-    - *A declared time base finer than the timestamps:* MKV or WebM remuxed to MP4 without re-encoding (for
-      example by OBS) declares 1/16000 s while its timestamps stay whole milliseconds. The 33/34 ms intervals
-      then count as unequal, with the same 0.26 and 1.0 m/s² as above. Detecting the real precision is #335.
+      five-point fit on its rounded times: up to 0.26 m/s² at 30 fps and 1.0 m/s² at 60 fps for 2 m/s. A
+      document saved before #335 has the time base but no precision, so a remuxed movie gets those values too
+      until it is indexed again.
   - **Tests:** `MeasurementPlot.ConstantRateCaptureWithMillisecondTimestampsUsesTrackersStencils` and
     `MeasurementPlot.AMixedClipOnACoarseTimeBaseHasNoEstimatorDiscontinuity`. The mixed clip is 30 fps on
     1/600 s with free fall and ±1 mm noise, one frame one to three ticks late. It stays within the five-point
     noise band (±0.51 m/s²) when the frame is two or three ticks late, including where the estimator changes;
     the three-point estimates swung by ±3.6 m/s² there. One tick late, it stays within the per-sample bound
-    above.
+    above. For #335:
+    - `TimestampPrecision.*` builds timestamps tick by tick: remuxed 30, 29.97, 60 and 25 fps in 1/16000 and
+      1/90000 s ticks, start offsets and the ends of the 64-bit range; native MP4 and transport-stream rates,
+      camera jitter, one frame a tick off, and the two greatest-common-divisor traps above; 1/600 and 1/1000 s.
+    - `MeasurementPlot.RemuxedMillisecondTimestampsOnAFinerTimeBaseUseTrackersStencils` gives Tracker's values
+      bit for bit with the inferred precision. The declared 1/16000 s alone gives 0.260580, 0.260840 and
+      1.001561 m/s², which an exact rational computation reproduces.
+    - `MeasurementPlot.GenuineVariableTimingOnAFineTimeBaseIsStillUneven`: ±0.5 ms jitter and a rate change on
+      1/90000 s keep their tick and stay exact (|a| < 1e-9). A coarser precision would show more than 0.2 m/s².
+    - `CaptureEncoder.WholeMillisecondCameraTimesIndexWithMillisecondPrecision` indexes a real 1/90000 s movie
+      with whole-millisecond timestamps.
+    - `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` repeats the fixture's evenly spaced
+      decoded cases with a 1 ms precision on a declared 1/16000 s; they stay Tracker's bit for bit.
 
 `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` checks `measurementPlot` against every
 Finite Difference case of the fixture. With decoded times it equals Tracker bit for bit, and with constant

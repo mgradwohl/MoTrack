@@ -249,8 +249,11 @@ void writeTrackerMediaPackage(
         checkCancelled(cancelled);
         requireReadable(index.frameCount > 0,
                         workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences.front()));
+        // A document saved before #331 has no time base, and one saved before #335 no inferred precision.
+        const auto& saved = document.movieTimeBase;
         if (document.project.clip.sourceFrameCount != index.frameCount || index.frameTimes != document.movieFrameTimes ||
-            (document.movieTimeBase.known() && index.timeBase != document.movieTimeBase))
+            (saved.known() && (index.timeBase.numerator != saved.numerator || index.timeBase.denominator != saved.denominator ||
+                               (saved.precisionKnown() && index.timeBase != saved))))
             throw ProjectError(
                 QCoreApplication::translate("TrackerImagePackage", "The movie's frame count or timing no longer matches this document.")
                     .toStdString());
