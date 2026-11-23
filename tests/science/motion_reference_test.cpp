@@ -366,6 +366,7 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
     int exact = 0;
     int rounded = 0;
     int uneven = 0;
+    int remuxed = 0;
     for (const auto& item : reference()["derivative_cases"].toArray())
     {
         const auto entry = item.toObject();
@@ -407,7 +408,8 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
         project.pointMasses.push_back(mass);
 
         using Check = void (*)(double actual, double tracker, double time, PlotQuantity quantity, int& count);
-        const auto compare = [&](std::span<const double> decoded, const std::string& where, Check check, int& count)
+        const auto compare =
+            [&](std::span<const double> decoded, const std::string& where, Check check, int& count, motrack::FrameTimeBase timeBase = {})
         {
             for (const auto quantity :
                  {PlotQuantity::VelocityX, PlotQuantity::VelocityY, PlotQuantity::AccelerationX, PlotQuantity::AccelerationY})
@@ -415,7 +417,7 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
                 const bool second = quantity == PlotQuantity::AccelerationX || quantity == PlotQuantity::AccelerationY;
                 const bool vertical = quantity == PlotQuantity::VelocityY || quantity == PlotQuantity::AccelerationY;
                 std::map<int, double> plotted;
-                for (const auto& sample : motrack::measurementPlot(project, 0, quantity, decoded).samples)
+                for (const auto& sample : motrack::measurementPlot(project, 0, quantity, decoded, 0.0, timeBase).samples)
                 {
                     plotted.emplace(sample.frame, sample.vertical);
                 }
@@ -457,6 +459,13 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
             ++count;
         };
         compare(frameTimes, id + "/decoded", same, exact);
+        // A coarser inferred precision (#335) only widens the evenly spaced test, so equal intervals keep Tracker's values
+        // bit for bit: here the 1 ms that MKV remuxed to MP4 gets on its declared 1/16000 s.
+        compare(frameTimes,
+                id + "/remuxed",
+                same,
+                remuxed,
+                {.numerator = 1, .denominator = 16000, .precisionNumerator = 1, .precisionDenominator = 1000});
 
         const auto timing = constantTiming(id);
         ASSERT_TRUE(timing.has_value()) << id;
@@ -486,10 +495,12 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
                 rounded);
         }
     }
-    // Every finite velocity and acceleration component of the 17 cases (672 exact, 312 rounded, 60 uneven).
+    // Every finite velocity and acceleration component of the 17 cases (672 exact, 312 rounded, 60 uneven), and the
+    // 492 decoded ones of the 16 evenly spaced cases again with the remuxed precision.
     EXPECT_EQ(exact, 672);
     EXPECT_EQ(rounded, 312);
     EXPECT_EQ(uneven, 60);
+    EXPECT_EQ(remuxed, 492);
 }
 
 TEST(MotionReference, OneDimensionalDifferencesMatchTrackerExactly)

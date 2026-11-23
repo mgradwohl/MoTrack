@@ -1,5 +1,6 @@
 #include "video_reader.hpp"
 
+#include "science/motion/timestamp_precision.hpp"
 #include "video_reader_detail.hpp"
 #include "workspace_document.hpp"
 
@@ -452,11 +453,16 @@ struct VideoReader::Impl
     MovieFrame takeFrame(bool convertPixels)
     {
         std::optional<std::chrono::nanoseconds> time;
+        std::optional<std::int64_t> ticks;
         if (decoded->best_effort_timestamp != AV_NOPTS_VALUE)
         {
-            time.emplace(av_rescale_q(decoded->best_effort_timestamp, timeBase, AVRational{.num = 1, .den = 1'000'000'000}));
+            ticks = decoded->best_effort_timestamp;
+            time.emplace(av_rescale_q(*ticks, timeBase, AVRational{.num = 1, .den = 1'000'000'000}));
         }
-        return {.ordinal = nextOrdinal++, .presentationTime = time, .image = convertPixels ? convertFrame() : QImage{}};
+        return {.ordinal = nextOrdinal++,
+                .presentationTime = time,
+                .presentationTicks = ticks,
+                .image = convertPixels ? convertFrame() : QImage{}};
     }
 
     QFile file;
@@ -556,6 +562,8 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
     {
         VideoReader reader(path, orientation);
         MovieIndex index;
+        const auto timeBase = reader.timeBase();
+        science::TimestampPrecision precision({.numerator = timeBase.numerator, .denominator = timeBase.denominator});
         std::optional<double> start;
         bool hasTiming = true;
         while (!cancelled)
@@ -563,6 +571,15 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
             const auto frame = index.frameCount == 0 ? reader.readNext() : reader.skipNext();
             if (!frame)
             {
+                // The time base and the precision inferred from the timestamps (#335) describe the frame times, so
+                // they are known exactly when the frame times are.
+                if (!index.frameTimes.empty() && timeBase.known())
+                {
+                    const auto inferred = precision.precision();
+                    index.timeBase = timeBase;
+                    index.timeBase.precisionNumerator = inferred.numerator;
+                    index.timeBase.precisionDenominator = inferred.denominator;
+                }
                 return index;
             }
             if (index.frameCount == MAX_INDEXED_FRAMES)
@@ -572,7 +589,7 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
             ++index.frameCount;
             if (hasTiming)
             {
-                if (frame->presentationTime)
+                if (frame->presentationTime && frame->presentationTicks)
                 {
                     const auto seconds = std::chrono::duration<double>(*frame->presentationTime).count();
                     start = start.value_or(seconds);
@@ -580,8 +597,7 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                     hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
                     index.frameTimes.push_back(relative);
                     index.presentationTimes.push_back(*frame->presentationTime);
-                    // The time base describes the frame times, so it is known exactly when they are.
-                    index.timeBase = reader.timeBase();
+                    precision.add(*frame->presentationTicks);
                 }
                 else
                 {
@@ -591,7 +607,6 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                 {
                     index.frameTimes.clear();
                     index.presentationTimes.clear();
-                    index.timeBase = {};
                 }
             }
         }
