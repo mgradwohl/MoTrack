@@ -2,6 +2,7 @@
 
 #include "science/motion/motion_derivatives.hpp"
 #include "science/motion/motion_types.hpp"
+#include "science/motion/timestamp_precision.hpp"
 
 #include <gtest/gtest.h>
 
@@ -9,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -618,6 +620,148 @@ TEST(MeasurementPlot, AMixedClipOnACoarseTimeBaseHasNoEstimatorDiscontinuity)
             }
             previous = value;
         }
+    }
+}
+
+/// The time base an index records for timestamps in ticks of `tick`: the tick with the precision inferred from them.
+motrack::FrameTimeBase indexedTimeBase(motrack::science::SecondsRatio tick, std::span<const std::int64_t> ticks)
+{
+    const auto precision = motrack::science::timestampPrecision(tick, ticks);
+    return {.numerator = tick.numerator,
+            .denominator = tick.denominator,
+            .precisionNumerator = precision.numerator,
+            .precisionDenominator = precision.denominator};
+}
+
+/// Decoded frame times in seconds: the tick times rescaled to whole nanoseconds, as the movie index records them.
+std::vector<double> decodedTimes(std::span<const std::int64_t> ticks, double ticksPerSecond)
+{
+    std::vector<double> result;
+    for (const auto tick : ticks)
+    {
+        result.push_back(static_cast<double>(std::llround(static_cast<double>(tick) * 1e9 / ticksPerSecond)) / 1e9);
+    }
+    return result;
+}
+
+double largestMagnitude(const motrack::PlotSeries& series)
+{
+    double result = 0.0;
+    for (const auto& sample : series.samples)
+    {
+        result = std::max(result, std::abs(sample.vertical));
+    }
+    return result;
+}
+
+TEST(MeasurementPlot, RemuxedMillisecondTimestampsOnAFinerTimeBaseUseTrackersStencils)
+{
+    // MKV or WebM remuxed to MP4 without re-encoding (for example OBS "remux to MP4"): FFmpeg's MP4 muxer raises the
+    // 1/1000 s time base to 1/16000 s, so the timestamps of a constant-rate capture stay whole milliseconds, now in
+    // steps of 16 ticks. Positions follow the true times, x = 2 m/s × k / rate. The index infers the timestamps'
+    // 1 ms precision (#335), every window is evenly spaced within it, and the values are Tracker's bit for bit: no
+    // acceleration and Tracker's velocity. With the declared 1/16000 s alone (#334) the 33/34 ms (16/17 ms) intervals
+    // count as uneven and the five-point fit reports their rounding as acceleration. Those maxima were computed
+    // independently in exact rational arithmetic.
+    constexpr motrack::science::SecondsRatio MP4{.numerator = 1, .denominator = 16000};
+    struct Rate
+    {
+        std::int64_t numerator;
+        std::int64_t denominator;
+        double declaredOnly;
+    };
+    for (const auto& rate : {Rate{.numerator = 1, .denominator = 30, .declaredOnly = 0.260579893},
+                             Rate{.numerator = 1001, .denominator = 30000, .declaredOnly = 0.260840473},
+                             Rate{.numerator = 1, .denominator = 60, .declaredOnly = 1.001561498}})
+    {
+        constexpr int FRAMES = 31;
+        std::vector<std::int64_t> ticks;
+        std::vector<std::optional<motrack::science::PlanarValue>> positions;
+        motrack::LegacyProject project;
+        motrack::PointMass mass{.name = "cart"};
+        for (std::int64_t frame = 0; frame < FRAMES; ++frame)
+        {
+            const double t = static_cast<double>(frame * rate.numerator) / static_cast<double>(rate.denominator);
+            ticks.push_back(16 * std::llround(static_cast<double>(frame * 1000 * rate.numerator) / static_cast<double>(rate.denominator)));
+            mass.marks.push_back({.frame = static_cast<int>(frame), .x = 2.0 * t, .y = 0.0});
+            positions.emplace_back(motrack::science::PlanarValue{.x = 2.0 * t, .y = 0.0});
+        }
+        project.pointMasses.push_back(mass);
+        const auto times = decodedTimes(ticks, 16000.0);
+        const auto timeBase = indexedTimeBase(MP4, ticks);
+        ASSERT_TRUE(timeBase.precisionKnown());
+        EXPECT_EQ(timeBase.resolutionSeconds(), 0.001) << rate.denominator;
+
+        const auto tracker = motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM,
+                                                                    {.firstFrame = 0, .stepSize = 1, .stepCount = FRAMES},
+                                                                    positions,
+                                                                    times);
+        const auto acceleration =
+            valuesByFrame(motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times, 0.0, timeBase));
+        ASSERT_EQ(acceleration.size(), static_cast<std::size_t>(FRAMES - 4)) << rate.denominator;
+        for (const auto& [frame, value] : acceleration)
+        {
+            EXPECT_LT(std::abs(value), 1e-9) << rate.denominator << " frame " << frame;
+            EXPECT_EQ(value, present(tracker.acceleration.at(static_cast<std::size_t>(frame))).x) << rate.denominator << " frame " << frame;
+        }
+        const auto velocity = valuesByFrame(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, times, 0.0, timeBase));
+        ASSERT_EQ(velocity.size(), static_cast<std::size_t>(FRAMES - 2));
+        for (const auto& [frame, value] : velocity)
+        {
+            EXPECT_EQ(value, present(tracker.velocity.at(static_cast<std::size_t>(frame))).x) << rate.denominator << " frame " << frame;
+        }
+
+        const motrack::FrameTimeBase declared{.numerator = 1, .denominator = 16000};
+        EXPECT_NEAR(largestMagnitude(motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times, 0.0, declared)),
+                    rate.declaredOnly,
+                    1e-6)
+            << rate.denominator;
+    }
+}
+
+TEST(MeasurementPlot, GenuineVariableTimingOnAFineTimeBaseIsStillUneven)
+{
+    // True variable frame rate on a 1/90000 s time base, with positions at the recorded times (x = 2 m/s × t), in two
+    // forms: 30 fps with up to ±0.5 ms of jitter, and 25 fps whose frames lengthen from 3600 to 3645 ticks (40 to
+    // 40.5 ms) after frame 15. Their timestamps use the fine ticks, so the inferred precision stays 1/90000 s, the
+    // uneven windows get the time-aware fit, and steady motion shows no acceleration. A coarser precision would hide
+    // that timing: 1 ms for the jitter, or the offsets' greatest common divisor (45 ticks) for the rate change, gives
+    // Tracker's stencils and 0.261 and 0.265 m/s² of acceleration (computed independently in exact arithmetic).
+    constexpr motrack::science::SecondsRatio TRANSPORT_STREAM{.numerator = 1, .denominator = 90000};
+    constexpr int FRAMES = 31;
+    struct Case
+    {
+        std::vector<std::int64_t> ticks;
+        motrack::FrameTimeBase coarsened;
+        double coarsenedAtLeast;
+    };
+    std::vector<Case> cases(2);
+    for (std::int64_t frame = 0; frame < FRAMES; ++frame)
+    {
+        cases[0].ticks.push_back(3000 * frame + (frame * 37) % 91 - 45);
+        cases[1].ticks.push_back(frame <= 15 ? 3600 * frame : std::int64_t{3600} * 15 + 3645 * (frame - 15));
+    }
+    cases[0].coarsened = {.numerator = 1, .denominator = 90000, .precisionNumerator = 1, .precisionDenominator = 1000};
+    cases[0].coarsenedAtLeast = 0.2;
+    cases[1].coarsened = {.numerator = 1, .denominator = 90000, .precisionNumerator = 45, .precisionDenominator = 90000};
+    cases[1].coarsenedAtLeast = 0.2;
+    for (const auto& [ticks, coarsened, coarsenedAtLeast] : cases)
+    {
+        const auto timeBase = indexedTimeBase(TRANSPORT_STREAM, ticks);
+        EXPECT_EQ(timeBase.resolutionSeconds(), 1.0 / 90000.0);
+        const auto times = decodedTimes(ticks, 90000.0);
+        motrack::LegacyProject project;
+        motrack::PointMass mass{.name = "cart"};
+        for (int frame = 0; frame < FRAMES; ++frame)
+        {
+            mass.marks.push_back({.frame = frame, .x = 2.0 * times.at(static_cast<std::size_t>(frame)), .y = 0.0});
+        }
+        project.pointMasses.push_back(mass);
+        const auto acceleration = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times, 0.0, timeBase);
+        ASSERT_EQ(acceleration.samples.size(), static_cast<std::size_t>(FRAMES - 4));
+        EXPECT_LT(largestMagnitude(acceleration), 1e-9);
+        EXPECT_GT(largestMagnitude(motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times, 0.0, coarsened)),
+                  coarsenedAtLeast);
     }
 }
 
