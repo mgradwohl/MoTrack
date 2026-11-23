@@ -647,7 +647,7 @@ bool WorkspaceWindow::tabsetOpening() const
 
 void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items)
 {
-    QList<QueuedFile> nested;
+    QList<QueuedTarget> nested;
     for (const auto& item : items)
         if (item.status == TabsetItemStatus::Resolved)
         {
@@ -813,7 +813,7 @@ std::optional<QUuid> WorkspaceWindow::memberDocument(const std::vector<QUuid>& d
     return found == documents.end() ? std::nullopt : std::optional(*found);
 }
 
-QString WorkspaceWindow::queuedLabel(const QueuedFile& file)
+QString WorkspaceWindow::queuedLabel(const QueuedTarget& file)
 {
     const auto name = QFileInfo(file.path).fileName();
     return file.member.isEmpty() ? name : tr("%1 — %2").arg(name, file.member);
