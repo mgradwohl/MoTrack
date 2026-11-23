@@ -68,7 +68,9 @@ native dispositions from those refreshes:
 The baseline tabset workflow ([MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150)) now opens and saves through
 the workspace on `motrack_osp`, with actual-Tracker checks of reopen, unchanged resave and edited reopen
 ([workspace guide](workspace-sessions.md#tracker-tabsets)). Tabset entries naming an archive member
-(`archive.trz!/member.trk`, used by a published tabset) are [MoTrack #325](https://github.com/mgradwohl/MoTrack/issues/325); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148), which is not an accepted full round trip.
+(`archive.trz!/member.trk`, used by a published tabset) open that member alone and are kept when saving
+([MoTrack #325](https://github.com/mgradwohl/MoTrack/issues/325)); the pinned Tracker reopens such a MoTrack-saved set
+in the session check. It is a baseline workflow, not a Tracker defect. Moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148), which is not an accepted full round trip.
 
 ## Defects discovered by the reference harness
 

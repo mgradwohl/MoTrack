@@ -463,6 +463,41 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
             compare(json.loads(reference_expected.read_text(encoding="utf-8")),
                     json.loads(reference_output.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reference_index")
             print(f"{case['id']}: passed (partial native source-reference index; rename export untested)")
+    if not java:
+        check_published_tabset(cache, probe)
+
+
+# The only published tabset in the library corpus (#325) lists a member of the archive published beside it.
+PUBLISHED_TABSET = ("iwant2study-trz-bungeemodelenergy02-ed22e65c", "iwant2study-trz-bungeemodelenergy-bdd0cdfc", "Bungeemodelenergy.trk")
+
+
+def check_published_tabset(cache, probe):
+    """MoTrack resolves the published tabset's archive member entry and saves the set back byte for byte. The library
+    cache renames fetched files, so the tabset and its archive are copied under their published names. Without the
+    library cache (``fetch-library``) the case is skipped with a note."""
+    sys.modules.setdefault("corpus", sys.modules[__name__])
+    import corpus_library
+    experiments = {entry["id"]: entry for entry in corpus_library.load_library_manifest()["experiments"]}
+    entries = [experiments[identifier] for identifier in PUBLISHED_TABSET[:2]]
+    sources = [corpus_library.cache_path(cache, entry) for entry in entries]
+    if not all(source.is_file() for source in sources):
+        print(f"{PUBLISHED_TABSET[0]}: skipped (the library files are not cached; run corpus.py fetch-library)")
+        return
+    with tempfile.TemporaryDirectory(prefix="published-tabset-", dir=cache) as temporary:
+        tabset, archive = (Path(temporary) / entry["original_name"] for entry in entries)
+        for source, target, entry in zip(sources, (tabset, archive), entries):
+            shutil.copyfile(source, target)
+            verify_file(target, entry)
+        report = Path(temporary) / "read.json"
+        run([str(Path(probe).resolve()), "--read-tabset", str(tabset), str(report)])
+        items = json.loads(report.read_text(encoding="utf-8"))
+        if [item["status"] for item in items] != [0] or resolved_targets(items) != [(archive.resolve(), PUBLISHED_TABSET[2])]:
+            raise ValueError(f"{PUBLISHED_TABSET[0]}: MoTrack did not resolve the published archive member entry: {items}")
+        published = tabset.read_bytes()
+        run([str(Path(probe).resolve()), "--save-tabset", str(tabset), str(archive)])
+        if tabset.read_bytes() != published:
+            raise ValueError(f"{PUBLISHED_TABSET[0]}: MoTrack changed the published tabset when saving it back")
+    print(f"{PUBLISHED_TABSET[0]}: passed (published archive member entry resolved; unchanged save byte for byte)")
 
 
 def session_units(case, expected):
@@ -2740,6 +2775,28 @@ def motrack_tabset_files(probe, tabset, report):
     return items, [Path(item["file"]).resolve() for item in items if item["status"] == 0]
 
 
+def resolved_targets(items):
+    """(file, archive member) of each resolved tabset item; the member is empty for a whole file."""
+    return [(Path(item["file"]).resolve(), item.get("member", "")) for item in items if item["status"] == 0]
+
+
+TABSET_CLOSING = "    </property>\n</object>"
+
+
+def tracker_tabset_xml(entries):
+    """A tabset in OSP's XMLControlElement layout, written independently of MoTrack: one {absolute, relative} pair of
+    forward-slash paths per tab. OSP does not decode entities, so paths needing them are refused."""
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<object class="org.opensourcephysics.cabrillo.tracker.TFrame">',
+             '    <property name="tabs" type="array" class="[[Ljava.lang.String;">']
+    for index, pair in enumerate(entries):
+        if any(character in path for path in pair for character in '<>&"\r\n'):
+            raise ValueError(f"Tabset path needs XML escaping: {pair}")
+        lines += [f'        <property name="[{index}]" type="array" class="[Ljava.lang.String;">',
+                  f'            <property name="[0]" type="string">{pair[0]}</property>',
+                  f'            <property name="[1]" type="string">{pair[1]}</property>', "        </property>"]
+    return "\n".join(lines) + "\n" + TABSET_CLOSING
+
+
 def check_tabset(manifest, cache, java, classes, root, display, probe):
     """Actual Tracker opens a MoTrack tabset in order; MoTrack reads and resaves the tabset Tracker writes; Tracker
     reopens a tabset MoTrack edited."""
@@ -2804,12 +2861,41 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
     edited_items, edited_files = motrack_tabset_files(probe, tabset, again / "motrack-read-edited.json")
     if edited_files != [archive.resolve(), linked.resolve(), secondary.resolve()]:
         raise ValueError(f"MoTrack did not reread its edited tabset: {edited_items}")
+
+    # An entry naming an archive member (`archive.trz!/member.trk`, #325), as a published tabset spells it, in a set the
+    # checker writes. MoTrack resolves the member and keeps the entry's bytes when saving the set with a tab added.
+    members = tabset.with_name("members.trk")
+    relative = lambda path: Path(os.path.relpath(path, members.parent)).as_posix()
+    members.write_text(tracker_tabset_xml([(f"{archive.as_posix()}!/second.trk", f"{relative(archive)}!/second.trk"),
+                                           (linked.as_posix(), relative(linked))]), encoding="utf-8")
+    member_items, _ = motrack_tabset_files(probe, members, again / "motrack-read-members.json")
+    if resolved_targets(member_items) != [(archive.resolve(), "second.trk"), (linked.resolve(), "")]:
+        raise ValueError(f"MoTrack did not resolve the archive member entry: {member_items}")
+    before = members.read_text(encoding="utf-8")
+    run([str(Path(probe).resolve()), "--save-tabset", str(members), str(archive), str(linked), str(secondary)])
+    after = members.read_text(encoding="utf-8")
+    if after == before or not after.startswith(before.removesuffix(TABSET_CLOSING)):
+        raise ValueError("MoTrack did not keep the archive member entry while adding a tab")
+    # Move everything again, so that only relative paths resolve, the member's included. Tracker opens just that member
+    # as a tab, where it is listed (it is not an archive entry), and saves that tab as the archive (openedFromPath).
+    final = again.with_name(again.name + "-members")
+    again.rename(final)
+    members, linked, archive, secondary = (final / path.relative_to(again) for path in (members, linked, archive, secondary))
+    member_tab = (False, [("second", [archive], secondary_case)])
+    member_session = tracker_tabset_session(manifest, cache, java, classes, members, final / "tracker-members", display,
+                                            [member_tab, tabs_of(linked), tabs_of(secondary)])
+    resaved, _ = motrack_tabset_files(probe, final / "tracker-members" / "tracker-tabset.trk", final / "motrack-read-resaved.json")
+    if resolved_targets(resaved) != [(archive.resolve(), ""), (linked.resolve(), ""), (secondary.resolve(), "")]:
+        raise ValueError(f"Tracker did not save the member's tab by its archive: {resaved}")
     (cache / "reports" / "tabset-roundtrip.json").write_text(
         json.dumps({"verification_level": "motrack_tabset_roundtrip", "tracker_session": report, "motrack_read": items,
-                    "tracker_edited_session": edited, "motrack_read_edited": edited_items},
+                    "tracker_edited_session": edited, "motrack_read_edited": edited_items,
+                    "motrack_read_members": member_items, "tracker_member_session": member_session,
+                    "motrack_read_tracker_member_resave": resaved},
                    indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print("tabset: passed (relocated MoTrack tabset opened in order by Tracker; relocated Tracker tabset reopened and "
-          "resaved byte for byte by MoTrack; MoTrack's edited tabset reopened with every tab by Tracker)")
+          "resaved byte for byte by MoTrack; MoTrack's edited tabset reopened with every tab by Tracker; an archive member "
+          "entry kept by MoTrack's edited save and reopened by Tracker as that member's tab alone)")
 
 
 def check_sessions(manifest, cache, java, probe=None):

@@ -1,3 +1,4 @@
+#include "archive_fixture.hpp"
 #include "archive_group.hpp"
 #include "filesystem_path.hpp"
 #include "local_media_path.hpp"
@@ -892,6 +893,173 @@ TEST(WorkspaceTabset, AFileSavedOverAfterItWasClosedKeepsItsEntry)
     ASSERT_NE(box, nullptr);
     EXPECT_TRUE(box->informativeText().contains("clip.mov: not open, so the tabset still lists it as before."))
         << box->informativeText().toStdString();
+    dismiss(window, box);
+    EXPECT_EQ(readBytes(set), bytes);
+}
+
+/// The archive member a document is, if any.
+QString memberOf(const motrack::WorkspaceSession& session, QUuid document)
+{
+    const auto& member = session.document(document).archiveMember;
+    return member ? QString::fromStdString(*member) : QString{};
+}
+
+TEST(WorkspaceTabset, AnArchiveMemberEntryOpensThatExperimentAloneAndSavesItBackIntoItsArchive)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto archive = temporary.filePath("group.trz");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), archive));
+    ASSERT_TRUE(QFile::setPermissions(archive, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+    const auto set = temporary.filePath("set.trk");
+    // As the published tabset spells it: the absolute path from the author's computer, and the member after the archive.
+    const TabsetEntry member{.absolute = "G:/author/group.trz!/second.trk", .relative = "group.trz!/second.trk"};
+    writeTabset(set, {member, listedEntry(fixture("linked-images/linked-images.trk"), set)});
+    const auto bytes = readBytes(set);
+    {
+        motrack::WorkspaceWindow window;
+        window.show();
+        // Only the listed member shows, as in Tracker; the archive's other experiment stays open but hidden.
+        ASSERT_TRUE(openTabset(window, set, 2));
+        EXPECT_EQ(tabLabels(window), (std::vector<QString>{"group.trz \u2014 second.trk", "linked-images.trk"}));
+        EXPECT_EQ(window.findChild<QMessageBox*>("workspaceTabsetProblems"), nullptr);
+        auto& session = window.context()->session();
+        ASSERT_EQ(session.sources().size(), 2U);
+        const auto group = session.sources().front();
+        const auto documents = session.sourceDocuments(group);
+        ASSERT_EQ(documents.size(), 2U);
+        EXPECT_EQ(std::ranges::count_if(documents, [&](QUuid document) { return std::ranges::contains(session.tabs(), document); }), 1);
+        // The member is the first listed experiment, so it is selected.
+        const auto selected = window.currentDocument();
+        ASSERT_TRUE(selected);
+        EXPECT_EQ(memberOf(session, *selected), "second.trk");
+
+        // Saving the unchanged set keeps its bytes, the member entry included.
+        ASSERT_TRUE(window.saveTabset(set));
+        EXPECT_EQ(readBytes(set), bytes);
+        // The member stays editable: Save tabset saves it into its archive and the set still names the member.
+        ASSERT_TRUE(editMass(window, 17));
+        ASSERT_TRUE(session.isModified(group));
+        {
+            DialogScript script({answer("workspaceTabsetSaveQuestion", QMessageBox::Yes)});
+            ASSERT_TRUE(window.saveTabset(set));
+            EXPECT_EQ(script.handled(), 1U);
+        }
+        EXPECT_FALSE(session.isModified(group));
+        EXPECT_EQ(readBytes(set), bytes);
+        const auto saved = motrack::TrackerArchive::open(archive);
+        EXPECT_EQ(saved.projects(), (QStringList{"experiment.trk", "second.trk"}));
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(saved.projectPath("second.trk")).project.pointMasses.front().mass, 17);
+
+        // Another experiment adds an entry after the kept ones.
+        QSignalSpy opened(window.context().get(), &motrack::WorkspaceContext::inputOpened);
+        ASSERT_TRUE(window.openProject(fixture("linked-images/secondary-images.trk")));
+        ASSERT_TRUE(QTest::qWaitFor([&] { return opened.count() == 1; }));
+        ASSERT_TRUE(window.saveTabset(set));
+        const auto edited = motrack::readTrackerTabset(set);
+        ASSERT_TRUE(edited.has_value()) << edited.error();
+        ASSERT_EQ(edited->entries.size(), 3U);
+        EXPECT_EQ(edited->entries[0], member);
+        EXPECT_TRUE(edited->entries[2].relative.ends_with("secondary-images.trk"));
+        EXPECT_TRUE(readBytes(set).startsWith(bytes.left(bytes.lastIndexOf("    </property>\n</object>"))));
+    }
+    // Reopened, the set shows the member again, with its saved edit.
+    motrack::WorkspaceWindow reopened;
+    reopened.show();
+    ASSERT_TRUE(openTabset(reopened, set, 3));
+    EXPECT_EQ(tabLabels(reopened)[0], "group.trz \u2014 second.trk");
+    const auto& session = reopened.context()->session();
+    const auto document = session.tabs().front();
+    EXPECT_EQ(memberOf(session, document), "second.trk");
+    EXPECT_DOUBLE_EQ(session.document(document).project.pointMasses.front().mass, 17);
+}
+
+TEST(WorkspaceTabset, ArchiveMemberEntriesShareOneEditableArchive)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto archive = temporary.filePath("group.trz");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), archive));
+    const auto set = temporary.filePath("set.trk");
+    // The same member twice, the whole archive after one of its members, and a member after the whole archive.
+    writeTabset(set,
+                {{.absolute = std::nullopt, .relative = "group.trz!/second.trk"},
+                 listedEntry(fixture("linked-images/linked-images.trk"), set),
+                 {.absolute = std::nullopt, .relative = "group.trz!/second.trk"},
+                 {.absolute = std::nullopt, .relative = "group.trz"},
+                 {.absolute = std::nullopt, .relative = "group.trz!/experiment.trk"}});
+    const auto bytes = readBytes(set);
+    motrack::WorkspaceWindow window;
+    window.show();
+    // The archive opens once; the whole archive listed later shows its other experiment there.
+    ASSERT_TRUE(openTabset(window, set, 3));
+    EXPECT_EQ(tabLabels(window),
+              (std::vector<QString>{"group.trz \u2014 second.trk", "linked-images.trk", "group.trz \u2014 experiment.trk"}));
+    auto& session = window.context()->session();
+    ASSERT_EQ(session.sources().size(), 2U);
+    EXPECT_EQ(window.findChild<QMessageBox*>("workspaceTabsetProblems"), nullptr);
+    ASSERT_TRUE(window.saveTabset(set));
+    EXPECT_EQ(readBytes(set), bytes);
+
+    // A set naming a member of the open archive reuses it, and shows that member when it is hidden.
+    const auto members = session.sourceDocuments(session.sources().front());
+    const auto experiment = std::ranges::find_if(members, [&](QUuid document) { return memberOf(session, document) == "experiment.trk"; });
+    ASSERT_NE(experiment, members.end());
+    ASSERT_TRUE(window.hideDocument(*experiment));
+    ASSERT_EQ(tabs(window)->count(), 2);
+    const auto other = temporary.filePath("other.trk");
+    writeTabset(other, {{.absolute = std::nullopt, .relative = "group.trz!/experiment.trk"}});
+    ASSERT_TRUE(openTabset(window, other, 3));
+    EXPECT_EQ(session.sources().size(), 2U);
+    EXPECT_EQ(window.currentDocument(), *experiment);
+}
+
+TEST(WorkspaceTabset, MissingOrUnreadableArchiveMembersAreReportedAndTheirEntriesKept)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    QFile panel(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk");
+    ASSERT_TRUE(panel.open(QIODevice::ReadOnly));
+    const auto archive = temporary.filePath("lab.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(
+        archive,
+        {{.name = "ok.trk", .bytes = panel.readAll()},
+         {.name = "broken.trk",
+          .bytes = "<?xml version=\"1.0\"?>\n<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"}}));
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set,
+                {{.absolute = std::nullopt, .relative = "lab.trz!/gone.trk"},
+                 {.absolute = "/nowhere/moved.trz!/ok.trk", .relative = "moved.trz!/ok.trk"},
+                 {.absolute = std::nullopt, .relative = "lab.trz!/broken.trk"},
+                 listedEntry(fixture("linked-images/linked-images.trk"), set)});
+    const auto bytes = readBytes(set);
+    motrack::WorkspaceWindow window;
+    window.show();
+    {
+        // Like Tracker, a missing archive or member offers to locate it; neither is located here.
+        DialogScript script({answer("workspaceTabsetMissing", QMessageBox::No), answer("workspaceTabsetMissing", QMessageBox::No)});
+        ASSERT_TRUE(openTabset(window, set, 1));
+        EXPECT_EQ(script.handled(), 2U);
+    }
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    const auto text = box->informativeText();
+    EXPECT_TRUE(text.contains("lab.trz!/gone.trk: not found.")) << text.toStdString();
+    EXPECT_TRUE(text.contains("moved.trz!/ok.trk: not found.")) << text.toStdString();
+    // The listed member could not be read: its archive opens, with no experiment shown.
+    EXPECT_TRUE(text.contains("lab.trz \u2014 broken.trk: could not be read")) << text.toStdString();
+    dismiss(window, box);
+    auto& session = window.context()->session();
+    ASSERT_EQ(session.sources().size(), 2U);
+    EXPECT_EQ(tabLabels(window), (std::vector<QString>{"linked-images.trk"}));
+
+    // Saving the set back keeps every entry and names those that did not open.
+    ASSERT_TRUE(window.saveTabset(set));
+    box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("lab.trz!/gone.trk: not open, so the tabset still lists it as before."))
+        << box->informativeText().toStdString();
+    EXPECT_TRUE(box->informativeText().contains("moved.trz!/ok.trk: not open")) << box->informativeText().toStdString();
     dismiss(window, box);
     EXPECT_EQ(readBytes(set), bytes);
 }

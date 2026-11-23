@@ -143,20 +143,36 @@ class WorkspaceWindow final : public QMainWindow
     /// expands in place through expandInPlace: its files open next, before the rest of the queue. Other ordered
     /// opens, such as files requested by the operating system, are meant to join this queue rather than run a
     /// second one that would compete for the same input slots; a tabset among them then expands in place too.
+    /// A queued file, or one member of a queued archive (`archive.trz!/member.trk` in a tabset).
+    struct QueuedFile
+    {
+        QString path;
+        QString member{}; // As the tabset spells it; empty for the whole file.
+    };
     struct OrderedOpens
     {
-        QString tabset;       // The tabset that started the queue; named in its summary and tabsetFinished.
-        QStringList files;    // QList moves without throwing; std::deque may allocate in some libraries.
-        QSet<QString> listed; // Identity keys of every file queued or opened by this queue.
+        QString tabset;          // The tabset that started the queue; named in its summary and tabsetFinished.
+        QList<QueuedFile> files; // QList moves without throwing; std::deque may allocate in some libraries.
+        QSet<QString> listed;    // tabsetTargetKey of every file or member queued or opened by this queue.
         std::optional<QUuid> request;
         QString current;
+        QString currentMember; // The only member the current request shows, if it names one.
         bool requestIsProject = false;
         std::optional<QUuid> select;
         QStringList problems;           // Files that were not opened.
         QStringList notices;            // Files that opened with a limitation, such as B1's stale-link recovery.
         std::uint64_t check = 0;        // The request-worker check of files.front() that is running, if any.
-        std::optional<QString> checked; // files.front() once its check found it is not open yet.
+        std::optional<QString> checked; // files.front().path once its check found it is not open yet.
+        QSet<QUuid> partial;            // Archives this queue opened showing only their listed members.
     };
+    /// The documents of an opened source that `queue`'s current request shows: every one, or the listed member's.
+    /// The others are hidden, keeping their records for the archive's saves.
+    [[nodiscard]] QList<QUuid>
+    shownDocuments(OrderedOpens& queue, QUuid source, const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
+    /// The document of `member` among `documents`, comparing NFC names as archives do.
+    [[nodiscard]] std::optional<QUuid> memberDocument(const std::vector<QUuid>& documents, const QString& member) const;
+    /// The label of a queued file in problems and notices: its name, with the member for an archive member.
+    [[nodiscard]] static QString queuedLabel(const QueuedFile& file);
     /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
     /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
     void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items);
