@@ -52,6 +52,8 @@ Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer 
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
+Movie frames are converted to RGB with the colour range and YCbCr matrix (BT.601, BT.709, BT.2020, FCC or SMPTE 240M) that each frame declares. A YUV frame that declares no range is treated as limited range, and one that declares no matrix, or a matrix FFmpeg cannot convert such as YCgCo, as BT.601. They decide the colours shown and the pixels that AutoTracker matches. MoTrack's colours have not yet been compared with Tracker's ([#261](https://github.com/mgradwohl/MoTrack/issues/261)).
+
 Use File → Open images to start from an image sequence. Enter its frame rate when known, or enter zero to analyze by frame number.
 
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. The Tracks menu also lets you rename a point mass, delete it, or remove its mark on the current frame. Use File → Export measurements to save the current marks as CSV, or File → Export plot data to save the selected series with its frame numbers, times when available, and units. Use File → Save MoTrack copy as to keep the current tracks, calibration, and media references in a `.motrack` project. Keep externally linked media in place when reopening it.
