@@ -226,4 +226,6 @@ These rules come from the Tracker classes that wrap the parser; the kernel leave
 - **Dependencies** come from `referencedVariables()`; Tracker's editors find references by whole-word search in
   the padded text and reject cycles. Results of `usesRandom()` expressions must not be cached.
 - **Opening Tracker experiments** should surface `trackerDifferences()` and `fitsTrackerLimits()` to the user
-  instead of silently changing the meaning of a saved expression.
+  instead of silently changing the meaning of a saved expression. One flag depends on the binding:
+  `plusExponentSign` matters only where Tracker pads names (model and fit functions). Data functions and
+  parameters compute the same value as Tracker for `1e+5`, so those bindings ignore that flag rather than warn.
