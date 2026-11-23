@@ -762,6 +762,16 @@
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Algunos archivos solicitados se abrieron con limitaciones.</translation>
     </message>
+    <message>
+        <source>%1 is already open.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 ya está abierto.</translation>
+    </message>
+    <message>
+        <source>Checking %1…</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Comprobando %1…</translation>
+    </message>
 </context>
 
 <context>

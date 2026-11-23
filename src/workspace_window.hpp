@@ -59,15 +59,23 @@ class WorkspaceWindow final : public QMainWindow
     CaptureDialog* captureFromCamera();
     /// Open files from the command line, a drop or the operating system in the given order, through the same
     /// entry points as the menus (see launchFileKind). One requested file prepares at a time, so tabs keep this
-    /// order while a menu open may use the other input slot. Requests arriving during a batch join it; a file
-    /// already requested in the batch opens once. Missing, unsupported, remote and failed requests are reported
-    /// together when the batch finishes.
+    /// order while Open images or a camera recording may use the other input slot. Requests arriving during a batch
+    /// join it; a file already requested in the batch opens once. Missing, unsupported, remote and failed requests
+    /// are reported together when the batch finishes.
     void openFiles(RequestedFiles requested);
+    /// Open a file chosen with Open project… or Open video… through that entry point. It joins the requested files'
+    /// queue and gets their checks, so a file an open source owns is selected, with a status message, instead of
+    /// opened a second time whose later save would replace the first (#255). It waits for an input slot, a tabset
+    /// that is opening and any save, revert or close prompt. Until it starts opening, a pending "Checking…" entry
+    /// shows it and Cancel selected open drops it. Its problems are shown in the status bar, as for menu opens,
+    /// rather than in the batch summary, and canceling it stops only this file.
+    void openChosenFile(const QString& path, LaunchFileKind entry);
 
   Q_SIGNALS:
     /// Every file of the batch has opened, failed or been skipped. Problems are files that did not open or opened
     /// incompletely (an unreadable archive member); notices are limits of files that opened, such as skipped
-    /// unsafe archive members. Both are user-visible sentences.
+    /// unsafe archive members. Both are user-visible sentences. Files chosen in the menu (openChosenFile) report in the
+    /// status bar instead, except that closing the window stops them as it stops requested files.
     void filesOpened(const QStringList& problems, const QStringList& notices);
 
   Q_SIGNALS:
@@ -138,6 +146,7 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    QHash<QUuid, QListWidgetItem*> m_Chosen; // Pending entries of chosen files that have not started opening.
     /// The window's one ordered open queue. Tracker opens a tabset's files one at a time, so tabs keep the listed
     /// order within the two-input bound. A queued file that turns out to be a tabset itself (a located file)
     /// expands in place through expandInPlace: its files open next, before the rest of the queue. Other ordered
@@ -181,28 +190,42 @@ class WorkspaceWindow final : public QMainWindow
     std::vector<ExpandedTabset> m_ExpandedTabsets;
     bool m_TabsetPrompting = false;
     QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
-    /// Files requested from outside the menus, opened one at a time in their requested order. Each file is
-    /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot
-    /// and `select` an already-open source to show, both deferred while a modal prompt runs.
+    /// A file waiting in the batch. A file chosen in the File menu keeps the entry point it was chosen with, and the
+    /// id of its pending entry in m_Chosen; a requested file has neither and is routed by launchFileKind.
+    struct QueuedFile
+    {
+        QString path;
+        std::optional<LaunchFileKind> chosen;
+        QUuid id;
+    };
+    /// Drop a chosen file that has not started opening, wherever it waits; its running check's answer is then ignored.
+    void cancelChosenFile(QUuid id);
+    /// Remove a chosen file's pending entry once it opens, is selected or reported, or leaves the batch.
+    void releaseChosenItem(const QueuedFile& file);
+    /// Files requested from outside the menus, and files chosen with Open project… or Open video…, opened one at a
+    /// time in their order. Each file is first checked on a worker; `check` identifies the running check, `ready` a
+    /// checked file awaiting a slot and `select` an already-open source to show, both deferred while a modal prompt
+    /// runs.
     struct RequestedBatch
     {
-        QStringList files;   // QList moves without throwing.
-        QStringList started; // Files opened or selected in this batch, for duplicate detection.
+        QList<QueuedFile> files; // QList moves without throwing.
+        QStringList started;     // Files opened or selected in this batch, for duplicate detection.
         qsizetype accepted = 0;
         std::uint64_t check = 0;
-        std::optional<QString> ready;
-        std::optional<std::pair<QUuid, QString>> select;
+        std::optional<QueuedFile> ready;
+        std::optional<std::pair<QUuid, QueuedFile>> select;
         std::optional<QUuid> request;
         QString current;
+        bool chosen = false; // The current file was chosen in the menu, so it reports in the status bar.
         QStringList problems;
         QStringList notices;
     };
     void checkNextRequestedFile(RequestedBatch& batch);
-    void applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result);
-    void startRequestedOpen(RequestedBatch& batch, const QString& path);
+    void applyRequestedFileCheck(std::uint64_t check, const QueuedFile& file, const RequestedFileCheck& result);
+    void startRequestedOpen(RequestedBatch& batch, const QueuedFile& file);
     std::optional<RequestedBatch> m_Requested;
     std::uint64_t m_LastCheck = 0; // The check m_Checks watches; a stopped batch no longer expects it.
-    QString m_CheckedPath;
+    QueuedFile m_CheckedFile;
     QFutureWatcher<RequestedFileCheck> m_Checks;
     std::uint64_t m_TabsetCheck = 0; // The check m_TabsetChecks watches for the tabset queue.
     QString m_TabsetCheckedPath;
