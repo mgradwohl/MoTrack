@@ -2496,7 +2496,15 @@ bool CompositionComparison::equivalent() const noexcept
 
 bool CompositionComparison::identical() const noexcept
 {
-    return equivalent() && legacy == descriptor;
+    if (!equivalent())
+    {
+        return false;
+    }
+    // equivalent() compared the exported bytes; only two refusals remain. std::get_if cannot throw, unlike the
+    // variants' operator==, which libstdc++ reaches through a throwing std::get.
+    const auto* refused = std::get_if<CompositionRefusal>(&legacy);
+    const auto* other = std::get_if<CompositionRefusal>(&descriptor);
+    return !refused || (other && refused->message == other->message);
 }
 
 std::string CompositionComparison::describe() const
