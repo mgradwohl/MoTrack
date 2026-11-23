@@ -381,49 +381,63 @@ bool decodesAsWindows1252(std::string_view bytes) noexcept
 std::string detail::unloadableMessage(const tracker::Unloadable& problem)
 {
     // The English texts equal model::unloadableMessage's (LegacyProject.UnloadableMessagesMatchTheTypedImport).
-    const bool noClass = problem.shape == tracker::UnloadableShape::MissingClass;
+    const bool wrongClass = problem.shape == tracker::UnloadableShape::WrongClass;
+    const auto expected = QString::fromStdString(problem.expectedClass);
     QString text;
     switch (problem.place)
     {
     case tracker::UnloadablePlace::ImagePaths:
-        text = noClass ? QCoreApplication::translate("LegacyProject",
-                                                     "Tracker cannot open this file: the image sequence's \"paths\" array has no class.")
-                       : QCoreApplication::translate("LegacyProject",
-                                                     "Tracker cannot open this file: the image sequence's \"paths\" array has an element "
-                                                     "whose index is unreadable or beyond the last element's.");
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the image sequence's \"paths\" array does not "
+                                                        "have the class Tracker saves (%3), and the video saves no \"path\".")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the image sequence's \"paths\" array has an "
+                                                        "element whose index is unreadable or beyond the last element's, and the video "
+                                                        "saves no \"path\".");
+        break;
+    case tracker::UnloadablePlace::ImagePathFallback:
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" "
+                                                        "array does not have the class Tracker saves (%3), so Tracker opens the numbered "
+                                                        "images that start at its \"path\" instead, which MoTrack does not support.")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" "
+                                                        "array has an element whose index is unreadable or beyond the last element's, so "
+                                                        "Tracker opens the numbered images that start at its \"path\" instead, which "
+                                                        "MoTrack does not support.");
         break;
     case tracker::UnloadablePlace::Coordinates:
-        text = noClass ? QCoreApplication::translate("LegacyProject",
-                                                     "Tracker cannot open this file: the calibration's \"framedata\" array has no class.")
-                       : QCoreApplication::translate("LegacyProject",
-                                                     "Tracker cannot open this file: the calibration's \"framedata\" array has an element "
-                                                     "whose index is unreadable or beyond the last element's.");
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the calibration's \"framedata\" array does not "
+                                                        "have the class Tracker saves (%3).")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the calibration's \"framedata\" array has an "
+                                                        "element whose index is unreadable or beyond the last element's.");
         break;
     case tracker::UnloadablePlace::TrackList:
-        text = noClass
-                   ? QCoreApplication::translate("LegacyProject",
-                                                 "Tracker cannot load the tracks of this file: its \"tracks\" list has no class. "
-                                                 "Tracker opens the file without any of its tracks.")
-                   : QCoreApplication::translate("LegacyProject",
-                                                 "Tracker cannot load the tracks of this file: its \"tracks\" list has an element whose "
-                                                 "index is unreadable or beyond the last element's. Tracker opens the file without any "
-                                                 "of its tracks.");
+        text = QCoreApplication::translate("LegacyProject",
+                                           "Tracker cannot load the tracks of this file: its \"tracks\" list does not have the class "
+                                           "Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.")
+                   .arg(expected);
         break;
     case tracker::UnloadablePlace::TrackArray:
-        text =
-            (noClass ? QCoreApplication::translate("LegacyProject",
-                                                   "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has no "
-                                                   "class. Tracker opens the file without any of its tracks.")
-                     : QCoreApplication::translate("LegacyProject",
-                                                   "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an "
-                                                   "element whose index is unreadable or beyond the last element's. Tracker opens the "
-                                                   "file without any of its tracks."))
-                .arg(QString::fromStdString(problem.track), QString::fromStdString(problem.property));
+        text = wrongClass
+                   ? QCoreApplication::translate("LegacyProject",
+                                                 "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" does not "
+                                                 "have the class Tracker saves (%3). Tracker opens the file without any of its tracks.")
+                         .arg(QString::fromStdString(problem.track), QString::fromStdString(problem.property), expected)
+                   : QCoreApplication::translate("LegacyProject",
+                                                 "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an "
+                                                 "element whose index is unreadable or beyond the last element's. Tracker opens the "
+                                                 "file without any of its tracks.")
+                         .arg(QString::fromStdString(problem.track), QString::fromStdString(problem.property));
         break;
     }
     return text.toStdString();
 }
-
 std::string detail::timeUnitLabel(const tracker::PanelLoad& panel)
 {
     // TrackerPanel.Loader passes a saved time_unit to VideoPanel.setTimeUnit, which ignores an empty or unreadable one.

@@ -555,41 +555,55 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
 std::string unloadableMessage(const tracker::Unloadable& problem)
 {
     // Keep these texts equal to the translated ones in legacy_project.cpp (LegacyProject.UnloadableMessagesMatchTheTypedImport).
-    const bool noClass = problem.shape == tracker::UnloadableShape::MissingClass;
+    const bool wrongClass = problem.shape == tracker::UnloadableShape::WrongClass;
     std::string text;
     switch (problem.place)
     {
     case tracker::UnloadablePlace::ImagePaths:
-        text = noClass ? "Tracker cannot open this file: the image sequence's \"paths\" array has no class."
-                       : "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
-                         "unreadable or beyond the last element's.";
+        text = wrongClass ? "Tracker cannot open this file: the image sequence's \"paths\" array does not have the class Tracker saves "
+                            "(%3), and the video saves no \"path\"."
+                          : "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
+                            "unreadable or beyond the last element's, and the video saves no \"path\".";
+        break;
+    case tracker::UnloadablePlace::ImagePathFallback:
+        text = wrongClass ? "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" array does not have the class "
+                            "Tracker saves (%3), so Tracker opens the numbered images that start at its \"path\" instead, which "
+                            "MoTrack does not support."
+                          : "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" array has an element whose "
+                            "index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "
+                            "\"path\" instead, which MoTrack does not support.";
         break;
     case tracker::UnloadablePlace::Coordinates:
-        text = noClass ? "Tracker cannot open this file: the calibration's \"framedata\" array has no class."
-                       : "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is "
-                         "unreadable or beyond the last element's.";
+        text = wrongClass ? "Tracker cannot open this file: the calibration's \"framedata\" array does not have the class Tracker saves "
+                            "(%3)."
+                          : "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is "
+                            "unreadable or beyond the last element's.";
         break;
     case tracker::UnloadablePlace::TrackList:
-        text = noClass ? "Tracker cannot load the tracks of this file: its \"tracks\" list has no class. Tracker opens the file "
-                         "without any of its tracks."
-                       : "Tracker cannot load the tracks of this file: its \"tracks\" list has an element whose index is unreadable "
-                         "or beyond the last element's. Tracker opens the file without any of its tracks.";
+        text = "Tracker cannot load the tracks of this file: its \"tracks\" list does not have the class Tracker saves (%3). Tracker "
+               "opens such a file without any of its tracks, or not at all.";
         break;
     case tracker::UnloadablePlace::TrackArray:
-    {
-        text = noClass ? "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has no class. Tracker opens "
-                         "the file without any of its tracks."
-                       : "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an element whose index "
-                         "is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.";
-        // Substitute the property first, so a track name containing "%2" stays as it is (as QString's multi-arg does).
-        text.replace(text.find("%2"), 2, problem.property);
-        text.replace(text.find("%1"), 2, problem.track);
+        text = wrongClass ? "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" does not have the class "
+                            "Tracker saves (%3). Tracker opens the file without any of its tracks."
+                          : "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an element whose index "
+                            "is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.";
         break;
     }
+    // Substitute every placeholder in one pass, as QString's multi-arg does, so a track name holding "%2" stays as it is.
+    std::string result;
+    for (std::size_t position = 0; position < text.size(); ++position)
+    {
+        if (text[position] == '%' && position + 1 < text.size() && text[position + 1] >= '1' && text[position + 1] <= '3')
+        {
+            const auto digit = text[++position];
+            result += digit == '1' ? problem.track : digit == '2' ? problem.property : problem.expectedClass;
+            continue;
+        }
+        result += text[position];
     }
-    return text;
+    return result;
 }
-
 std::string_view associationsName(Associations associations) noexcept
 {
     switch (associations)

@@ -194,12 +194,21 @@ The current revision applies Tracker 6.3.5's loader:
   revisions 0–2 showed `kg`. A label saved with another property type is null in Java, which hides every unit label;
   MoTrack shows it empty, as it does such a `length_unit`. `VideoPanel.setTimeUnit` ignores an empty `time_unit`, so
   that label keeps `s` in every revision; its trimming and digit rule is [#356](https://github.com/mgradwohl/MoTrack/issues/356).
-- **Arrays Tracker cannot load (#315).** OSP's array loader needs the `class` attribute and sizes an indexed array by
-  its last element's index. An array without a class, or with an index that is unreadable or beyond the last
-  element's, makes Tracker open the file without any of its tracks (a point mass's `framedata` or `keyFrames`, a
-  vector's `framedata`, or a `tracks` collection without a class) or fail to open it (the calibration's `framedata`,
-  an image sequence's `paths`). Import refuses such a file in every revision, naming the array; arrays of untyped
-  objects are preserved unread. Revisions 0–2 read track arrays in file order and such a calibration as none.
+- **Arrays Tracker cannot load (#315).** OSP's array loader resolves the `class` attribute before reading anything,
+  and each Tracker loader casts the result to its own type, so an array (or the `tracks` list) needs exactly the class
+  Tracker saves; an indexed array is also sized by its last element's index. A missing, unresolvable, non-array or
+  other class, or an index that is unreadable or beyond the last element's, makes Tracker open the file without any
+  of its tracks (a point mass's `framedata` or `keyFrames`, a vector's `framedata`, the `tracks` list) or fail to
+  open it (the calibration's `framedata`, an image sequence's `paths` when the video saves no string `path`, or a
+  `tracks` list of another collection class). Import refuses such a file in every revision, naming the array and the
+  class Tracker saves. When the video does save a `path`, as Tracker's saver always does, `ImageVideoType` catches
+  the failure and opens the numbered images that start at `path`; MoTrack does not reproduce that reading and
+  refuses the file with that explanation. Revisions 0–2 read such track and image arrays in file or index order and
+  such a calibration as none.
+- **Untyped tracks (deliberate difference).** Only the arrays of the objects MoTrack reads are examined. An unusable
+  array of an untyped track (for example a tape measure's `framedata`) also makes Tracker open the file without any
+  of its tracks, and a resave then writes the file without them; MoTrack preserves that track unread and shows the
+  others.
 
 Opening a file of an earlier revision compares its stored values with that revision's and the current reading of the
 preserved source and takes the current reading's values, all or nothing, when both conditions hold where the
@@ -210,7 +219,10 @@ readings differ:
   slots) or moved off its clip step. A clip start held at frame 0 and a negative shift both move samples off their
   steps, so such documents are not migrated.
 - **Calibration:** the earlier reading and the stored document both have none.
-- **Mass unit:** the stored label equals the earlier reading's (`kg` for an empty or unreadable saved label) or already the current one.
+- **Mass unit:** the stored label equals the earlier reading's (`kg` for an empty or unreadable saved label) or already the
+  current one. Another stored label, such as `g` set on an empty one, may be an edit or an edit of a misreading, so it keeps
+  the whole document outdated as every other conflict does; native version 7's per-field `base` values will tell the two
+  apart ([tracker document](tracker-document.md#3-native-version-7)).
 
 A native file cannot tell an edit from an unedited earlier value, so anything else keeps every stored value: nothing
 is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so

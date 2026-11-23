@@ -390,8 +390,9 @@ migrated body already holds the current reading, and an outdated one keeps its e
   old default, not an edit, and becomes empty under the same all-or-nothing rule; another stored label keeps the
   document outdated. `typedDocumentFromReduced` holds an unbound panel's labels as stored, so a native file with an
   empty mass or time unit converts (an empty time unit, which Tracker never loads, only native-only and stale).
-- **Inputs Java cannot load (#315):** import refuses arrays that OSP's loader cannot build (no class, or an index
-  unreadable or beyond the last element's) in the panel's typed objects, whatever the revision. A native body whose
+- **Inputs Java cannot load (#315):** import refuses arrays that OSP's loader cannot build (a class other than the one
+  Tracker saves, or an index unreadable or beyond the last element's) in the panel's typed objects, whatever the revision,
+  and image `paths` that Tracker replaces with the numbered images from `path`. A native body whose
   source the current reader parses but refuses opens native-only from its stored values, unchanged, with the
   associations dropped, its earlier `trackerReading`, export refused and the note on every open; B2.1's conversion
   then gives stale associations, as for a v7 baseline the reader refuses.

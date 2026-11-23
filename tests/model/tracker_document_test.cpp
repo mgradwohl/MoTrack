@@ -395,7 +395,7 @@ TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
     EXPECT_EQ(refusal(images(number("[0]", "1", "int"))), "Invalid Tracker image sequence.");
     // Indices Java's array loader cannot place make Tracker's load fail (#315).
     const std::string unplacedPaths = "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
-                                      "unreadable or beyond the last element's.";
+                                      "unreadable or beyond the last element's, and the video saves no \"path\".";
     EXPECT_EQ(refusal(images(text("[-1]", "a.png"))), unplacedPaths);
     EXPECT_EQ(refusal(images(text("[1]", "b.png") + text("[0]", "a.png"))), unplacedPaths);
     const auto mass = [](std::string_view frames)

@@ -73,3 +73,8 @@ baseline's SHA-256, and each `*.export.txt` is B1's standard export of it, the e
 sets, and the calibration's `framedata` without its `class` attribute. Tracker 6.3.5's application loader opened the
 first without any of its tracks and could not open the second (`TrackerSessionReference` under a private Xvfb display,
 checked for #315); MoTrack refuses both.
+
+`numbered-image-paths/paths-reversed.trk` is the corpus `linked-images.trk` with its `paths` indices reversed (`[3]`
+frame0 to `[0]` frame3), beside copies of its four images. The video still saves `path` images/frame0.png, so Tracker
+6.3.5 opened it, and its class-less variant, with their tracks and the numbered images frame0 to frame3
+(`ImageVideoType.getVideo` falls back to `path`); without `path` its load failed. MoTrack refuses it (#315).
