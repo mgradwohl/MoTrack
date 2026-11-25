@@ -63,7 +63,7 @@ bool safeMember(const QString& path)
 
 /// Platform-independent comparison form shared by duplicate detection and media lookup: '\' read as '/',
 /// the leading '/' run kept, empty and '.' segments dropped, '..' resolved against a preceding segment,
-/// then Unicode NFC and case folding. A safe name changes only in Unicode form and case.
+/// then the member identity (NFC) and case folding. A safe name changes only in Unicode form and case.
 QString memberKey(QString member)
 {
     member.replace('\\', '/');
@@ -80,7 +80,7 @@ QString memberKey(QString member)
         else
             segments.push_back(segment);
     }
-    return (QString(root, '/') + segments.join('/')).normalized(QString::NormalizationForm_C).toCaseFolded();
+    return archiveMemberKey(QString(root, '/') + segments.join('/')).toCaseFolded();
 }
 
 /// The final name segment, whichever separator the name uses.
@@ -127,9 +127,14 @@ QByteArray snapshotArchive(const QString& path, const QString& destination, cons
 
 } // namespace
 
+QString archiveMemberKey(QStringView member)
+{
+    return member.toString().normalized(QString::NormalizationForm_C);
+}
+
 std::string archiveMemberKey(std::string_view member)
 {
-    return QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size())).normalized(QString::NormalizationForm_C).toStdString();
+    return archiveMemberKey(QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size()))).toStdString();
 }
 
 bool detail::isNameConversionWarning(std::string_view libarchiveError) noexcept
@@ -218,9 +223,10 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         {
             member.chop(1);
         }
-        // Member identities are NFC. libarchive gives macOS callers NFD names, and names that differ only in
-        // normalization are refused as duplicates below anyway; lookups normalize the same way (#308).
-        member = member.normalized(QString::NormalizationForm_C);
+        // libarchive has already normalized the stored name: to NFD on macOS and to NFC elsewhere. From here on the
+        // member is known by its identity, so every platform lists, extracts and looks up the same names (#308).
+        // Names that differ only in normalization share an identity and are refused as duplicates below.
+        member = archiveMemberKey(member);
         if (member.contains(QChar::ReplacementCharacter))
         {
             refuseNonUtf8Name(); // Windows' UTF-8 decoding substitutes U+FFFD instead of failing
@@ -292,7 +298,7 @@ const QStringList& TrackerArchive::projects() const
 
 QString TrackerArchive::projectPath(const QString& member) const
 {
-    const auto key = member.normalized(QString::NormalizationForm_C);
+    const auto key = archiveMemberKey(member);
     require(m_Projects.contains(key));
     return m_Directory.filePath(key);
 }
@@ -330,7 +336,7 @@ const QHash<QString, QByteArray>& TrackerArchive::memberDigests() const
 bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomic_bool* cancelled) const
 {
     require(!cancelled || !*cancelled);
-    const auto key = member.normalized(QString::NormalizationForm_C);
+    const auto key = archiveMemberKey(member);
     const auto expected = m_MemberDigests.constFind(key);
     if (expected == m_MemberDigests.cend())
         return false;
@@ -372,7 +378,7 @@ void TrackerArchive::resolveMedia(LegacyProject& project, const QString& project
         {
             value = parent + '/' + value;
         }
-        const auto member = QDir::cleanPath(value).normalized(QString::NormalizationForm_C);
+        const auto member = archiveMemberKey(QDir::cleanPath(value));
         if (m_SkippedKeys.contains(memberKey(value)))
         {
             throw ProjectError(QCoreApplication::translate(
