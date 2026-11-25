@@ -164,9 +164,14 @@ renderName(const DependencyGraph& graph, const Dependency& dependency, NameIndex
         rendered.status = RenderStatus::Dangling;
         return rendered;
     }
-    const auto expected = dependency.target ? std::vector<ObjectId>{*dependency.target} : dependency.candidates;
+    // Candidates are a set: the load collected them in source order and the current index lists them by identity, and
+    // counter and countdown identities do not follow source order (#350). No candidate is ever chosen by position.
+    auto expected = dependency.target ? std::vector<ObjectId>{*dependency.target} : dependency.candidates;
+    auto reloaded = rendered.reload.candidates;
+    std::ranges::sort(expected);
+    std::ranges::sort(reloaded);
     const auto expectedOutcome = dependency.target ? BindingOutcome::Unique : dependency.binding;
-    if (rendered.reload.outcome == expectedOutcome && rendered.reload.candidates == expected)
+    if (rendered.reload.outcome == expectedOutcome && reloaded == expected)
     {
         rendered.status = RenderStatus::Faithful;
     }

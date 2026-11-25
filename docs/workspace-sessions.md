@@ -413,6 +413,18 @@ the first one's prompts, waits its turn. Closing the window drops queued tabset 
 Tracker, the first listed experiment file is selected afterward, not a leading video. `tabsetFinished` signals that
 the selection is final.
 
+**Archive members.** A path in Java's zip-entry spelling, `lab.trz!/run.trk`, names one experiment inside an archive,
+as OSP's `ResourceLoader` reads it and as the only published tabset in the library corpus uses it
+(`iwant2study-trz-bungeemodelenergy02-ed22e65c`, [#325](https://github.com/mgradwohl/MoTrack/issues/325)). The text
+before the first `!/` must end in `.trz`; it resolves in the order above, and a path counts only where the archive
+exists and its headers list that `.trk` member, by exact name compared in NFC (`trackerArchiveProjectNames` reads the
+headers alone, within the archive bounds), so the search moves on otherwise, as Tracker's does. A missing archive or
+member is reported and offered for locating like a missing file. The archive opens once, through the ordinary archive
+group, so the member stays editable and saves back into it; only the listed members are shown, at their listed
+positions, and the archive's other experiments stay hidden in **Experiments**. A member listed twice opens once, and
+a member after its whole archive is a silent duplicate; the whole archive after some of its members shows the rest
+there. A listed member that cannot be read is reported and its archive stays open with nothing shown.
+
 The files open through the window's one ordered queue (`OrderedOpens`). When the queue's current file turns out to
 be a tabset, `expandInPlace` puts its files next, ahead of the rest, without further prompts. Other ordered opens,
 such as files the operating system asks to open ([#259](https://github.com/mgradwohl/MoTrack/pull/259)), should feed
@@ -438,9 +450,13 @@ A new tabset is written as `XMLControlElement.toString` writes it (LF line break
 existing tabset edits it instead, with the same O8 check as every standard export: each entry that still names its
 listed file in Tracker's search order keeps its bytes, together with the repeats Tracker writes for each further tab
 of an archive. An entry is rewritten only when its relative path no longer finds the file from the base, for
-example after the tabset moved alone. Entries whose files are not open keep their place: a file that failed to open,
-was not found, was not opened because an open was canceled or the window closed, or names an archive member (#325)
-stays listed, and the summary says so. Only entries of files the user closed are removed, unless a tabset opened
+example after the tabset moved alone. An entry naming an archive member keeps its `archive!/member` form. While such
+entries name members of an open archive, every entry of that archive keeps its place, whatever the tab order (its
+tabs need not be adjacent), and the archive gets no entry of its own; one is rewritten, still naming its member, only
+when its relative path no longer finds it. A new tabset lists an archive whole. Entries whose files are not open keep
+their place: a file that failed to open, was not found, or was not opened because an open was canceled or the window
+closed stays listed, and the summary says so; so does a member entry whose archive is not open or no longer lists it.
+Only entries of files the user closed are removed (closing an archive removes its member entries too), unless a tabset opened
 since then lists the file again. A file id names a file only while it exists, so the window keeps each closed file's
 name and id from the moment it closed, and an entry is removed only while its file still has both: a later file given
 a deleted file's id, or a file another program saved over by renaming a new one into place, keeps its entry. A repeat
@@ -474,9 +490,14 @@ anything changes. A tabset MoTrack cannot read is not replaced.
 - Tracker opens an archive's experiments after every file listed after the archive (its loader queues them last),
   so a resave loses the listed order ([#326](https://github.com/mgradwohl/MoTrack/issues/326)); MoTrack opens them
   where the archive is listed.
-- Entries that name an experiment inside an archive (`archive.trz!/member.trk`), which Tracker's resource loader
-  opens and a published tabset uses, are reported as not found
-  ([#325](https://github.com/mgradwohl/MoTrack/issues/325)).
+- For an entry naming an archive member, Tracker opens only that member and saves its tab by the archive's path
+  (`TrackerPanel.openedFromPath`), so its resave reopens every member; MoTrack keeps the `archive!/member` entry. MoTrack
+  opens the whole archive with the other members hidden, so that the member saves back into it.
+- Tracker reads a member path only after a lowercase archive extension such as `.trz`, `.zip` or `.jar`
+  (`ResourceLoader.isZipEntry`) and joins it with `java.io.File`, which on Windows turns `!/` into `!\`, so from the
+  sources Tracker 6.3.5 on Windows
+  does not find such entries (not run). MoTrack reads `.trz` in any case on every platform; `.zip` experiments are
+  [#224](https://github.com/mgradwohl/MoTrack/issues/224).
 
 **Evidence.** Unit tests cover the exact OSP layout, reading as Tracker's line reader does, parser refusals, in-place
 edits with exact expected bytes (CRLF, CDATA, removed and inserted paths, appended entries, out-of-order indices),
@@ -493,7 +514,17 @@ opens MoTrack's tabset through its normal loader after the folder is moved (so o
 all three experiments in order with their independently expected masses and samples, and writes its own tabset.
 MoTrack must resolve that to the same two files after everything moves again and save the same files over it without
 changing a byte. MoTrack then edits its own tabset in place (the archive first, another experiment added), and Tracker
-must reopen every tab of the edited set, in Tracker's own order, with its data.
+must reopen every tab of the edited set, in Tracker's own order, with its data. Archive members: unit tests cover the
+`!/` spelling, resolution only where the archive lists the member (NFC, exact case, Finder metadata, the absolute
+fallback), expansion duplicates, and saving that keeps member entries in place, reports missing ones, drops them with a
+closed archive and repairs one after the tabset moves alone. Desktop tests open a member entry as that tab alone with
+the archive's other experiment hidden, save the unchanged set byte for byte, save an edit into the archive and add a
+tab, share one archive between member and whole entries, and report missing archives, missing members and an unreadable
+member while keeping their entries. The Linux CI check writes its own set with a member entry: MoTrack must resolve it
+and keep it while adding a tab, and after the folder moves Tracker must reopen just that member where it is listed,
+with the other experiments, and save that tab as the archive. `corpus.py check` resolves the published tabset beside
+its archive (copied under their published names from the library cache, or skipped with a note when it is not cached)
+and saves it back byte for byte.
 
 ## Remaining integration
 

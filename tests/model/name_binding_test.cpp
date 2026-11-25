@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -298,6 +300,34 @@ TEST(NameBinding, RendersCurrentLabelsOnlyWhenAReloadKeepsTheirMeaning)
     const auto refused = motrack::model::renderName(graph, twin, small, centerMembers());
     ASSERT_FALSE(refused);
     EXPECT_EQ(refused.error().code, DependencyErrorCode::CandidateBudgetExceeded);
+}
+
+TEST(NameBinding, UnresolvedCandidatesAreASetWhateverTheirIdentityOrder)
+{
+    // The load lists candidates in source order; the current index lists them by identity, and a countdown identity
+    // (an Unknown track) is larger than the counter identity of a point mass after it in the source (#350).
+    constexpr std::uint64_t COUNTDOWN = std::numeric_limits<std::uint64_t>::max() - 1;
+    DependencyGraph graph;
+    ASSERT_TRUE(graph.addObject(id(COUNTDOWN), ObjectInfo{.label = "dup", .className = TRACKER_PACKAGE + std::string("FutureTrack")}));
+    ASSERT_TRUE(graph.addObject(id(1), ObjectInfo{.label = "dup", .className = POINT_MASS}));
+    const auto render = [&](const Dependency& dependency, const CandidateFilter& filter)
+    {
+        auto index = NameIndex::fromGraph(graph);
+        auto result = motrack::model::renderName(graph, dependency, index, filter);
+        EXPECT_TRUE(result);
+        return *std::move(result);
+    };
+    const auto unclassified = loaded(DependencyKind::MemberOf, 0, "dup", binding(BindingOutcome::Unclassified, {id(COUNTDOWN), id(1)}));
+    auto rendered = render(unclassified, centerMembers());
+    EXPECT_EQ(rendered.reload.candidates, (std::vector<ObjectId>{id(1), id(COUNTDOWN)}));
+    EXPECT_EQ(rendered.status, RenderStatus::Faithful);
+    EXPECT_EQ(rendered.name, "dup");
+    const auto ambiguous = loaded(DependencyKind::AttachedTo, 0, "dup", binding(BindingOutcome::Ambiguous, {id(COUNTDOWN), id(1)}));
+    EXPECT_EQ(render(ambiguous, panel()).status, RenderStatus::Faithful);
+    // A different set is still a different meaning.
+    ASSERT_TRUE(graph.addObject(id(2), ObjectInfo{.label = "dup", .className = POINT_MASS}));
+    EXPECT_EQ(render(ambiguous, panel()).status, RenderStatus::Ambiguous);
+    EXPECT_EQ(render(unclassified, centerMembers()).status, RenderStatus::Unclassified);
 }
 
 std::string property(std::string_view name, std::string_view text)

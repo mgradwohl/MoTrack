@@ -105,10 +105,39 @@ struct TabsetFileKeys
 [[nodiscard]] TabsetFileKeys tabsetFileKeys(const QString& canonical);
 /// tabsetFileKeys(canonical).key(), comparing files that exist now.
 [[nodiscard]] QString tabsetIdentityKey(const QString& canonical);
+
+/// A tabset path that names an experiment inside an archive, in Java's zip-entry spelling `lab.trz!/run.trk`: the text
+/// before the first `!/` (which must end in `.trz`, in any case) and the member name after it. OSP's ResourceLoader
+/// reads such a path as that archive member (isZipEntry), and TFrame.Loader opens just that member as a tab.
+struct TabsetArchiveMember
+{
+    std::string archive;
+    std::string member;
+    bool operator==(const TabsetArchiveMember&) const = default;
+};
+[[nodiscard]] std::optional<TabsetArchiveMember> tabsetArchiveMember(std::string_view path);
+/// `entry` for `member` (as it is spelled) of the archive at `archive`: tabsetEntry with `!/member` after each path.
+[[nodiscard]] TabsetEntry tabsetMemberEntry(const QString& archive, const QString& member, const QString& tabsetDirectory);
+
+/// What an entry names: a canonical physical file, or one `.trk` member of the canonical archive `file`.
+struct TabsetTarget
+{
+    QString file;
+    QString member{}; ///< As the entry spells it; empty for the whole file.
+    bool operator==(const TabsetTarget&) const = default;
+};
 /// Resolve an existing file in Tracker's order: relative to the tabset directory, relative to the working
 /// directory, then the absolute path. A relative slot that is itself absolute only uses the absolute fallback.
+/// A slot naming an archive member resolves only where that archive exists and lists the member (an exact name,
+/// compared in NFC), as ResourceLoader moves on to the next path when the zip entry is missing.
+[[nodiscard]] std::optional<TabsetTarget>
+resolveTabsetTarget(const TabsetEntry& entry, const QString& tabsetDirectory, const QString& workingDirectory);
+/// resolveTabsetTarget's file: the archive, for an entry naming one of its members.
 [[nodiscard]] std::optional<QString>
 resolveTabsetEntry(const TabsetEntry& entry, const QString& tabsetDirectory, const QString& workingDirectory);
+/// The key that identifies a resolved entry's target among a tabset's items: the file's identity key, followed by
+/// `!/` and the member's NFC name for an archive member.
+[[nodiscard]] QString tabsetTargetKey(const QString& canonical, const QString& member);
 /// The folder a tabset's relative paths are resolved against: its saved `basepath`, or the tabset file's folder.
 [[nodiscard]] QString tabsetBase(const TrackerTabset& tabset, const QString& tabsetPath);
 
@@ -131,14 +160,17 @@ struct TabsetItem
     QString tabset;
     /// Canonical physical file when Resolved; the unreadable nested tabset when Unreadable; otherwise empty.
     QString file;
+    /// The archive member a Resolved entry names (`file` is then the archive), as the entry spells it; otherwise empty.
+    QString member{};
     TabsetItemStatus status = TabsetItemStatus::Missing;
     /// Parser or read diagnostic for Unreadable nested tabsets.
     std::string diagnostic{};
 };
 
 /// Read `path` and resolve every entry, expanding nested tabsets depth-first. Each physical file appears once:
-/// later references are Duplicate, a tabset already being expanded is Cycle. Cancellation and an unreadable
-/// top-level file throw ProjectError; problems inside nested tabsets are reported as items instead.
+/// later references are Duplicate, a tabset already being expanded is Cycle. An archive member appears once too, and
+/// not after its whole archive, which opens every member. Cancellation and an unreadable top-level file throw
+/// ProjectError; problems inside nested tabsets are reported as items instead.
 [[nodiscard]] std::vector<TabsetItem>
 expandTrackerTabset(const QString& path, const QString& workingDirectory, const std::atomic_bool* cancelled = nullptr);
 
@@ -149,7 +181,10 @@ expandTrackerTabset(const QString& path, const QString& workingDirectory, const 
 ///   relative path still finds the file from tabsetBase, and is rewritten otherwise;
 /// - entries for files that are not listed keep their place, except those naming a file in `closed` (the keys of
 ///   files the user closed, taken when each closed). A file that failed to open, was not found or was not opened is
-///   therefore kept; a nested tabset is kept for the listed files it opens. A file id names a file only while it
+///   therefore kept; a nested tabset is kept for the listed files it opens. An entry naming an archive member keeps its
+///   `archive!/member` form. While entries name members of a listed archive, every entry of that archive keeps its
+///   place (they need not be adjacent, and the tab order does not move them) and the archive gets no new entry; one is
+///   rewritten, still naming its member, only when its relative path no longer finds it. A file id names a file only while it
 ///   exists, and replacing a file by renaming a new one into place changes it, so an entry is dropped only when the
 ///   file it names now has both the closed file's name and identity: a later file that got a deleted file's id, or a
 ///   file saved over since, keeps its entry;

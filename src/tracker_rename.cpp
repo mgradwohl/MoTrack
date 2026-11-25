@@ -906,26 +906,14 @@ void patchTrackerDeletedReferences(SourceEdits& edits, const LegacyProject& proj
     }
 }
 
-bool patchTrackerNames(SourceEdits& edits, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source, bool movie)
+std::optional<TrackerNamePlan> planTrackerNames(const osp::Source& xml,
+                                                const std::map<TrackId, std::string>& renamed,
+                                                const std::set<TrackId>& liveIds,
+                                                const TrackerSource& source,
+                                                bool movie)
 {
-    const auto& xml = edits.source();
-    std::map<TrackId, std::string> renamed;
-    std::set<TrackId> liveIds;
-    const auto collect = [&](const auto& current, const auto& original)
-    {
-        require(current.size() == original.size());
-        for (std::size_t i = 0; i < current.size(); ++i)
-        {
-            liveIds.insert(current[i].id);
-            require(current[i].id == original[i].id);
-            if (current[i].name != original[i].name)
-                renamed.emplace(current[i].id, current[i].name);
-        }
-    };
-    collect(project.pointMasses, baseline.pointMasses);
-    collect(project.vectors, baseline.vectors);
     if (renamed.empty())
-        return false;
+        return std::nullopt;
     if (movie)
         validateTrackerMovieEditSchema(xml);
     else
@@ -956,9 +944,8 @@ bool patchTrackerNames(SourceEdits& edits, const LegacyProject& project, LegacyP
         }
     }
     require(replacements.size() == renamed.size());
-    bool packedChanged = false;
+    TrackerNamePlan plan{.replacements = std::move(replacements), .rewrites = {}};
     std::set<std::size_t> systemMembers;
-    std::vector<std::string> packed;
     for (const auto& reference : index.references)
     {
         require(reference.resolution == TrackerReferenceResolution::Resolved ||
@@ -987,37 +974,72 @@ bool patchTrackerNames(SourceEdits& edits, const LegacyProject& project, LegacyP
             // TrackChooserTView ignores CoordAxes even when the named source object exists.
             require(target != index.tracks.end() && target->className != trackerClass("CoordAxes"));
         }
-        const auto replacement = replacements.find(reference.candidateSourceIndices.front());
-        if (replacement == replacements.end())
+        const auto replacement = plan.replacements.find(reference.candidateSourceIndices.front());
+        if (replacement == plan.replacements.end())
             continue;
-        if (reference.path.starts_with("/selected_track_views/"))
-        {
-            if (packed.empty())
-                packed = splitPacked(edits.text(property(xml, xml.root(), "selected_track_views")));
-            const auto slot = packedSlot(reference.path);
-            require(packed.size() == 8 && slot < 8 && packed[slot] == reference.originalName);
-            packed[slot] = replacement->second;
-            packedChanged = true;
-        }
-        else
-        {
-            const auto value = referenceProperty(xml, reference.path);
-            require(edits.text(value) == reference.originalName);
-            patchString(edits, value, replacement->second);
-        }
+        plan.rewrites.push_back({.path = reference.path, .originalName = reference.originalName, .name = replacement->second});
     }
     for (const auto& track : index.tracks)
         if (track.className == trackerClass("DynamicParticle"))
             require(systemMembers.contains(track.sourceIndex));
+    return plan;
+}
+
+void applyTrackerNames(SourceEdits& edits, const TrackerNamePlan& plan)
+{
+    const auto& xml = edits.source();
+    bool packedChanged = false;
+    std::vector<std::string> packed;
+    for (const auto& rewrite : plan.rewrites)
+    {
+        if (rewrite.path.starts_with("/selected_track_views/"))
+        {
+            if (packed.empty())
+                packed = splitPacked(edits.text(property(xml, xml.root(), "selected_track_views")));
+            const auto slot = packedSlot(rewrite.path);
+            require(packed.size() == 8 && slot < 8 && packed[slot] == rewrite.originalName);
+            packed[slot] = rewrite.name;
+            packedChanged = true;
+        }
+        else
+        {
+            const auto value = referenceProperty(xml, rewrite.path);
+            require(edits.text(value) == rewrite.originalName);
+            patchString(edits, value, rewrite.name);
+        }
+    }
     if (packedChanged)
         patchString(edits, property(xml, xml.root(), "selected_track_views"), joinPacked(packed));
     const auto tracks = property(xml, xml.root(), "tracks");
     const auto& items = xml.node(tracks).children;
     for (std::size_t ordinal = 0; ordinal < items.size(); ++ordinal)
     {
-        if (const auto found = replacements.find(ordinal); found != replacements.end())
+        if (const auto found = plan.replacements.find(ordinal); found != plan.replacements.end())
             patchString(edits, property(xml, objectOf(xml, items[ordinal]), "name"), found->second);
     }
+}
+
+bool patchTrackerNames(SourceEdits& edits, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source, bool movie)
+{
+    std::map<TrackId, std::string> renamed;
+    std::set<TrackId> liveIds;
+    const auto collect = [&](const auto& current, const auto& original)
+    {
+        require(current.size() == original.size());
+        for (std::size_t i = 0; i < current.size(); ++i)
+        {
+            liveIds.insert(current[i].id);
+            require(current[i].id == original[i].id);
+            if (current[i].name != original[i].name)
+                renamed.emplace(current[i].id, current[i].name);
+        }
+    };
+    collect(project.pointMasses, baseline.pointMasses);
+    collect(project.vectors, baseline.vectors);
+    const auto plan = planTrackerNames(edits.source(), renamed, liveIds, source, movie);
+    if (!plan)
+        return false;
+    applyTrackerNames(edits, *plan);
     const auto update = [&](auto& tracks)
     {
         for (auto& track : tracks)

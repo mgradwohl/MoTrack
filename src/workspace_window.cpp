@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <memory>
 #include <ranges>
 #include <utility>
@@ -341,7 +342,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
-            [this](QUuid request, QUuid source, const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
+            [this](QUuid request, QUuid source, const QList<QUuid>& opened, const QList<UnreadableProject>& unreadable)
             {
                 const bool requested = m_Requested && m_Requested->request == request;
                 finishOpen(request);
@@ -351,8 +352,11 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 // Kept for the source's lifetime so the Experiments menu can list them, as Tracker keeps a failed tab.
                 if (!unreadable.isEmpty())
                     m_Unreadable.insert(source, unreadable);
+                // A tabset entry naming an archive member shows only that member.
+                const auto documents =
+                    m_Tabset && m_Tabset->request == request ? shownDocuments(*m_Tabset, source, opened, unreadable) : opened;
                 addDocuments(documents);
-                const auto notices = reportArchiveLimits(documents, unreadable);
+                const auto notices = reportArchiveLimits(opened, unreadable);
                 // A requested file's notices join its batch summary; the batch's next open replaces the status message.
                 // Unreadable member projects are an incomplete import; skipped or omitted members only inform. A file
                 // chosen in the menu keeps them in the status bar, as menu opens always have.
@@ -587,14 +591,14 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
     QSet<QString> resolved;
     for (const auto& item : items)
         if (item.status == TabsetItemStatus::Resolved)
-            resolved.insert(tabsetIdentityKey(item.file));
+            resolved.insert(tabsetTargetKey(item.file, item.member));
     for (const auto& item : items)
     {
         const auto listed = QString::fromStdString(item.entry.relative);
         if (item.status == TabsetItemStatus::Resolved)
         {
-            pending.files.push_back(item.file);
-            pending.listed.insert(tabsetIdentityKey(item.file));
+            pending.files.push_back({.path = item.file, .member = item.member});
+            pending.listed.insert(tabsetTargetKey(item.file, item.member));
             // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
             m_ClosedFiles.remove(tabsetNameKey(item.file));
         }
@@ -626,7 +630,7 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
                 pending.problems.push_back(describeTabsetProblem(item).value_or(listed));
             else if (!resolved.contains(key) && insertNew(pending.listed, key))
             {
-                pending.files.push_back(canonical);
+                pending.files.push_back({.path = canonical});
                 m_ClosedFiles.remove(tabsetNameKey(canonical));
             }
         }
@@ -643,15 +647,15 @@ bool WorkspaceWindow::tabsetOpening() const
 
 void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items)
 {
-    QStringList nested;
+    QList<QueuedTarget> nested;
     for (const auto& item : items)
         if (item.status == TabsetItemStatus::Resolved)
         {
             // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
             m_ClosedFiles.remove(tabsetNameKey(item.file));
             // Skip files this queue already listed or opened, including earlier tabs.
-            if (insertNew(queue.listed, tabsetIdentityKey(item.file)))
-                nested.push_back(item.file);
+            if (insertNew(queue.listed, tabsetTargetKey(item.file, item.member)))
+                nested.push_back({.path = item.file, .member = item.member});
         }
         else if (auto problem = describeTabsetProblem(item))
             queue.problems.push_back(*problem);
@@ -669,20 +673,21 @@ void WorkspaceWindow::continueTabset()
         const auto file = pending.files.front();
         // A file an open source owns is reused, not opened a second time whose later save would replace the first
         // (#255). As for requested files, the request worker checks, because a share can block any file query.
-        if (pending.checked != file)
+        if (pending.checked != file.path)
         {
-            checkTabsetFile(pending, file);
+            checkTabsetFile(pending, file.path);
             return;
         }
         // Starting an open only queues a worker; no completion can reset the pending tabset here.
-        const auto request = requestInput(file, WorkspaceActivation::KeepCurrent);
+        const auto request = requestInput(file.path, WorkspaceActivation::KeepCurrent);
         if (!request)
             return; // Both input slots are busy; the next completion resumes the tabset in order.
         pending.files.removeFirst();
         pending.checked.reset();
         pending.request = request;
-        pending.current = QFileInfo(file).fileName();
-        pending.requestIsProject = isProjectFile(file);
+        pending.current = queuedLabel(file);
+        pending.currentMember = file.member;
+        pending.requestIsProject = isProjectFile(file.path);
         (void)trackOpen(request, pending.current);
         return;
     }
@@ -729,7 +734,7 @@ void WorkspaceWindow::applyTabsetFileCheck(std::uint64_t check, const QString& f
         return; // The tabset finished or was replaced; never act on its stale answer.
     auto& pending = *m_Tabset;
     pending.check = 0;
-    if (pending.files.isEmpty() || pending.files.front() != file)
+    if (pending.files.isEmpty() || pending.files.front().path != file)
     {
         continueTabset(); // Closing the window stopped the remaining files.
         return;
@@ -740,18 +745,78 @@ void WorkspaceWindow::applyTabsetFileCheck(std::uint64_t check, const QString& f
         !session.sourceDocuments(result.source).empty())
     {
         // The set lists the open file again: show its tab if hidden, and select it if it is the first experiment.
-        pending.files.removeFirst();
+        const auto queued = pending.files.takeFirst();
         const auto documents = session.sourceDocuments(result.source);
-        const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
-        const auto document = visible != documents.end() ? *visible : documents.front();
-        if (!m_Pages.contains(document))
-            addDocuments({document});
-        if (isProjectFile(file) && !pending.select)
-            pending.select = document;
+        QList<QUuid> shown;
+        if (!queued.member.isEmpty())
+        {
+            // One member of an open archive: its tab, or a problem when the archive did not open it.
+            if (const auto member = memberDocument(documents, queued.member))
+                shown.push_back(*member);
+            else
+                pending.problems.push_back(tr("%1: not found.").arg(queuedLabel(queued)));
+        }
+        else if (pending.partial.contains(result.source))
+            shown = {documents.begin(), documents.end()}; // The whole archive after some of its members: all of them.
+        else
+        {
+            const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
+            shown.push_back(visible != documents.end() ? *visible : documents.front());
+        }
+        QList<QUuid> hidden;
+        std::ranges::copy_if(shown, std::back_inserter(hidden), [this](QUuid document) { return !m_Pages.contains(document); });
+        if (!hidden.isEmpty())
+            addDocuments(hidden);
+        if (isProjectFile(file) && !pending.select && !shown.isEmpty())
+            pending.select = shown.front();
     }
     else
         pending.checked = file; // Any other answer opens it; opening reports a file that has gone.
     continueTabset();
+}
+
+QList<QUuid> WorkspaceWindow::shownDocuments(OrderedOpens& queue,
+                                             QUuid source,
+                                             const QList<QUuid>& documents,
+                                             const QList<UnreadableProject>& unreadable)
+{
+    if (queue.currentMember.isEmpty())
+        return documents;
+    // The archive opens whole, so the member stays editable and saves back into it; the other members are hidden, as
+    // Tracker opens only the listed member, and stay in the Experiments menu.
+    auto& session = m_Context->session();
+    const auto member = memberDocument({documents.begin(), documents.end()}, queue.currentMember);
+    for (const auto document : documents)
+        if (document != member)
+            session.hideDocument(document);
+    queue.partial.insert(source);
+    if (member)
+        return {*member};
+    const auto key = archiveMemberKey(queue.currentMember.toStdString());
+    const auto failed = std::ranges::find_if(
+        unreadable, [&](const UnreadableProject& project) { return archiveMemberKey(project.member.toStdString()) == key; });
+    queue.problems.push_back(failed != unreadable.end() ? tr("%1: could not be read (%2).").arg(queue.current, failed->reason)
+                                                        : tr("%1: not found.").arg(queue.current));
+    return {};
+}
+
+std::optional<QUuid> WorkspaceWindow::memberDocument(const std::vector<QUuid>& documents, const QString& member) const
+{
+    const auto key = archiveMemberKey(member.toStdString());
+    const auto& session = m_Context->session();
+    const auto found = std::ranges::find_if(documents,
+                                            [&](QUuid document)
+                                            {
+                                                const auto& name = session.document(document).archiveMember;
+                                                return name && archiveMemberKey(*name) == key;
+                                            });
+    return found == documents.end() ? std::nullopt : std::optional(*found);
+}
+
+QString WorkspaceWindow::queuedLabel(const QueuedTarget& file)
+{
+    const auto name = QFileInfo(file.path).fileName();
+    return file.member.isEmpty() ? name : tr("%1 — %2").arg(name, file.member);
 }
 
 void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled)
@@ -765,6 +830,7 @@ void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& doc
         return;
     }
     m_Tabset->request.reset();
+    m_Tabset->currentMember.clear();
     if (m_Tabset->requestIsProject && !m_Tabset->select && !documents.isEmpty())
         m_Tabset->select = documents.front();
     // B1's native-file recovery: stale links to the Tracker source were reset, so the experiment opens but cannot

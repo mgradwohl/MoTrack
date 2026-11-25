@@ -78,7 +78,11 @@ A `Patch` holds edits against node ids: set a text value (`setInt`, `setDouble`,
 replaces only the text between the opening line's first `>` and its `</property>`, and new or replaced
 subtrees are written in OSP's layout (an object shares its property's indentation, nested properties add
 four spaces) below the indentation of the replaced line or of a sibling, with the file's first line
-ending. Strings get CDATA when they contain `" < > & '` (`XML.requiresCDATA`), decided from the logical value
+ending. Bytes between siblings (blank lines, comments, text Tracker ignores) follow one rule: a removal
+deletes the removed property's lines with its last line break, an insertion at index *i* is written just
+before the first line of original child *i* (after the gap that precedes it) or, when appending, just before
+the container's closing line, a replaced property is rewritten in place with the file's line ending, and
+every other byte of every gap, the prolog and the epilog is copied. Strings get CDATA when they contain `" < > & '` (`XML.requiresCDATA`), decided from the logical value
 on every write, so a loaded CDATA string is never written bare as `toXML()` of a loaded control does
 (osp#21). Attribute values may not contain quotes, angle brackets or line breaks, or end in `=` (which would
 form `type="` or `class="` with the closing quote). A self-closing object or array
@@ -122,7 +126,11 @@ Slice B1 moved `motrack_project` off QDom; QtXml is now only a test dependency.
   `keyFrames`).
 - **O8 on every export.** `SourceEdits::render` re-parses the output and walks both trees: every node outside
   the edit set must keep its raw bytes and logical value, every edited value must decode to the intended one
-  and every insertion or renamed subtree must read back as written. A mismatch refuses the export.
+  and every insertion or renamed subtree must read back as written. Since B2.3 it also covers every byte outside
+  the nodes ([#316](https://github.com/mgradwohl/MoTrack/issues/316)): the prolog, the epilog, each gap between
+  siblings under the rule above, and the opening and closing lines of an edited container and the text around an
+  edited value. A mismatch refuses the export. `SourceEdits::verifyRendered` is the seam through which tests feed
+  doctored output (a changed prolog, epilog, gap, line break or node byte); each one is refused.
 - **Tabsets** ([`tracker_tabset.hpp`](../src/tracker_tabset.hpp), [Tracker tabsets](workspace-sessions.md#tracker-tabsets))
   read their `TFrame` root with `tracker::loadTabset` (`tabs`, and `basepath` as `getString` returns it) and keep
   MoTrack's entry refusals on top. A new tabset is written with `write`; saving over an existing one edits it with
