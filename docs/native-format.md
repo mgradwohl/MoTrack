@@ -289,7 +289,9 @@ Real Tracker archives contain names that must never be extracted: OSP `JarTool.c
 names such as `C:/Users/<author>/Desktop/.../videos/a.mp4` in Tracker 6.1.x exports, and macOS Finder
 adds `Icon\r` files. A name is unsafe when it is absolute or has a drive-letter/UNC prefix, contains `\`,
 `:` or another reserved character, has an empty, `.`, `..` or trailing-dot/space segment, contains a control
-character or reserved device name, or exceeds 512 characters. As Windows archivers expect, libarchive first
+character, a replacement character (U+FFFD) or a reserved device name, or exceeds 512 characters. A name
+that is not UTF-8 at all is a different case: it refuses the archive, as it does in Tracker
+([member-name encoding](#member-name-encoding)). As Windows archivers expect, libarchive first
 reads a name whose only separators are `\` with `/` separators; the writer uses the same spelling. The
 reader disables libarchive's macOS-only `__MACOSX` handling, so every platform sees the same entries.
 
@@ -680,6 +682,32 @@ elsewhere, so the stored form does not reach MoTrack
 `TrackerArchiveWriter.ReplacesADecomposedMemberWithoutRenamingAnyMember` build archives record by record
 with NFC and NFD names and references, so every platform runs the same cases.
 
+#### Member-name encoding
+
+`java.util.zip` decodes every member name as strict UTF-8, whether or not the name's UTF-8 flag
+(general-purpose bit 11) is set, and throws on a malformed name, so Tracker cannot open such an archive
+([`ZipInputStream.readLOC`](https://github.com/openjdk/jdk17u/blob/jdk-17.0.21-ga/src/java.base/share/classes/java/util/zip/ZipInputStream.java#L299-L302),
+[`UTF8ZipCoder`](https://github.com/openjdk/jdk17u/blob/jdk-17.0.21-ga/src/java.base/share/classes/java/util/zip/ZipCoder.java#L197-L200);
+[#275](https://github.com/mgradwohl/MoTrack/issues/275)). MoTrack does the same on every platform, code
+page and locale:
+
+- The reader sets libarchive's `zip:hdrcharset=UTF-8`, so a flagged and an unflagged name decode alike.
+  Info-ZIP and older archivers write UTF-8 names without the flag.
+- A name that is not UTF-8 (a legacy code page, a truncated or overlong sequence, a lone surrogate, a
+  value beyond U+10FFFF) refuses the archive with a message saying so and that Tracker cannot open it
+  either. libarchive reports such a name as a header warning on every platform; no other signal is used.
+  An opt-in legacy code-page import is a deferred proposal
+  ([#305](https://github.com/mgradwohl/MoTrack/issues/305)).
+- A name holding U+FFFD stored as valid UTF-8 (`EF BF BD`) is not malformed, and Tracker opens the
+  archive. Such names come from tools that already replaced bytes they could not decode. MoTrack treats
+  the name as [unsafe](#unsafe-and-non-project-archive-members): the member is skipped, reported and
+  kept when saving, and a project with such a name refuses the archive.
+- Saving into an archive keeps every name's bytes and its flag, set or clear. The writer accepts any
+  name that is valid UTF-8.
+- Known differences from Tracker, where libarchive's conversion hides the stored bytes: a CESU-8
+  surrogate pair, a NUL inside a name and an Info-ZIP Unicode Path extra field
+  ([#378](https://github.com/mgradwohl/MoTrack/issues/378)).
+
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
 (local headers, descriptors, central records and end record) to replace only the selected payload
@@ -700,7 +728,7 @@ The POSIX regression requires macOS/Linux CI; local Windows checks cannot establ
 
 The limits are 544 MiB compressed, 512 MiB extracted, 4096 members, 8 MiB central metadata and
 32 MiB selected XML. Copying uses 64 KiB blocks and cancellation checks. ZIP64, encryption, split
-archives, signatures, ambiguous/noncontiguous layouts and unaudited encodings are refused. A private
+archives, signatures, ambiguous/noncontiguous layouts and member names that are not UTF-8 are refused. A private
 staged archive is reopened with the existing validated reader and its selected XML/inventory checked
 before an atomic destination replacement. Cancellation, source mismatch, missing media, corrupt ZIP
 metadata or a failed destination leaves the existing destination intact. Output cannot replace the

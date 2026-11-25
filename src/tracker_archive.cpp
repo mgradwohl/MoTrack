@@ -123,6 +123,25 @@ ArchiveReader openZipReader(const QString& path)
     return reader;
 }
 
+/// Whether the header libarchive has just returned with @p status holds a member or link name that is not UTF-8.
+/// With hdrcharset=UTF-8 libarchive decodes every name as UTF-8, flagged or not, and reports one it cannot decode
+/// as a header warning on every platform, leaving that name unset. Nothing else marks such a name: a U+FFFD in a
+/// name libarchive did return was stored as valid UTF-8 (EF BF BD), which java.util.zip reads as well.
+bool nonUtf8Name(archive* reader, int status)
+{
+    const auto* warning = status == ARCHIVE_WARN ? archive_error_string(reader) : nullptr;
+    return warning != nullptr && detail::isNameConversionWarning(warning);
+}
+
+/// The identity (archiveMemberKey) of the member whose header libarchive returned without a problem. Every archive
+/// member name enters MoTrack here: libarchive has decoded the stored bytes as UTF-8 and normalized them, to NFD on
+/// macOS and to NFC elsewhere, so the identity is the same on every platform (#275, #308).
+QString memberIdentity(archive_entry* entry)
+{
+    const auto* utf8 = archive_entry_pathname_utf8(entry);
+    return archiveMemberKey(QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry)));
+}
+
 QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !*cancelled);
@@ -185,10 +204,7 @@ std::optional<QSet<QString>> trackerArchiveProjectNames(const QString& path)
             return std::nullopt;
         if (archive_entry_filetype(entry) != AE_IFREG)
             continue;
-        const auto* utf8 = archive_entry_pathname_utf8(entry);
-        const auto member = archiveMemberKey(QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry)));
-        if (member.contains(QChar::ReplacementCharacter))
-            return std::nullopt;
+        const auto member = memberIdentity(entry);
         if (member.endsWith(".trk", Qt::CaseInsensitive) && !appleDouble(member, {}))
             names.insert(member);
     }
@@ -247,8 +263,7 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
-        const auto* warning = status == ARCHIVE_WARN ? archive_error_string(reader.get()) : nullptr;
-        if (warning != nullptr && detail::isNameConversionWarning(warning))
+        if (nonUtf8Name(reader.get(), status))
         {
             refuseNonUtf8Name();
         }
@@ -261,19 +276,13 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
                 !archive_entry_hardlink(entry));
         const auto type = archive_entry_filetype(entry);
         require(type == AE_IFREG || type == AE_IFDIR);
-        const auto* utf8 = archive_entry_pathname_utf8(entry);
-        auto member = QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry));
+        // From here on the member is known by its identity, so every platform lists, extracts and looks up the same
+        // names (#308). Names that differ only in normalization share an identity and are refused as duplicates
+        // below. A name holding U+FFFD is valid UTF-8 and unsafe: safeMember() rejects it like any other.
+        auto member = memberIdentity(entry);
         if (type == AE_IFDIR && member.endsWith('/'))
         {
             member.chop(1);
-        }
-        // libarchive has already normalized the stored name: to NFD on macOS and to NFC elsewhere. From here on the
-        // member is known by its identity, so every platform lists, extracts and looks up the same names (#308).
-        // Names that differ only in normalization share an identity and are refused as duplicates below.
-        member = archiveMemberKey(member);
-        if (member.contains(QChar::ReplacementCharacter))
-        {
-            refuseNonUtf8Name(); // Windows' UTF-8 decoding substitutes U+FFFD instead of failing
         }
         // Every name, extracted or not, takes part in duplicate detection: an unsafe spelling of a safe
         // member's name (such as "videos\a.mp4" or "./videos/a.mp4") would leave the archive ambiguous.

@@ -352,6 +352,62 @@ TEST_F(NonAsciiRoundTrip, ArchiveSavesKeepStoredNamesAndReferencesInEitherNormal
     }
 }
 
+TEST_F(NonAsciiRoundTrip, ArchiveWithUnflaggedUtf8NamesOpensSavesAndReopens)
+{
+    // Info-ZIP and older archivers write UTF-8 member names without the ZIP UTF-8 flag (general-purpose bit 11).
+    // java.util.zip, and so Tracker, reads every name as UTF-8 whatever the flag says (#275). MoTrack opens such an
+    // archive under the same names on every platform and locale, and saves into it without touching a name or flag.
+    const auto experiment = cjk() + ' ' + latin();
+    const auto images = emoji() + ' ' + arabic();
+    const auto projectName = experiment + '/' + arabic() + ".trk";
+    std::vector<QByteArray> stored{projectName.toUtf8()};
+    std::vector<motrack::test::ArchiveEntry> members{{.name = nullptr, .bytes = renamedExperiment(images, cjk())}};
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        stored.push_back(QStringLiteral("%1/%2/%3 %4.png").arg(experiment, images, cjk()).arg(frame).toUtf8());
+        members.push_back({.name = nullptr, .bytes = frameBytes(frame)});
+    }
+    for (std::size_t i = 0; i < members.size(); ++i)
+    {
+        members[i].name = stored[i].constData();
+    }
+    const auto original = motrack::test::storedArchiveBytes(members, false);
+    const auto input = path(latin() + " unflagged.trz");
+    ASSERT_TRUE(writeAll(input, original));
+
+    auto prepared = motrack::prepareWorkspaceInput(input);
+    ASSERT_TRUE(prepared.group);
+    const auto ids = prepared.group->memberIds();
+    ASSERT_EQ(ids.size(), 1u);
+    const auto& archived = prepared.group->document(ids.front());
+    EXPECT_EQ(QString::fromStdString(archived.archiveMember.value_or("")), projectName);
+    ASSERT_TRUE(archived.archivePayload);
+    ASSERT_EQ(archived.project.clip.mediaReferences.size(), 4u);
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto reference = QString::fromStdString(archived.project.clip.mediaReferences[static_cast<std::size_t>(frame)]);
+        EXPECT_EQ(reference.toUtf8(), stored[static_cast<std::size_t>(frame) + 1]);
+        EXPECT_EQ(readAll(QDir(archived.archivePayload->root()).filePath(reference)), frameBytes(frame));
+    }
+
+    const auto unchanged = path(latin() + " unflagged unchanged.trz");
+    motrack::writeTrackerArchiveDocument(unchanged, prepared.group->prepareSave().snapshot.members.front().document);
+    EXPECT_TRUE(readAll(unchanged) == original);
+
+    ASSERT_TRUE(prepared.group->history(ids.front()).setPointMassValue(prepared.group->project(ids.front()), 0, 7.25));
+    const auto standard = path(latin() + " unflagged saved.trz");
+    motrack::writeTrackerArchiveDocument(standard, prepared.group->prepareSave().snapshot.members.front().document);
+    const auto saved = readAll(standard);
+    EXPECT_EQ(motrack::test::storedMemberNames(saved), stored);
+    // Bit 11 stays clear in every local and central record: the flags follow each record's version field.
+    EXPECT_EQ(saved.count(QByteArray("PK\x03\x04\x14\x00\x00\x00", 8)), 5);
+    EXPECT_EQ(saved.count(QByteArray("PK\x01\x02\x14\x00\x14\x00\x00\x00", 10)), 5);
+    const auto reopened = motrack::TrackerArchive::open(standard);
+    ASSERT_EQ(reopened.projects(), QStringList{projectName});
+    EXPECT_EQ(motrack::importTrackerDocument(reopened.projectPath(projectName)).project.pointMasses.front().mass, 7.25);
+    EXPECT_TRUE(reopened.memberMatchesSource(QString::fromUtf8(stored.back())));
+}
+
 TEST_F(NonAsciiRoundTrip, Utf8PathsNameTheSameFilesAsQt)
 {
     // Qt-free code (the OSP and library tests) names files with motrack::utf8Path.
