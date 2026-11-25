@@ -228,6 +228,12 @@ jobs:
           python tools/corpus.py check --probe "$probe"
           python tools/corpus.py xml-oracle --o2-only --probe "$probe" --reports "$RUNNER_TEMP/xml-o2"
           python tools/corpus.py state-check --probe "$probe"
+      - name: Compare the descriptor composition with B1's on every corpus case (B2.3)
+        if: runner.os == 'Linux'
+        shell: bash
+        # No Java: every edit scenario of every case and every round-trip export whose input exists without Tracker.
+        # Exports go to a temporary directory under the workspace's build directory.
+        run: python tools/corpus.py compose-check --probe build/coverage/motrack_corpus_probe
       - name: Check OSP XMLControl reader against Java (O1/O2)
         if: runner.os == 'Linux'
         shell: bash
