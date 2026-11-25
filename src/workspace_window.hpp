@@ -161,9 +161,9 @@ class WorkspaceWindow final : public QMainWindow
     };
     struct OrderedOpens
     {
-        QString tabset;          // The tabset that started the queue; named in its summary and tabsetFinished.
+        QString tabset;            // The tabset that started the queue; named in its summary and tabsetFinished.
         QList<QueuedTarget> files; // QList moves without throwing; std::deque may allocate in some libraries.
-        QSet<QString> listed;    // tabsetTargetKey of every file or member queued or opened by this queue.
+        QSet<QString> listed;      // tabsetTargetKey of every file or member queued or opened by this queue.
         std::optional<QUuid> request;
         QString current;
         QString currentMember; // The only member the current request shows, if it names one.
