@@ -210,6 +210,79 @@ TEST(Expression, KeepsTrackerConventions)
     EXPECT_EQ(std::bit_cast<std::uint64_t>(value("-0")), std::bit_cast<std::uint64_t>(-0.0));
 }
 
+/// `1e+5` is the literal 1e5 in both dialects, as for Java's Double.parseDouble and SuryonoParser. Tracker's
+/// models and fit functions reject such text (UserFunction pads it to `1e +5`, #215), so it is reported.
+/// Expected values are C++ literals, converted by the compiler rather than the kernel.
+TEST(Expression, AcceptsPlusExponentSigns)
+{
+    const std::array<std::string_view, 2> xa{"x", "A"};
+    struct Case
+    {
+        std::string_view text;
+        std::array<double, 2> values;
+        double expected;
+    };
+    const std::array cases{
+        Case{.text = "1e+5", .values = {}, .expected = 1e5},
+        Case{.text = "1E+5", .values = {}, .expected = 1e5},
+        Case{.text = "2.5e+3", .values = {}, .expected = 2.5e3},
+        Case{.text = "1.e+2", .values = {}, .expected = 100.0},
+        Case{.text = ".5e+1", .values = {}, .expected = 5.0},
+        Case{.text = "1e+0", .values = {}, .expected = 1.0},
+        Case{.text = "1e+308", .values = {}, .expected = 1e308},
+        Case{.text = "1e+400", .values = {}, .expected = std::numeric_limits<double>::infinity()},
+        Case{.text = "x*1e+2", .values = {3.0, 0.0}, .expected = 300.0},
+        Case{.text = "x*1E+5", .values = {2.0, 0.0}, .expected = 2e5},
+        Case{.text = "2.5e+3+x", .values = {2.0, 0.0}, .expected = 2502.0},
+        Case{.text = "A*x*1e+5", .values = {2.0, 2.0}, .expected = 4e5},
+        Case{.text = "x-1e+1", .values = {2.0, 0.0}, .expected = -8.0},
+        Case{.text = "2^1e+1", .values = {}, .expected = 1024.0},
+        Case{.text = "-1e+2*x", .values = {3.0, 0.0}, .expected = -300.0},
+    };
+    for (const Case& c : cases)
+    {
+        SCOPED_TRACE(c.text);
+        for (const auto& options : {ExpressionOptions{}, TRACKER})
+        {
+            const auto expression = compiled(c.text, xa, options);
+            EXPECT_EQ(expression.evaluate(c.values), c.expected);
+            EXPECT_EQ(expression.trackerDifferences(), (TrackerDifferences{.plusExponentSign = true}));
+            EXPECT_TRUE(expression.trackerDifferences().any());
+            // The export has no sign for UserFunction to split, and the same value.
+            const auto exported = parseExpression(expression.trackerText(), xa, TRACKER);
+            ASSERT_TRUE(exported.hasValue()) << expression.trackerText();
+            EXPECT_FALSE(exported->trackerDifferences().any());
+            EXPECT_EQ(exported->evaluate(c.values), c.expected);
+        }
+    }
+    EXPECT_EQ(compiled("x*1e+2", xa).trackerText(), "(x*1e2)");
+    // Not literals with a plus exponent: the constant e, a negative exponent, and names ending in e.
+    const std::array<std::string_view, 3> names{"x", "x1e", "E"};
+    const std::array values{2.0, 10.0, 3.0};
+    EXPECT_EQ(compiled("1e5", names).evaluate(values), 1e5);
+    EXPECT_EQ(compiled("x*1e-5", names).evaluate(values), 2e-5);
+    EXPECT_EQ(compiled("e+5", names).evaluate(values), std::numbers::e + 5.0);
+    const double twoE = 2.0 * std::numbers::e; // A separate statement, so the sum below is never fused.
+    EXPECT_EQ(compiled("x*e+5", names).evaluate(values), twoE + 5.0);
+    EXPECT_EQ(compiled("e-5", names).evaluate(values), std::numbers::e - 5.0);
+    EXPECT_EQ(compiled("x1e+5", names).evaluate(values), 15.0);
+    EXPECT_EQ(compiled("x*E+5", names).evaluate(values), 11.0);
+    for (const std::string_view text : {"1e5", "x*1e-5", "e+5", "x*e+5", "e-5", "x1e+5", "x*E+5"})
+    {
+        EXPECT_FALSE(compiled(text, names).trackerDifferences().any()) << text;
+    }
+    // `e` and `E` never join a preceding number: `2E+5` is a literal even beside a variable named E, and
+    // the reserved constant e wins over a variable named e.
+    EXPECT_EQ(compiled("2E+5*x", names).evaluate(values), 4e5);
+    const std::array<std::string_view, 1> named{"e"};
+    EXPECT_EQ(compiled("e+5", named).evaluate(std::array{7.0}), std::numbers::e + 5.0);
+    EXPECT_EQ(compiled("1e+5", named).evaluate(std::array{7.0}), 1e5);
+    // The text UserFunction makes of 1e+5 is rejected like any split literal.
+    EXPECT_EQ(failure("1e +5"), (ExpressionError{.code = ExpressionErrorCode::ExpressionExpected, .position = 1}));
+    EXPECT_EQ(failure("2*1e +5"), (ExpressionError{.code = ExpressionErrorCode::SyntaxError, .position = 3}));
+    EXPECT_EQ(failure("1e+").code, ExpressionErrorCode::ExpressionExpected);
+}
+
 TEST(Expression, InverseHyperbolicFunctionsKeepPrecision)
 {
     EXPECT_EQ(value("asinh(1e-20)"), 1e-20);
@@ -410,6 +483,7 @@ TEST(Expression, TrackerTextRoundTripsRandomExpressions)
         }
         ASSERT_TRUE(exported.hasValue()) << text << " -> " << corrected->trackerText() << ": error "
                                          << static_cast<int>(exported.error().code) << " at " << exported.error().position;
+        ASSERT_FALSE(exported->trackerDifferences().plusExponentSign) << corrected->trackerText(); // The atoms include 1e+2.
         for (const auto& point : points)
         {
             const double expected = corrected->evaluate(point);

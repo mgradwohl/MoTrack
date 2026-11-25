@@ -1,3 +1,4 @@
+#include "science/expression.hpp"
 #include "science/fit/curve_fit.hpp"
 #include "science/fit/minimizers.hpp"
 
@@ -11,6 +12,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -850,6 +852,93 @@ TEST(CurveFit, SubstitutionCollisions)
     prefix.expression = "k*x+k2";
     prefix.parameters = {parameter("k", 1), parameter("k2", 2), parameter("", 0)};
     EXPECT_EQ(trackerSubstitutionCollisions(prefix), (std::vector<std::string>{"k"}));
+}
+
+/// A user fit compiled by the K1 expression kernel over {x, parameters...}, as slice I4 binds it.
+FitFunction expressionFit(const std::string& text, std::vector<motrack::science::FitParameter> parameters)
+{
+    std::vector<std::string> names{"x"};
+    for (const auto& p : parameters)
+    {
+        names.push_back(p.name);
+    }
+    const auto compiled = motrack::science::parseExpression(text, names);
+    EXPECT_TRUE(compiled.hasValue()) << text;
+    FitFunction f;
+    f.name = "user";
+    f.expression = text;
+    f.parameters = std::move(parameters);
+    if (compiled)
+    {
+        f.model = [expression = *compiled](double x, std::span<const double> p)
+        {
+            std::vector<double> values{x};
+            values.insert(values.end(), p.begin(), p.end());
+            return expression.evaluate(values);
+        };
+    }
+    return f;
+}
+
+/// Tracker's Fit Builder parses user fits through OSP's UserFunction, which rejects a `+` exponent and
+/// fits the constant 0 instead (#215). MoTrack fits the model as written: the same parameters as for the
+/// plus-free spelling, bit for bit, and the synthetic ones that generated the data.
+TEST(CurveFit, UserFitWithAPlusExponentLiteral)
+{
+    struct Case
+    {
+        std::string text;
+        std::string plusFree;
+        std::vector<std::string> names;
+        std::vector<double> truth;
+        std::vector<double> y;
+    };
+    const auto x = grid(0, 0.1, 21);
+    std::vector<double> line;
+    std::vector<double> decay;
+    line.reserve(x.size());
+    decay.reserve(x.size());
+    for (const double xi : x)
+    {
+        line.push_back((0.0025 * xi * 1000.0) - 1.5);
+        decay.push_back((2.0 * std::exp(-xi * 10.0 / 3.0)) + 0.5);
+    }
+    const std::vector<Case> cases = {
+        {.text = "m*x*1e+3+b", .plusFree = "m*x*1e3+b", .names = {"m", "b"}, .truth = {0.0025, -1.5}, .y = line},
+        {.text = "A*exp(-x*1e+1/T)+C", .plusFree = "A*exp(-x*1e1/T)+C", .names = {"A", "T", "C"}, .truth = {2.0, 3.0, 0.5}, .y = decay},
+    };
+    for (const Case& c : cases)
+    {
+        SCOPED_TRACE(c.text);
+        std::vector<std::string_view> names{"x"};
+        names.insert(names.end(), c.names.begin(), c.names.end());
+        const auto parsed = motrack::science::parseExpression(c.text, names);
+        const auto parsedPlain = motrack::science::parseExpression(c.plusFree, names);
+        ASSERT_TRUE(parsed.hasValue() && parsedPlain.hasValue());
+        EXPECT_TRUE(parsed->trackerDifferences().plusExponentSign); // I4 warns that Tracker fits 0 here.
+        EXPECT_FALSE(parsedPlain->trackerDifferences().any());
+        std::vector<motrack::science::FitParameter> start;
+        start.reserve(c.names.size());
+        for (std::size_t i = 0; i < c.names.size(); ++i)
+        {
+            start.push_back(parameter(c.names[i], c.truth[i] * 1.03));
+        }
+        const FitFunction plus = expressionFit(c.text, start);
+        const FitFunction plain = expressionFit(c.plusFree, start);
+        ASSERT_TRUE(plus.model && plain.model);
+        for (const FitDialect dialect : DIALECTS)
+        {
+            SCOPED_TRACE(dialect == FitDialect::Tracker ? "tracker" : "corrected");
+            const FitResult result = fitCurve(plus, x, c.y, options(dialect, FitStart::FromCurrent));
+            EXPECT_TRUE(result.status == FitStatus::Fitted || result.status == FitStatus::NotImproved);
+            expectNear(c.truth, result.parameters, 1e-6);
+            EXPECT_LT(result.rmsDeviation, 1e-6);
+            EXPECT_FALSE(result.nonRealValues);
+            const FitResult reference = fitCurve(plain, x, c.y, options(dialect, FitStart::FromCurrent));
+            EXPECT_EQ(result.parameters, reference.parameters);
+            EXPECT_EQ(result.status, reference.status);
+        }
+    }
 }
 
 TEST(CurveFit, UncertaintyText)

@@ -39,9 +39,11 @@ relation flags, so it accepts, rejects and positions errors exactly as Tracker d
   Positions are OSP's one-based UTF-16 positions in the backslash-free text; OSP usually reports the character
   after the offending token, and 0 for an empty expression.
 - **Numbers** are `digits[.digits][(e|E)[+|-]digits]` or `.digits…`; a leading dot means `0.`, so `.` and `.e5`
-  are 0. The text is rounded like `Double.parseDouble` (exactly, ties to even, any length, overflow to infinity).
-  `1e`, `1e+` and `2.5E` are errors. There is no sign in a literal, no hexadecimal form and no implicit
-  multiplication: `2x`, `2pi` and `1 2` are "operator expected".
+  are 0. The text is rounded like `Double.parseDouble` (exactly, ties to even, any length, overflow to infinity),
+  so `1e+5` is 100000 in both dialects; Tracker's models and fits reject it
+  ([below](#dialects-and-deliberate-differences)). `1e`, `1e+`, `2.5E` and the split `1e +5` are errors. There
+  is no sign in a literal, no hexadecimal form and no implicit multiplication: `2x`, `2pi` and `1 2` are
+  "operator expected".
 - **Identifiers** are runs of any characters except space and `+ - * / ^ ( ) , < > = & |`, so `v_{x}`, `x'`,
   `θ` and `a!b` are names, while a tab or `.` inside a name is part of it. Matching is exact and case-sensitive:
   `Sin`, `PI` and `E` are unknown. Lookup order is `pi`, `e`, `if`, the built-in functions, then the declared
@@ -113,6 +115,19 @@ detected while parsing in either dialect, so later slices can warn when an opene
 one; Tracker itself will compute the old values from the same text. Parenthesized forms such as `2^(-3)` and
 `1+(2^2*3)` evaluate identically in both.
 
+A literal with a `+` exponent sign is a deliberate difference of another kind
+([#215](https://github.com/mgradwohl/MoTrack/issues/215), [osp#19](https://github.com/OpenSourcePhysics/osp/issues/19)).
+SuryonoParser, and with it Tracker's data functions and parameters (`DataFunction`, `Parameter`), evaluate
+`1e+5` as 100000. Tracker's analytic and dynamic models and its Fit Builder functions go through `UserFunction`,
+whose `padNames` turns `x*1e+5` into `x*1e +5`, a syntax error. `setExpression` then returns false: the function
+becomes `0` and evaluates to 0 wherever the model or fit uses it. The saved file keeps the typed text
+(`getInputString()`), so Tracker experiments can contain such an expression. This affects every literal with a
+`+` sign (`1E+5`, `2.5e+3`, `1.e+2`, `.5e+1`, `1e+0`), even inside `if`. It does not affect `1e5`, `1e-5`, the
+constant `e` (`x*e+5`) or parameters named `e` or `E`. Neither dialect reproduces the rejection: like the Data
+Tool's text substitution ([#240](https://github.com/mgradwohl/MoTrack/issues/240)), it is a defect in how OSP
+prepares a function's text, not in the parser. MoTrack evaluates the literal as written in every context, and
+`trackerDifferences().plusExponentSign` marks where Tracker's models and fits compute 0 instead.
+
 The defects also apply in the export direction: a corrected expression such as `x^-2` or `2--3` written to a
 `.trk` file as typed computes the old value when Tracker reopens it. `trackerText()` renders the compiled
 operations fully parenthesized, with every sign around its operand (`(x^(-2))`, `(2-(-3))`, `(-(!(c)))`) and
@@ -126,7 +141,7 @@ own implementations, so those expressions still need a warning, and the explicit
 expression past 99 codes (`trackerCodeSize()` counts what Tracker compiles for the original text; parse the
 rendering with the Tracker dialect to check it). The binding rule for C5/C8/I4/I5 (#172, #173): store the
 user's text, write `trackerText()` to Tracker files whenever `trackerDifferences()` reports a precedence
-construct or the text has a `+` exponent sign, and warn when an unavoidable function difference or the code limit
+construct or `plusExponentSign`, and warn when an unavoidable function difference or the code limit
 remains.
 
 Deliberately kept: the division trap, `int` as `rint`, `mod` as IEEE remainder, the boolean grouping and
@@ -159,7 +174,7 @@ within the fixture's declared bound of 4 ulp; none use cancellation-prone compos
 
 [`tools/reference/ExpressionOracle.java`](../tools/reference/ExpressionOracle.java) runs headless against the
 pinned Tracker JAR and writes [`tests/science/expression-reference.json`](../tests/science/expression-reference.json):
-661 cases with 1973 evaluations, including 139 parse errors with OSP codes, messages and positions, and 5 code-limit
+663 cases with 1975 evaluations, including 141 parse errors with OSP codes, messages and positions, and 5 code-limit
 exceptions. They cover literals and rounding boundaries, constants, precedence and associativity, unary signs,
 division by zero, relations, booleans, `if`, syntax errors, references, calls, variable naming, limits and
 `random`, every function at 41 points (or 24 argument pairs) including signed zeros, ties, range limits, NaN and
@@ -169,6 +184,13 @@ a direct evaluation of the generating tree. Generated expressions only use `^` w
 representable, so every `pow` returns the same bits; like other `^` cases they are still compared within the ulp
 bound. The oracle source is ASCII-only (`\u` escapes), so the JDK source launcher reads it under any default
 charset.
+
+A separate `user_functions` list runs 19 model and fit functions through OSP's `UserFunction` with independent
+variables and parameters. Each entry records whether `setExpression` accepted the text, the stored and saved
+expression, and the value. 12 of them have a `+` exponent; each records Tracker's 0 and, as the intended value,
+the same function written without the sign. The rest are controls (`1e5`, `1e-5`, the constant `e`, parameters
+named `e` and `E`). `ExpressionReference.UserFunctionRejectsPlusExponents` checks that `plusExponentSign` predicts
+every rejection, that both dialects compute the intended value, and that `trackerText()` removes the sign.
 
 `ExpressionReference.*` in `motrack_tests` checks both dialects against the fixture without Java: the Tracker
 dialect against Java's result, the corrected dialect against the intended value where one is recorded, and every
@@ -194,10 +216,16 @@ These rules come from the Tracker classes that wrap the parser; the kernel leave
   order. Analytic models use `t`; dynamic Cartesian forces use `x, vx, y, vy, t`; polar forces use
   `r, vr, θ, ω, t`. The padding splits names containing braces, so models cannot reference them. `evaluate`
   keeps OSP's 0 for NaN; `DatasetCurveFitter` checks the NaN flag. `setExpression` reports an expression
-  containing `=` as invalid even though it parses.
+  containing `=` as invalid even though it parses. The padding also rejects every expression with
+  `plusExponentSign`. Accept typed `1e+5`. When opening a Tracker model or fit function with
+  `plusExponentSign`, compute the written value and warn that Tracker showed the function as invalid and
+  computed 0; never substitute that 0. A binding that must reproduce Tracker's own output, such as a corpus
+  comparison, treats the flag as UserFunction's failed parse.
 - **Names.** Editors reject duplicates, names starting with a digit or parsing as a number, names containing
   `! , . + - * / ^ = > < & | ( )` or spaces, the reserved parser names and the dummy names.
 - **Dependencies** come from `referencedVariables()`; Tracker's editors find references by whole-word search in
   the padded text and reject cycles. Results of `usesRandom()` expressions must not be cached.
 - **Opening Tracker experiments** should surface `trackerDifferences()` and `fitsTrackerLimits()` to the user
-  instead of silently changing the meaning of a saved expression.
+  instead of silently changing the meaning of a saved expression. One flag depends on the binding:
+  `plusExponentSign` matters only where Tracker pads names (model and fit functions). Data functions and
+  parameters compute the same value as Tracker for `1e+5`, so those bindings ignore that flag rather than warn.

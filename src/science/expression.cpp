@@ -733,12 +733,14 @@ void Compiler::scanNumber()
             next();
         } while (isDigit(m_Ch));
     }
+    bool plusSign = false;
     if (m_Ch == u'e' || m_Ch == u'E')
     {
         text.push_back(static_cast<char>(m_Ch));
         next();
         if (m_Ch == u'+' || m_Ch == u'-')
         {
+            plusSign = m_Ch == u'+';
             text.push_back(static_cast<char>(m_Ch));
             next();
         }
@@ -754,8 +756,13 @@ void Compiler::scanNumber()
         m_Position = m_Start;
         throw ParseStop(ExpressionErrorCode::SyntaxError);
     }
-    // UserFunction.padNames splits `1e+5` into `1e +5`; an exported literal never needs the plus sign.
-    std::erase(text, '+');
+    // UserFunction.padNames splits `1e+5` into `1e +5`, which fails to parse, so Tracker's models and fit
+    // functions become 0. Report the construct, and export the literal without the sign it never needs.
+    if (plusSign)
+    {
+        m_Differences.plusExponentSign = true;
+        std::erase(text, '+');
+    }
     m_Literals.push_back(std::move(text));
     emit({.op = OpCode::Number, .operand = static_cast<std::uint32_t>(m_Literals.size() - 1), .value = *value});
 }
@@ -1065,7 +1072,7 @@ RandomSource::~RandomSource() = default;
 
 bool TrackerDifferences::any() const noexcept
 {
-    return negatedExponent || powerProductInSum || droppedNegation || inverseHyperbolic || commonLogarithm;
+    return negatedExponent || powerProductInSum || droppedNegation || inverseHyperbolic || commonLogarithm || plusExponentSign;
 }
 
 ExpressionResult::ExpressionResult(Expression expression) noexcept : m_Value(std::move(expression))

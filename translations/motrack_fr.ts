@@ -193,8 +193,9 @@
     <message><source>Choose a unique, nonempty track name.</source><translation>Choisissez un nom de trajectoire unique et non vide.</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
-    <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
-    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project (%1) Its saved measurements are shown unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data and mass unit. Save the project to keep them.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>PositionPlot</name>
@@ -1068,5 +1069,17 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un nom de membre de cette archive Tracker n'est pas un texte UTF-8 valide : l'archive ne peut donc pas être ouverte. Tracker ne peut pas l'ouvrir non plus.</translation></message>
+  </context>
+  <context>
+    <name>LegacyProject</name>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array has an element whose index is unreadable or beyond the last element's.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array does not have the class Tracker saves (%3), and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array does not have the class Tracker saves (%3), so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves (%3).</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

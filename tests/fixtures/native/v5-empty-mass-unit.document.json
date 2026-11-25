@@ -1,0 +1,142 @@
+{
+    "associations": "known",
+    "baseline": {
+        "bytes": 4943,
+        "sha256": "819fe7a1da71c596edc2ec0d39867b60f3190762070023ad4be1163a87ba9c79"
+    },
+    "countdownLowWater": "18446744073709551612",
+    "dependencies": [
+    ],
+    "media": {
+        "references": [
+        ],
+        "sourceFrameCount": null
+    },
+    "nextObjectId": "2",
+    "objects": [
+        {
+            "binding": "/",
+            "class": "org.opensourcephysics.cabrillo.tracker.TrackerPanel",
+            "family": "panel",
+            "fields": {
+                "description": {
+                    "unread": "missing"
+                },
+                "length_unit": "m",
+                "mass_unit": "",
+                "referenceframe": {
+                    "unread": "missing"
+                },
+                "selectedtrack": {
+                    "unread": "missing"
+                },
+                "semantic_version": "6.3.5",
+                "time_unit": ""
+            },
+            "id": "18446744073709551615",
+            "range": "countdown",
+            "role": "panel",
+            "state": "live"
+        },
+        {
+            "binding": "/1:videoclip/0:",
+            "class": "org.opensourcephysics.media.core.VideoClip",
+            "family": "clip",
+            "fields": {
+                "frameshift": {
+                    "unread": "missing"
+                },
+                "startframe": 0,
+                "starttime": 0,
+                "stepcount": 5,
+                "stepsize": 1,
+                "video_framecount": {
+                    "unread": "missing"
+                }
+            },
+            "id": "18446744073709551614",
+            "range": "countdown",
+            "role": "videoclip",
+            "state": "live"
+        },
+        {
+            "binding": "/2:coords/0:",
+            "class": "org.opensourcephysics.media.core.ImageCoordSystem",
+            "family": "coordinates",
+            "fields": {
+                "fixedangle": true,
+                "fixedorigin": true,
+                "fixedscale": true,
+                "framedata": [
+                    [
+                        0,
+                        320,
+                        240,
+                        0,
+                        2,
+                        2,
+                        "bound"
+                    ]
+                ],
+                "locked": false
+            },
+            "id": "18446744073709551613",
+            "range": "countdown",
+            "role": "coords",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/0:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+            "family": "unknown",
+            "fields": {
+                "label": "axes"
+            },
+            "id": "18446744073709551612",
+            "range": "countdown",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/1:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+            "family": "point-mass",
+            "fields": {
+                "framedata": [
+                    [
+                        0,
+                        300,
+                        200,
+                        "bound"
+                    ],
+                    [
+                        2,
+                        320,
+                        200,
+                        "bound"
+                    ],
+                    [
+                        4,
+                        340,
+                        200,
+                        "bound"
+                    ]
+                ],
+                "keyFrames": [
+                ],
+                "mass": 1.5,
+                "name": "mass A"
+            },
+            "id": "1",
+            "range": "counter",
+            "role": "track",
+            "state": "live"
+        }
+    ],
+    "readerRevision": 3,
+    "referenceIssues": [
+    ],
+    "trackOrder": [
+        "1"
+    ]
+}

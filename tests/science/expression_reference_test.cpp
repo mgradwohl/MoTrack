@@ -115,11 +115,19 @@ std::vector<double> values(const QJsonObject& evaluation)
 void checkDefects(const QJsonObject& item, const Expression& expression)
 {
     const auto defect = item[QStringLiteral("defect")].toString();
-    const auto differences = expression.trackerDifferences();
+    auto differences = expression.trackerDifferences();
+    // SuryonoParser evaluates a `+` exponent correctly; the UserFunction cases below show where Tracker does
+    // not. A literal case is one number, so its `+` after an exponent marker is the literal's sign; no
+    // other case has such a literal.
+    const auto group = item[QStringLiteral("group")].toString();
+    const auto text = item[QStringLiteral("expression")].toString();
+    const bool literal = group == QStringLiteral("literal") || group == QStringLiteral("generated-literal");
+    EXPECT_EQ(differences.plusExponentSign, literal && (text.contains(QStringLiteral("e+")) || text.contains(QStringLiteral("E+"))));
+    differences.plusExponentSign = false;
     if (defect.isEmpty() || defect == QStringLiteral("tracker-code-limit"))
     {
         // Annotated cases are the only curated ones with constructs Tracker evaluates differently.
-        if (!item[QStringLiteral("group")].toString().startsWith(QStringLiteral("generated")))
+        if (!group.startsWith(QStringLiteral("generated")))
         {
             EXPECT_FALSE(differences.any());
         }
@@ -293,7 +301,7 @@ TEST(ExpressionReference, TrackerTextKeepsCorrectedValuesInTracker)
             continue;
         }
         EXPECT_FALSE(exported->trackerDifferences().negatedExponent || exported->trackerDifferences().powerProductInSum ||
-                     exported->trackerDifferences().droppedNegation)
+                     exported->trackerDifferences().droppedNegation || exported->trackerDifferences().plusExponentSign)
             << corrected->trackerText();
         EXPECT_EQ(std::vector(exported->functions().begin(), exported->functions().end()),
                   std::vector(corrected->functions().begin(), corrected->functions().end()));
@@ -309,6 +317,68 @@ TEST(ExpressionReference, TrackerTextKeepsCorrectedValuesInTracker)
         }
     }
     EXPECT_GT(rendered, 300);
+}
+
+/// Tracker's models and fit functions parse through OSP's UserFunction, whose name padding splits a `+`
+/// exponent (`1e+5` becomes `1e +5`): the function is rejected, evaluates 0 and still saves the typed text
+/// (#215). Both dialects evaluate the literal as written, matching the plus-free equivalent through
+/// UserFunction, and plusExponentSign predicts every rejection.
+TEST(ExpressionReference, UserFunctionRejectsPlusExponents)
+{
+    const auto functions = reference()[QStringLiteral("user_functions")].toArray();
+    ASSERT_GE(functions.size(), 15);
+    int rejected = 0;
+    for (const auto& entry : functions)
+    {
+        const auto item = entry.toObject();
+        const auto text = item[QStringLiteral("expression")].toString();
+        SCOPED_TRACE(item[QStringLiteral("id")].toString().toStdString() + ": " + text.toStdString());
+        // UserFunction declares the independent variables, then the parameters.
+        std::vector<std::string> names;
+        for (const auto& name : item[QStringLiteral("variables")].toArray())
+        {
+            names.push_back(name.toString().toStdString());
+        }
+        for (const auto& name : item[QStringLiteral("parameters")].toArray())
+        {
+            names.push_back(name.toString().toStdString());
+        }
+        std::vector<double> parameterValues;
+        for (const auto& value : item[QStringLiteral("parameter_values")].toArray())
+        {
+            parameterValues.push_back(javaText(value));
+        }
+        const bool valid = item[QStringLiteral("valid")].toBool();
+        EXPECT_EQ(item[QStringLiteral("saved")].toString(), text);
+        EXPECT_EQ(item[QStringLiteral("stored")].toString(), valid ? text : QStringLiteral("0"));
+        rejected += valid ? 0 : 1;
+        for (const auto dialect : {ExpressionDialect::Tracker, ExpressionDialect::Corrected})
+        {
+            SCOPED_TRACE(dialect == ExpressionDialect::Tracker ? "Tracker dialect" : "corrected dialect");
+            const auto parsed = motrack::science::parseExpression(text.toStdString(), names, {.dialect = dialect});
+            ASSERT_TRUE(parsed.hasValue());
+            EXPECT_EQ(parsed->trackerDifferences(), (motrack::science::TrackerDifferences{.plusExponentSign = !valid}));
+            const auto exported = motrack::science::parseExpression(parsed->trackerText(), names, {.dialect = ExpressionDialect::Tracker});
+            ASSERT_TRUE(exported.hasValue()) << parsed->trackerText();
+            EXPECT_FALSE(exported->trackerDifferences().any()) << parsed->trackerText();
+            for (const auto& evaluationEntry : item[QStringLiteral("evaluations")].toArray())
+            {
+                const auto evaluation = evaluationEntry.toObject();
+                auto input = values(evaluation);
+                input.insert(input.end(), parameterValues.begin(), parameterValues.end());
+                const double result = javaBits(evaluation[QStringLiteral("result_bits")]);
+                if (!valid)
+                {
+                    EXPECT_EQ(std::bit_cast<std::uint64_t>(result), 0U); // Tracker's silent +0.
+                }
+                const double expected =
+                    evaluation.contains(QStringLiteral("intended_bits")) ? javaBits(evaluation[QStringLiteral("intended_bits")]) : result;
+                EXPECT_TRUE(sameValue(expected, parsed->evaluate(input), false, 0));
+                EXPECT_TRUE(sameValue(expected, exported->evaluate(input), false, 0));
+            }
+        }
+    }
+    EXPECT_GE(rejected, 10);
 }
 
 } // namespace
