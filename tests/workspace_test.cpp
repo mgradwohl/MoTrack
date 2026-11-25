@@ -2189,9 +2189,10 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
                        &window,
                        []
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(250.25));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(250.25));
                                dialog->accept();
                            }
                        });

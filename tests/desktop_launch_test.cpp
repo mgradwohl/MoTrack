@@ -11,6 +11,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
@@ -21,7 +22,6 @@
 #include <QFileDialog>
 #include <QFileOpenEvent>
 #include <QImage>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -191,9 +191,10 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
                        &window,
                        [&]
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(mass));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(mass));
                                accepted = true;
                                dialog->accept();
                            }

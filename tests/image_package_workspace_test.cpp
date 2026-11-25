@@ -12,7 +12,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QInputDialog>
+#include <QLineEdit>
 #include <QLocale>
 #include <QLockFile>
 #include <QPushButton>
@@ -63,7 +63,7 @@ bool editMass(motrack::MainWindow& window, double value)
                      &window,
                      []
                      {
-                         if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                              dialog->reject();
                      });
     watchdog.start(2000);
@@ -72,9 +72,10 @@ bool editMass(motrack::MainWindow& window, double value)
                        &window,
                        [&]
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(value));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(value));
                                accepted = true;
                                dialog->accept();
                            }

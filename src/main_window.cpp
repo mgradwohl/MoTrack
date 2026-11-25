@@ -1500,26 +1500,28 @@ void MainWindow::setSelectedPointMassValue()
     setPlaying(false);
     const auto index = static_cast<std::size_t>(selected);
     const auto request = m_RequestGeneration.load();
-    // Without digit grouping, so that editing the shown value cannot make it ambiguous.
-    const auto before = editableNumber(viewProject().pointMasses.at(index).mass);
+    const auto before = viewProject().pointMasses.at(index).mass;
     const auto massUnit = QString::fromStdString(viewProject().massUnit);
     const auto label = massUnit.isEmpty() ? tr("Mass") : tr("Mass (%1)").arg(massUnit);
-    bool accepted = false;
-    const auto text = QInputDialog::getText(
-        this, tr("Set point-mass value"), "<qt>" + label.toHtmlEscaped() + "</qt>", QLineEdit::Normal, before, &accepted);
-    if (!accepted || request != m_RequestGeneration || before == text)
+    // The dialog keeps ambiguous or invalid text open for correction; its OK button accepts only a positive mass.
+    const auto mass = askNumber(this,
+                                tr("Set point-mass value"),
+                                "<qt>" + label.toHtmlEscaped() + "</qt>",
+                                before,
+                                std::numeric_limits<double>::denorm_min(),
+                                std::numeric_limits<double>::max(),
+                                tr("Enter a finite, positive mass."));
+    if (!mass || request != m_RequestGeneration || *mass == before)
     {
         return;
     }
-    const auto mass = parseUserNumber(text);
-    if (mass && viewHistory().setPointMassValue(viewProject(), index, *mass))
+    if (viewHistory().setPointMassValue(viewProject(), index, *mass))
     {
         refreshEditViews(selected);
     }
     else
     {
-        statusBar()->showMessage(!mass && mass.error() == NumberInputError::Ambiguous ? ambiguousNumberMessage()
-                                                                                      : tr("Enter a finite, positive mass."));
+        statusBar()->showMessage(tr("Enter a finite, positive mass."));
     }
 }
 

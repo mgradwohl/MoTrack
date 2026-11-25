@@ -18,10 +18,10 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -33,8 +33,10 @@
 #include <QTimer>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <expected>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <string>
@@ -62,19 +64,23 @@ QByteArray readBytes(const QString& path)
 }
 
 /// The user's regional format for one scope: QLocale's default, and the C and C++ locales as well when the machine
-/// has them. Restores everything on destruction.
+/// has them (CI generates de_DE, en_US, fr_FR and sv_SE on Linux). Without them only QLocale's default changes, and
+/// the test says so. Restores everything on destruction.
 class UserLocale
 {
   public:
     UserLocale(std::string_view language, std::string_view region)
     {
+        const auto name = std::string(language) + '_' + std::string(region);
         if (const auto process = motrack::test::availableLocale(language, region))
         {
             m_Process.emplace(*process);
         }
         else
         {
-            QLocale::setDefault(QLocale(QString::fromUtf8(language) + '_' + QString::fromUtf8(region)));
+            QLocale::setDefault(QLocale(QString::fromStdString(name)));
+            testing::Test::RecordProperty("qlocale_only_" + name, "the C and C++ locales are not installed");
+            std::cerr << "note: the " << name << " UTF-8 locale is not installed; only QLocale's default is switched\n";
         }
     }
 
@@ -92,27 +98,25 @@ class UserLocale
     std::optional<motrack::test::ScopedProcessLocale> m_Process;
 };
 
-/// Runs @p respond on the next modal dialog, and rejects any dialog still open after five seconds so that a failed
-/// expectation cannot hang the test. Both are queued; the caller then opens the dialog.
+/// Runs @p respond on the next modal dialog. A watchdog owned by that dialog rejects it if it is still open after five
+/// seconds, so a failed expectation cannot hang the test, and it dies with the dialog, so it cannot reject a later one.
 void answerDialog(QObject& context, std::function<void(QWidget&)> respond)
 {
     QTimer::singleShot(0,
                        &context,
                        [respond = std::move(respond)]
                        {
-                           if (auto* dialog = QApplication::activeModalWidget())
+                           auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                           if (!dialog)
                            {
-                               respond(*dialog);
+                               ADD_FAILURE() << "no dialog opened";
+                               return;
                            }
-                       });
-    QTimer::singleShot(5000,
-                       &context,
-                       []
-                       {
-                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
-                           {
-                               dialog->reject();
-                           }
+                           auto* watchdog = new QTimer(dialog);
+                           watchdog->setSingleShot(true);
+                           QObject::connect(watchdog, &QTimer::timeout, dialog, &QDialog::reject);
+                           watchdog->start(5000);
+                           respond(*dialog);
                        });
 }
 
@@ -130,29 +134,44 @@ void type(QLineEdit& field, const QString& text)
     QTest::keyClicks(&field, text);
 }
 
-/// Sets the selected point mass's value through Track > Set point-mass value, typing @p text.
-bool typeMass(motrack::MainWindow& window, const QString& text)
+/// Types @p text into @p dialog's @p name field and clicks OK when it is enabled, otherwise Cancel; returns whether
+/// OK was clicked. @p hint receives the dialog's hint, if it shows one.
+bool submit(QWidget& dialog, const char* name, const QString& text, QString* hint = nullptr)
+{
+    auto* field = dialog.findChild<QLineEdit*>(name);
+    auto* ok = dialogButton(dialog, QDialogButtonBox::Ok);
+    auto* cancel = dialogButton(dialog, QDialogButtonBox::Cancel);
+    if (!field || !ok || !cancel)
+    {
+        ADD_FAILURE() << "the dialog has no " << name << " field";
+        return false;
+    }
+    type(*field, text);
+    if (hint)
+    {
+        const auto labels = dialog.findChildren<QLabel*>();
+        const auto shown =
+            std::ranges::find_if(labels, [](const QLabel* label) { return label->objectName().endsWith("Hint") && !label->isHidden(); });
+        *hint = shown != labels.end() ? (*shown)->text() : QString{};
+    }
+    const bool accepted = ok->isEnabled();
+    (accepted ? ok : cancel)->click();
+    return accepted;
+}
+
+/// Sets the selected point mass's value through Track > Set point-mass value, typing @p text. Returns whether the
+/// dialog accepted it; @p hint is as for submit().
+bool typeMass(motrack::MainWindow& window, const QString& text, QString* hint = nullptr)
 {
     auto* action = window.findChild<QAction*>("setPointMassValue");
     if (!action || !action->isEnabled())
     {
         return false;
     }
-    bool typed = false;
-    answerDialog(window,
-                 [&typed, &text](QWidget& widget)
-                 {
-                     auto* dialog = qobject_cast<QInputDialog*>(&widget);
-                     auto* field = dialog ? dialog->findChild<QLineEdit*>() : nullptr;
-                     if (field)
-                     {
-                         type(*field, text);
-                         typed = true;
-                         dialog->accept();
-                     }
-                 });
+    bool accepted = false;
+    answerDialog(window, [&](QWidget& dialog) { accepted = submit(dialog, "numberInput", text, hint); });
     action->trigger();
-    return typed;
+    return accepted;
 }
 
 /// What the point-mass dialog shows for the selected track's value before any edit.
@@ -165,21 +184,22 @@ QString shownMass(motrack::MainWindow& window)
     }
     QString shown;
     answerDialog(window,
-                 [&shown](QWidget& widget)
+                 [&shown](QWidget& dialog)
                  {
-                     if (auto* dialog = qobject_cast<QInputDialog*>(&widget))
+                     auto* field = dialog.findChild<QLineEdit*>("numberInput");
+                     auto* cancel = dialogButton(dialog, QDialogButtonBox::Cancel);
+                     if (field && cancel)
                      {
-                         shown = dialog->textValue();
-                         dialog->reject();
+                         shown = field->text();
+                         cancel->click();
                      }
                  });
     action->trigger();
     return shown;
 }
-
 /// Calibrates the current frame with the calibration stick from image (0, 1) to (2, 1), typing @p distance and the
 /// unit cm. With a scale of (2, 4) px per m, as both fixtures have, a known length of 2.5 gives (0.8, 1.6).
-bool typeCalibration(motrack::MainWindow& window, const QString& distance)
+bool typeCalibration(motrack::MainWindow& window, const QString& distance, QString* hint = nullptr)
 {
     auto* action = window.findChild<QAction*>("calibrationStick");
     auto* video = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
@@ -194,20 +214,13 @@ bool typeCalibration(motrack::MainWindow& window, const QString& distance)
     }
     bool accepted = false;
     answerDialog(window,
-                 [&accepted, &distance](QWidget& dialog)
+                 [&](QWidget& dialog)
                  {
-                     auto* length = dialog.findChild<QLineEdit*>("knownDistance");
-                     auto* unit = dialog.findChild<QLineEdit*>("lengthUnit");
-                     auto* ok = dialogButton(dialog, QDialogButtonBox::Ok);
-                     auto* cancel = dialogButton(dialog, QDialogButtonBox::Cancel);
-                     if (!length || !unit || !ok || !cancel)
+                     if (auto* unit = dialog.findChild<QLineEdit*>("lengthUnit"))
                      {
-                         return;
+                         unit->setText("cm");
                      }
-                     type(*length, distance);
-                     unit->setText("cm");
-                     accepted = ok->isEnabled();
-                     (accepted ? ok : cancel)->click();
+                     accepted = submit(dialog, "knownDistance", distance, hint);
                  });
     static_cast<void>(video->pick({2, 1}, false));
     return accepted;
@@ -462,42 +475,94 @@ TEST(WorkspaceLocale, RoundTripsEditedValuesThroughTheUiInGerman)
 TEST(WorkspaceLocale, ReadsRegionalAndClassicNumbersButRefusesAmbiguousOnes)
 {
     using motrack::NumberInputError;
-    using motrack::parseUserNumber;
-    const QLocale german(QLocale::German, QLocale::Germany);
-    EXPECT_EQ(parseUserNumber("1,5", german), 1.5);
-    EXPECT_EQ(parseUserNumber("2.5", german), 2.5) << "a classic number pasted from a CSV file";
-    EXPECT_EQ(parseUserNumber("1.234,5", german), 1234.5);
-    EXPECT_EQ(parseUserNumber("1.234.567", german), 1234567.0);
-    EXPECT_EQ(parseUserNumber(" -0,25 ", german), -0.25);
-    EXPECT_EQ(parseUserNumber("1234", german), 1234.0);
-    EXPECT_EQ(parseUserNumber("1e3", german), 1000.0);
-    EXPECT_EQ(parseUserNumber("1.234", german), std::unexpected(NumberInputError::Ambiguous)) << "1234 grouped or 1.234 classic";
-    EXPECT_EQ(parseUserNumber("-1.000", german), std::unexpected(NumberInputError::Ambiguous));
-    for (const auto* invalid : {"", "abc", "1,5x", "1,2,3", "inf", "nan"})
+    constexpr std::unexpected AMBIGUOUS(NumberInputError::Ambiguous);
+    constexpr std::unexpected INVALID(NumberInputError::Invalid);
+    struct Case
     {
-        EXPECT_EQ(parseUserNumber(QString::fromUtf8(invalid), german), std::unexpected(NumberInputError::Invalid)) << invalid;
+        const char* text;
+        std::expected<double, NumberInputError> english; ///< en_US
+        std::expected<double, NumberInputError> german;  ///< de_DE, and es_ES and it_IT, whose QLocale also wants
+                                                         ///< two digits before the first group separator
+    };
+    // The cases the reviewer asked for. A lone "." or "," other than the decimal mark before exactly three digits
+    // reads two ways; grouping needs a decimal mark or a second separator.
+    const std::array cases{
+        Case{"2.5", 2.5, 2.5},
+        Case{"1.234", 1.234, AMBIGUOUS},
+        Case{"0.125", 0.125, AMBIGUOUS},
+        Case{"2.500", 2.5, AMBIGUOUS},
+        Case{"1,234", AMBIGUOUS, 1.234},
+        Case{"0,125", AMBIGUOUS, 0.125},
+        Case{"1,5", INVALID, 1.5},
+        Case{"1.234,5", INVALID, 1234.5},
+        Case{"1,234.5", 1234.5, INVALID},
+        Case{"1.234.567", INVALID, 1234567.0},
+        Case{"1e3", 1000.0, 1000.0},
+        Case{"1,5e3", INVALID, 1500.0},
+        Case{"1.234e3", 1234.0, AMBIGUOUS},
+        Case{" -0,25 ", INVALID, -0.25},
+        Case{"-1.000", -1.0, AMBIGUOUS},
+        Case{"1,234,567", 1234567.0, INVALID},
+        Case{"12.34,5", INVALID, INVALID},
+        Case{"", INVALID, INVALID},
+        Case{"abc", INVALID, INVALID},
+        Case{"1,5x", INVALID, INVALID},
+        Case{"inf", INVALID, INVALID},
+        Case{"nan", INVALID, INVALID},
+    };
+    const QLocale english(QLocale::English, QLocale::UnitedStates);
+    for (const auto& expected : cases)
+    {
+        SCOPED_TRACE(expected.text);
+        const auto text = QString::fromUtf8(expected.text);
+        EXPECT_EQ(motrack::parseUserNumber(text, english), expected.english) << "en_US";
+        for (const auto& locale : {QLocale(QLocale::German, QLocale::Germany),
+                                   QLocale(QLocale::Spanish, QLocale::Spain),
+                                   QLocale(QLocale::Italian, QLocale::Italy)})
+        {
+            EXPECT_EQ(motrack::parseUserNumber(text, locale), expected.german) << locale.name().toStdString();
+        }
     }
 
-    const QLocale english(QLocale::English, QLocale::UnitedStates);
-    EXPECT_EQ(parseUserNumber("1,234", english), 1234.0);
-    EXPECT_EQ(parseUserNumber("1,234.5", english), 1234.5);
-    EXPECT_EQ(parseUserNumber("2.5", english), 2.5);
-    EXPECT_EQ(parseUserNumber("1,5", english), std::unexpected(NumberInputError::Invalid));
-
-    const QLocale french(QLocale::French, QLocale::France);
-    EXPECT_EQ(parseUserNumber("1,5", french), 1.5);
-    EXPECT_EQ(parseUserNumber("1.5", french), 1.5);
-    EXPECT_EQ(parseUserNumber("1" + french.groupSeparator() + "234,5", french), 1234.5);
-
+    // Space and apostrophe grouping, typed with the locale's character or a look-alike; Polish and Portuguese formats
+    // also want two digits before the first group in QLocale, which the grouping check does not depend on.
+    const QString nbsp(QChar(0x00A0));
+    const QString narrow(QChar(0x202F));
+    for (const auto& locale : {QLocale(QLocale::French, QLocale::France),
+                               QLocale(QLocale::Polish, QLocale::Poland),
+                               QLocale(QLocale::Portuguese, QLocale::Portugal)})
+    {
+        SCOPED_TRACE(locale.name().toStdString());
+        EXPECT_EQ(motrack::parseUserNumber("1" + locale.groupSeparator() + "234,5", locale), 1234.5);
+        for (const auto& space : {nbsp, narrow, QStringLiteral(" ")})
+        {
+            EXPECT_EQ(motrack::parseUserNumber("1" + space + "234" + space + "567", locale), 1234567.0);
+        }
+        EXPECT_EQ(motrack::parseUserNumber("1,5", locale), 1.5);
+        EXPECT_EQ(motrack::parseUserNumber("1.5", locale), 1.5);
+        EXPECT_EQ(motrack::parseUserNumber("1.234", locale), AMBIGUOUS);
+        EXPECT_EQ(motrack::parseUserNumber("1" + nbsp + "23", locale), INVALID);
+    }
+    const QLocale swiss(QLocale::German, QLocale::Switzerland);
+    EXPECT_EQ(motrack::parseUserNumber(QString::fromUtf8("1’234.5"), swiss), 1234.5);
+    EXPECT_EQ(motrack::parseUserNumber("1'234.5", swiss), 1234.5);
+    EXPECT_EQ(motrack::parseUserNumber("1.234", swiss), 1.234);
+    EXPECT_EQ(motrack::parseUserNumber("1,234", swiss), AMBIGUOUS);
     const QLocale swedish(QLocale::Swedish, QLocale::Sweden);
-    EXPECT_EQ(parseUserNumber(QString::fromUtf8("−0,5"), swedish), -0.5);
-    EXPECT_EQ(parseUserNumber("-0.5", swedish), -0.5);
+    EXPECT_EQ(motrack::parseUserNumber(QString::fromUtf8("−0,5"), swedish), -0.5);
+    EXPECT_EQ(motrack::parseUserNumber("-0.5", swedish), -0.5);
+    EXPECT_EQ(motrack::parseUserNumber("1,5e3", swedish), 1500.0) << "an ASCII exponent where Swedish formats write ×10^";
+    EXPECT_EQ(motrack::parseUserNumber("1,5e-3", swedish), 0.0015);
 
-    // Fields show numbers without grouping, so their own text never reads as ambiguous.
-    const UserLocale locale("de", "DE");
-    EXPECT_EQ(motrack::editableNumber(1234.5), "1234,5");
-    EXPECT_EQ(parseUserNumber(motrack::editableNumber(1000.0)), 1000.0);
-    EXPECT_EQ(parseUserNumber(motrack::editableNumber(0.1)), 0.1);
+    // Fields show numbers without grouping, with the locale's decimal mark, so their own text reads back.
+    for (const auto* region : {"US", "DE"})
+    {
+        const UserLocale locale(region == std::string_view("US") ? "en" : "de", region);
+        for (const auto value : {1234.5, 1000.0, 0.125, 0.1, -2.5e-7, 123456789.125})
+        {
+            EXPECT_EQ(motrack::parseUserNumber(motrack::editableNumber(value)), value) << motrack::editableNumber(value).toStdString();
+        }
+    }
 }
 
 TEST(WorkspaceLocale, NumberDialogsAcceptOnlyANumberInRange)
@@ -509,26 +574,20 @@ TEST(WorkspaceLocale, NumberDialogsAcceptOnlyANumberInRange)
         answerDialog(context, std::move(respond));
         return motrack::askNumber(nullptr, "Image sequence timing", "Frames per second (0 for unknown)", 30, 0, 1'000'000);
     };
-    const auto submit = [](const QString& text)
+    const auto accept = [](const QString& text)
     {
         return [text](QWidget& dialog)
         {
             auto* field = dialog.findChild<QLineEdit*>("numberInput");
-            auto* ok = dialogButton(dialog, QDialogButtonBox::Ok);
-            if (field && ok)
-            {
-                EXPECT_EQ(field->text(), "30");
-                type(*field, text);
-                EXPECT_TRUE(ok->isEnabled()) << text.toStdString();
-                ok->click();
-            }
+            EXPECT_EQ(field ? field->text() : QString{}, "30");
+            EXPECT_TRUE(submit(dialog, "numberInput", text)) << text.toStdString();
         };
     };
-    EXPECT_EQ(ask(submit("29,97")), 29.97);
-    EXPECT_EQ(ask(submit("29.97")), 29.97);
-    EXPECT_EQ(ask(submit("1.000.000")), 1'000'000.0);
+    EXPECT_EQ(ask(accept("29,97")), 29.97);
+    EXPECT_EQ(ask(accept("29.97")), 29.97);
+    EXPECT_EQ(ask(accept("1.000.000")), 1'000'000.0);
 
-    // Ambiguous or out-of-range text keeps OK disabled and says why; Enter does not accept it either.
+    // Ambiguous, invalid or out-of-range text keeps OK disabled and says why; Enter does not accept it either.
     const auto refuse = [](const QString& text, const QString& reason)
     {
         return [text, reason](QWidget& dialog)
@@ -539,6 +598,7 @@ TEST(WorkspaceLocale, NumberDialogsAcceptOnlyANumberInRange)
             auto* cancel = dialogButton(dialog, QDialogButtonBox::Cancel);
             if (!field || !hint || !ok || !cancel)
             {
+                ADD_FAILURE() << "not the number dialog";
                 return;
             }
             EXPECT_TRUE(hint->isHidden());
@@ -552,11 +612,15 @@ TEST(WorkspaceLocale, NumberDialogsAcceptOnlyANumberInRange)
             cancel->click();
         };
     };
-    EXPECT_EQ(ask(refuse("1.000", motrack::ambiguousNumberMessage())), std::nullopt);
     EXPECT_EQ(motrack::ambiguousNumberMessage(),
               QString::fromUtf8("This number can be read two ways. Type it without digit grouping, with “,” as the decimal mark."));
+    EXPECT_EQ(motrack::invalidNumberMessage(),
+              QString::fromUtf8("This is not a number. Type digits with “,” as the decimal mark, such as 1234,5."));
+    EXPECT_EQ(ask(refuse("1.000", motrack::ambiguousNumberMessage())), std::nullopt);
+    EXPECT_EQ(ask(refuse("29.970", motrack::ambiguousNumberMessage())), std::nullopt);
     EXPECT_EQ(ask(refuse("2000000", "Enter a number from 0 to 1000000.")), std::nullopt);
-    EXPECT_EQ(ask(refuse("x", "Enter a number from 0 to 1000000.")), std::nullopt);
+    EXPECT_EQ(ask(refuse("x", motrack::invalidNumberMessage())), std::nullopt);
+    EXPECT_EQ(ask(refuse("1,234.5", motrack::invalidNumberMessage())), std::nullopt);
     // Accepting programmatically bypasses the disabled button; the text is still checked.
     EXPECT_EQ(ask(
                   [](QWidget& dialog)
@@ -575,20 +639,33 @@ TEST(WorkspaceLocale, NumberDialogsAcceptOnlyANumberInRange)
 
 TEST(WorkspaceLocale, RefusesAnAmbiguousMassOrCalibration)
 {
-    const UserLocale locale("de", "DE");
-    motrack::MainWindow window;
-    window.show();
-    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
-    auto* undo = window.findChild<QAction*>("undoEdit");
-    ASSERT_NE(undo, nullptr);
-    ASSERT_TRUE(typeMass(window, "1.500"));
-    EXPECT_EQ(window.statusBar()->currentMessage(), motrack::ambiguousNumberMessage());
-    EXPECT_EQ(shownMass(window), "1");
-    EXPECT_FALSE(typeCalibration(window, "1.500")) << "OK stays disabled";
-    EXPECT_FALSE(undo->isEnabled()) << "neither value changed the project";
-    auto* marks = window.findChild<QTableWidget*>("marksTable");
-    ASSERT_NE(marks, nullptr);
-    EXPECT_EQ(row(*marks, 0).at(4), "0,75");
+    struct Case
+    {
+        const char* language;
+        const char* region;
+        const char* ambiguous; ///< 1000 times too large or too small if guessed
+        const char* worldX;    ///< the unchanged world x of the first mark
+    };
+    for (const auto& expected : {Case{"de", "DE", "1.500", "0,75"}, Case{"en", "US", "0,125", "0.75"}})
+    {
+        SCOPED_TRACE(std::string(expected.language) + '_' + expected.region);
+        const UserLocale locale(expected.language, expected.region);
+        motrack::MainWindow window;
+        window.show();
+        ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* marks = window.findChild<QTableWidget*>("marksTable");
+        ASSERT_TRUE(undo && marks);
+        QString hint;
+        EXPECT_FALSE(typeMass(window, QString::fromUtf8(expected.ambiguous), &hint)) << "OK stays disabled";
+        EXPECT_EQ(hint, motrack::ambiguousNumberMessage());
+        EXPECT_FALSE(typeMass(window, "0", &hint));
+        EXPECT_EQ(hint, "Enter a finite, positive mass.");
+        EXPECT_EQ(shownMass(window), "1");
+        EXPECT_FALSE(typeCalibration(window, QString::fromUtf8(expected.ambiguous), &hint));
+        EXPECT_EQ(hint, motrack::ambiguousNumberMessage());
+        EXPECT_FALSE(undo->isEnabled()) << "neither value changed the project";
+        EXPECT_EQ(row(*marks, 0).at(4), QString::fromUtf8(expected.worldX));
+    }
 }
-
 } // namespace
