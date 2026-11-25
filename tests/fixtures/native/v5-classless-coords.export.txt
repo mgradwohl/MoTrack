@@ -1,0 +1,1 @@
+refused: Tracker export is unavailable: this MoTrack cannot read the copy of the original Tracker file kept in the project (Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves ([Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;).)

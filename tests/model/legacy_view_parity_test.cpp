@@ -358,7 +358,8 @@ motrack::model::TrackerDocument converted(const motrack::WorkspaceDocument& docu
 {
     return motrack::typedDocumentFromReduced(document.project,
                                              document.trackerSource,
-                                             document.trackerBindingsReset || document.trackerReadingOutdated,
+                                             document.trackerBindingsReset || document.trackerReadingOutdated ||
+                                                 !document.trackerSourceRefusal.empty(),
                                              document.trackerReading);
 }
 
@@ -422,6 +423,10 @@ const std::vector<QString>& nativeFixtures()
                                             "v5-0847a4d.motrack",
                                             "v5-plain.motrack",
                                             "v5-dom-unknown-track.motrack",
+                                            "v5-empty-mass-unit.motrack",
+                                            "v5-edited-empty-mass-unit.motrack",
+                                            "v5-unloadable-track-frames.motrack",
+                                            "v5-classless-coords.motrack",
                                             "v5-archive.motrack",
                                             "v6-group.motrack"};
     return names;
@@ -456,8 +461,8 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
         }
     }
     EXPECT_GE(exports, 8);
-    // A baseline the current reader refuses still fails to open, with the message that names the cause; native
-    // version 7 opens such a document native-only instead (B2.5).
+    // A baseline the current reader cannot parse still fails to open, with the message that names the cause; one it parses
+    // but refuses to import opens native-only (v5-unloadable-track-frames, v5-classless-coords; #315).
     try
     {
         static_cast<void>(motrack::readWorkspaceDocument(nativeFixture("v4-refused-baseline.motrack")));

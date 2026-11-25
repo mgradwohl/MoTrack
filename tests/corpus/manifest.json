@@ -4598,6 +4598,36 @@
       "provenance": "Authored by tools/reference/FrameDataFixture.java duplicate-coords mode with checksum-pinned Tracker 6.3.5 serializers; the saved coordinate key [1] is renamed to a second [0] and a null [3] is appended, which 6.3.5's saver cannot write (#314); reproduced byte-for-byte; no MoTrack output used."
     },
     {
+      "id": "empty-units",
+      "native_mass_roundtrip": true,
+      "local_file": "fixtures/empty-units.trk",
+      "file": "empty-units.trk",
+      "bytes": 4943,
+      "sha256": "819fe7a1da71c596edc2ec0d39867b60f3190762070023ad4be1163a87ba9c79",
+      "tracker_version": "6.3.5",
+      "features": [
+        "empty-mass-unit",
+        "empty-time-unit",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R03"
+      ],
+      "expected": "expected/empty-units.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass A"
+        }
+      ],
+      "provenance": "Authored by tools/reference/FrameDataFixture.java empty-units mode with checksum-pinned Tracker 6.3.5 serializers; empty time_unit and mass_unit strings are saved through the XMLControl API because 6.3.5's saver writes neither (#315); reproduced byte-for-byte; no MoTrack output used."
+    },
+    {
       "id": "finite-derivatives",
       "local_file": "fixtures/finite-derivatives.trk",
       "file": "finite-derivatives.trk",

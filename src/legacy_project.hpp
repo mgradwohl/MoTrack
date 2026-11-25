@@ -135,8 +135,11 @@ enum class TrackerReading : std::uint8_t
     /// Track `framedata` slots as Java's array loader assigns them too: the last of duplicate indices wins, a null one
     /// included (part of #315).
     LastTrackSlot = 2,
+    /// A saved `mass_unit` shows as saved, an empty one included, as TrackerPanel.Loader assigns it (#315); earlier
+    /// revisions showed "kg" for an empty or unreadable one.
+    SavedMassUnit = 3,
 };
-inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::LastTrackSlot;
+inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::SavedMassUnit;
 
 /// Immutable import baseline, kept separately from editable measurements. Bytes retain the XML encoding,
 /// comments, unknown objects and properties. This is not a serialization of subsequent edits.
@@ -161,7 +164,8 @@ LegacyProject readLegacyProject(const std::filesystem::path& path);
 /// Reads and parses one bounded snapshot, retaining exactly the bytes that produced the project.
 ImportedTrackerProject readTrackerProject(const std::filesystem::path& path);
 /// Validate source XML and, when known, complete and unambiguous bindings to its editable track objects.
-/// Deleted track IDs are allowed, but all bound IDs must remain reserved by the document counter.
+/// Deleted track IDs are allowed, but all bound IDs must remain reserved by the document counter. Without bindings the
+/// source only has to parse, so one the current reader refuses to import stays preserved (#315).
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project);
 
 } // namespace motrack
