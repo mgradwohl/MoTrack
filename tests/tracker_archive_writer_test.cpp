@@ -1036,6 +1036,47 @@ TEST(TrackerArchiveWriter, RejectsAliasesThatRedirectOriginalArchiveMembers)
 }
 #endif
 
+TEST(TrackerArchiveWriter, RefusesReferencesRedirectedToAnotherFileInsideTheExtraction)
+{
+    // The in-root case of RejectsAliasesThatRedirectOriginalArchiveMembers without a symbolic link, so Windows runs
+    // it too: each reference is bound to a copy of its image under another directory of the extraction. An archive
+    // save writes every reference back as the source spells it (#308), so the saved spelling cannot reveal the
+    // redirect; the references rebuilt from the files that were read must still name the original members.
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+    auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+    payload->resolveMedia(document.project, "experiment.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "experiment.trk";
+    document.project.pointMasses.front().mass = 5;
+    const auto destination = temporary.filePath("edited.trz");
+    motrack::writeTrackerArchiveDocument(destination, document);
+    const auto valid = readBytes(destination);
+    const auto original = readBytes(payload->sourcePath());
+
+    const QDir root(payload->root());
+    ASSERT_TRUE(root.mkpath("copied-images"));
+    ASSERT_EQ(document.project.clip.mediaReferences.size(), 4U);
+    for (const auto& reference : document.project.clip.mediaReferences)
+    {
+        const auto member = QString::fromStdString(reference);
+        const auto copy = root.filePath("copied-images/" + QFileInfo(member).fileName());
+        ASSERT_TRUE(QFile::copy(root.filePath(member), copy));
+        document.mediaLocations.insert(member, copy);
+        EXPECT_TRUE(payload->memberMatchesSource(member));
+    }
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), valid);
+    EXPECT_EQ(readBytes(payload->sourcePath()), original);
+
+    // The same document saves once its references read the original members again.
+    document.mediaLocations.clear();
+    motrack::writeTrackerArchiveDocument(destination, document);
+    EXPECT_EQ(readBytes(destination), valid);
+}
+
 TEST(TrackerArchiveWriter, PreservesJavaDeflatedMembersUnicodeNamesAndComments)
 {
     const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
