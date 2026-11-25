@@ -44,34 +44,6 @@ std::string labelOr(const model::Read<std::string>& value, std::string_view fall
     return label.empty() ? std::string(fallback) : label;
 }
 
-/// B1's frame duration: an image sequence or media-free clip takes its clip control's positive `delta_t`, else the
-/// video's; without media, Tracker's stepper keeps 100 ms unless the clip control replaces it with a non-zero value
-/// (#214). Movies have none here; their decoder times them.
-std::optional<double> frameDuration(const ObjectSlot* video, const ObjectSlot* control)
-{
-    if (video && video->className != tracker::IMAGE_VIDEO_CLASS)
-    {
-        return std::nullopt;
-    }
-    const auto* controlState = stateOf<model::ClipControlState>(control);
-    const auto controlDuration = controlState ? model::finiteValue(controlState->deltaT) : std::nullopt;
-    auto duration = controlDuration;
-    if (duration.value_or(0.0) <= 0.0)
-    {
-        const auto* videoState = stateOf<model::VideoState>(video);
-        duration = videoState ? model::finiteValue(videoState->deltaT) : std::nullopt;
-    }
-    if (duration.value_or(0.0) <= 0.0)
-    {
-        duration.reset();
-    }
-    if (!video && (!controlState || controlDuration == 0.0))
-    {
-        duration = tracker::DEFAULT_STEPPER_FRAME_DURATION_MS;
-    }
-    return duration;
-}
-
 Calibration calibration(const model::CoordinatesState& coords)
 {
     Calibration result{.keyframes = {},
@@ -368,7 +340,7 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
 
     const auto* video = findRole(objects, Role::Video, model::Family::Video);
     auto* control = findRole(objects, Role::ClipControl, model::Family::ClipControl);
-    if (frameDuration(video, control) != stored.frameDurationMs)
+    if (model::loadedFrameDuration(video, control) != stored.frameDurationMs)
     {
         auto state = control ? std::get<model::ClipControlState>(*control->value) : model::ClipControlState{};
         state.deltaT = stored.frameDurationMs ? model::Read<double>(*stored.frameDurationMs) : model::missing<double>();
@@ -550,20 +522,14 @@ LegacyProject legacyProject(const model::TrackerDocument& document)
                           .vectors = {},
                           .unsupportedTrackTypes = document.unknownTrackClasses(),
                           .nextTrackId = document.nextObjectId()};
-    auto& clip = project.clip;
-    if (const auto* state = stateOf<model::ClipState>(document.singleton(Role::Clip)))
-    {
-        clip.firstFrame = model::loadedStartFrame(*state).value_or(clip.firstFrame);
-        clip.stepSize = state->stepSize.value_or(clip.stepSize);
-        if (state->stepCount)
-        {
-            clip.stepCount = *state->stepCount;
-        }
-        clip.startTimeMs = model::finiteValue(state->startTime).value_or(0.0);
-    }
-    clip.mediaReferences = document.media().references;
-    clip.sourceFrameCount = document.media().sourceFrameCount;
-    clip.frameDurationMs = frameDuration(document.singleton(Role::Video), document.singleton(Role::ClipControl));
+    const auto timeline = model::clipTimeline(document);
+    project.clip = {.firstFrame = timeline.firstFrame,
+                    .stepSize = timeline.stepSize,
+                    .stepCount = timeline.stepCount,
+                    .mediaReferences = document.media().references,
+                    .frameDurationMs = timeline.frameDurationMs,
+                    .startTimeMs = timeline.startTimeMs,
+                    .sourceFrameCount = timeline.sourceFrameCount};
     if (const auto* coords = stateOf<model::CoordinatesState>(document.singleton(Role::Coordinates)))
     {
         project.calibration = calibration(*coords);

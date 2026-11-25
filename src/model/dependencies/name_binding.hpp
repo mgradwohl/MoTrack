@@ -113,7 +113,8 @@ class NameIndex
 /// Whether writing a reference's name keeps its meaning when Tracker reloads the file.
 enum class RenderStatus : std::uint8_t
 {
-    /// A reload binds the same target, or reproduces the same unresolved outcome and candidates.
+    /// A reload binds the same target, or reproduces the same unresolved outcome and the same set of candidates, in
+    /// whatever order the index lists them.
     Faithful,
     /// More than one eligible object now has the name.
     Ambiguous,

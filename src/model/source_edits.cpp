@@ -2,6 +2,7 @@
 
 #include "osp/java_text.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <utility>
@@ -371,7 +372,12 @@ osp::Expected<SourceEdits::Rendered, std::string> SourceEdits::render(const osp:
     {
         return failure("The edited Tracker XML could not be rendered: " + output.error().message);
     }
-    auto parsed = osp::parse(*output, limits);
+    return verifyRendered(std::move(*output), limits);
+}
+
+osp::Expected<SourceEdits::Rendered, std::string> SourceEdits::verifyRendered(std::string xml, const osp::ParseLimits& limits) const
+{
+    auto parsed = osp::parse(xml, limits);
     if (!parsed)
     {
         return failure("The rendered Tracker XML does not parse: " + parsed.error().message);
@@ -380,8 +386,72 @@ osp::Expected<SourceEdits::Rendered, std::string> SourceEdits::render(const osp:
     {
         return failure("O8: " + checked.error());
     }
-    return Rendered{.xml = std::move(*output), .source = std::move(*parsed)};
+    return Rendered{.xml = std::move(xml), .source = std::move(*parsed)};
 }
+
+namespace
+{
+
+// Byte spans of a parsed document (#316). A node's span runs from the start of its first line to the end of its last
+// line; the terminator of that line belongs to the gap that follows it.
+
+std::size_t spanBegin(const osp::Source& source, osp::NodeId id)
+{
+    return source.lines()[source.node(id).firstLine].begin;
+}
+
+std::size_t spanEnd(const osp::Source& source, osp::NodeId id)
+{
+    return source.lines()[source.node(id).lastLine].end;
+}
+
+std::string_view bytes(const osp::Source& source, std::size_t begin, std::size_t end)
+{
+    return source.bytes().substr(begin, end - begin);
+}
+
+/// Where the children of a container may start: after its opening line's text, which an object or array shares with
+/// nothing else.
+std::size_t interiorBegin(const osp::Source& source, osp::NodeId container)
+{
+    return source.lines()[source.node(container).firstLine].end;
+}
+
+/// Where its closing part starts: the closing line of an object or array, or the end of an unclosed object.
+std::size_t closingBegin(const osp::Source& source, osp::NodeId container)
+{
+    const auto& node = source.node(container);
+    return node.closeLine && !node.selfClosing ? source.lines()[*node.closeLine].begin : spanEnd(source, container);
+}
+
+/// The bytes between consecutive children of a container, before the first and after the last: one more than there
+/// are children.
+std::vector<std::string_view> gaps(const osp::Source& source, osp::NodeId container)
+{
+    std::vector<std::string_view> result;
+    auto previous = interiorBegin(source, container);
+    for (const auto child : source.node(container).children)
+    {
+        result.push_back(bytes(source, previous, spanBegin(source, child)));
+        previous = spanEnd(source, child);
+    }
+    result.push_back(bytes(source, previous, closingBegin(source, container)));
+    return result;
+}
+
+/// The terminator of a node's last line, which `osp::render` removes with the node.
+std::string_view lastTerminator(const osp::Source& source, osp::NodeId id)
+{
+    const auto& line = source.lines()[source.node(id).lastLine];
+    return bytes(source, line.end, line.next);
+}
+
+std::string_view leadingWhitespace(std::string_view line)
+{
+    return line.substr(0, std::min(line.find_first_not_of(" \t"), line.size()));
+}
+
+} // namespace
 
 osp::Expected<void, std::string> SourceEdits::verify(const osp::Source& output) const
 {
@@ -391,7 +461,125 @@ osp::Expected<void, std::string> SourceEdits::verify(const osp::Source& output) 
     {
         return failure("the root object changed");
     }
-    return verifyChildren(output, m_Source->root(), output.root(), "");
+    if (m_Source->prolog() != output.prolog())
+    {
+        return failure("the prolog changed");
+    }
+    // The root's last line terminator and the epilog follow the root's span.
+    if (m_Source->bytes().substr(spanEnd(*m_Source, m_Source->root())) != output.bytes().substr(spanEnd(output, output.root())))
+    {
+        return failure("the epilog changed");
+    }
+    if (!edited(m_Source->root()))
+    {
+        if (m_Source->rawText(m_Source->root()) != output.rawText(output.root()))
+        {
+            return failure("unedited content changed");
+        }
+        return {};
+    }
+    return verifyContainer(output, m_Source->root(), output.root(), "");
+}
+
+std::vector<std::string> SourceEdits::expectedGaps(osp::NodeId container) const
+{
+    // osp::render deletes a removed child's lines with the terminator of its last line, writes an insertion at index i
+    // just before the first line of original child i (after the gap that precedes it) or, when appending, just before
+    // the closing line, each line ending with the file's line break, and rewrites a renamed child in place with that
+    // line break after it. Every other byte of every gap is copied.
+    const auto newline = std::string(osp::lineEndingText(m_Source->lineEnding()));
+    const auto& children = m_Source->node(container).children;
+    const auto original = gaps(*m_Source, container);
+    const auto inserts = m_Inserts.find(container);
+    std::vector<std::string> result;
+    // The first gap starts with the opening line's terminator, every later one with the previous child's.
+    std::string pending;
+    // Leading bytes of the next gap that an edit of the previous child replaced: that child's last terminator.
+    std::size_t replaced = 0;
+    for (std::size_t position = 0; position <= children.size(); ++position)
+    {
+        pending += original[position].substr(replaced);
+        replaced = 0;
+        if (inserts != m_Inserts.end())
+        {
+            for (const auto& item : inserts->second)
+            {
+                if (item.index == position)
+                {
+                    result.push_back(std::move(pending));
+                    pending = newline;
+                }
+            }
+        }
+        if (position == children.size())
+        {
+            break;
+        }
+        const auto child = children[position];
+        if (m_Removed.contains(child))
+        {
+            // The child's lines vanish with their last terminator.
+            replaced = lastTerminator(*m_Source, child).size();
+            continue;
+        }
+        result.push_back(std::move(pending));
+        pending.clear();
+        if (m_Renames.contains(child))
+        {
+            // A renamed child is rewritten with the file's line break in place of its last terminator, if it had one.
+            replaced = lastTerminator(*m_Source, child).size();
+            if (replaced > 0)
+            {
+                pending = newline;
+            }
+        }
+    }
+    result.push_back(std::move(pending));
+    return result;
+}
+
+osp::Expected<void, std::string>
+SourceEdits::verifyContainer(const osp::Source& output, osp::NodeId before, osp::NodeId after, const std::string& path) const
+{
+    const auto& original = m_Source->node(before);
+    const auto& rendered = output.node(after);
+    const auto location = path.empty() ? std::string("/") : path;
+    const auto openingLine = m_Source->lineText(original.firstLine);
+    const auto renderedOpening = output.lineText(rendered.firstLine);
+    const auto renderedClosing = bytes(output, closingBegin(output, after), spanEnd(output, after));
+    const auto renderedGaps = gaps(output, after);
+    if (original.selfClosing)
+    {
+        // osp::render reopens a self-closing container that receives children by replacing the first "/>" of its
+        // opening line, writes every child on lines of its own and adds a closing line before the original line break.
+        const auto slash = openingLine.find("/>");
+        auto reopened = std::string(openingLine.substr(0, slash));
+        reopened += '>';
+        reopened += openingLine.substr(slash + 2);
+        auto closing = std::string(leadingWhitespace(openingLine));
+        closing += original.kind == osp::NodeKind::Object ? "</object>" : "</property>";
+        closing += bytes(*m_Source, interiorBegin(*m_Source, before), spanEnd(*m_Source, before));
+        if (renderedOpening != reopened || renderedClosing != closing)
+        {
+            return failure(location + ": a reopened container's opening or closing line changed");
+        }
+        const auto newline = osp::lineEndingText(m_Source->lineEnding());
+        if (!std::ranges::all_of(renderedGaps, [&](std::string_view gap) { return gap == newline; }))
+        {
+            return failure(location + ": bytes between properties changed");
+        }
+        return verifyChildren(output, before, after, path);
+    }
+    if (renderedOpening != openingLine || renderedClosing != bytes(*m_Source, closingBegin(*m_Source, before), spanEnd(*m_Source, before)))
+    {
+        return failure(location + ": an edited container's opening or closing line changed");
+    }
+    const auto expected = expectedGaps(before);
+    if (!std::ranges::equal(expected, renderedGaps))
+    {
+        return failure(location + ": bytes between properties changed");
+    }
+    return verifyChildren(output, before, after, path);
 }
 
 osp::Expected<void, std::string>
@@ -499,23 +687,42 @@ SourceEdits::verifyProperty(const osp::Source& output, osp::NodeId before, osp::
         {
             return failure(location + ": an edited value decodes differently");
         }
+        // Only the value between the opening line's first '>' and its end tag changes.
+        if (bytes(*m_Source, spanBegin(*m_Source, before), original.valueBegin) !=
+                bytes(output, spanBegin(output, after), rendered.valueBegin) ||
+            bytes(*m_Source, original.valueEnd, spanEnd(*m_Source, before)) != bytes(output, rendered.valueEnd, spanEnd(output, after)))
+        {
+            return failure(location + ": bytes around an edited value changed");
+        }
         return {};
     }
     switch (original.type)
     {
     case osp::PropertyType::Array:
     case osp::PropertyType::Collection:
-        return verifyChildren(output, before, after, location);
+        return verifyContainer(output, before, after, location);
     case osp::PropertyType::Object:
+    {
         if (original.children.empty() || rendered.children.empty())
         {
             return failure(location + ": an edited object property became null");
         }
-        if (m_Source->node(original.children.front()).rawClassName != output.node(rendered.children.front()).rawClassName)
+        const auto object = original.children.front();
+        const auto renderedObject = rendered.children.front();
+        if (m_Source->node(object).rawClassName != output.node(renderedObject).rawClassName)
         {
             return failure(location + ": an edited object changed its class");
         }
-        return verifyChildren(output, original.children.front(), rendered.children.front(), location);
+        // The property's own lines around its object: its opening line and whatever follows the object's last line.
+        if (bytes(*m_Source, spanBegin(*m_Source, before), spanBegin(*m_Source, object)) !=
+                bytes(output, spanBegin(output, after), spanBegin(output, renderedObject)) ||
+            bytes(*m_Source, spanEnd(*m_Source, object), spanEnd(*m_Source, before)) !=
+                bytes(output, spanEnd(output, renderedObject), spanEnd(output, after)))
+        {
+            return failure(location + ": an edited object property's own lines changed");
+        }
+        return verifyContainer(output, object, renderedObject, location);
+    }
     default:
         if (original.content != rendered.content)
         {

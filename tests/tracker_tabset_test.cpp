@@ -1,8 +1,10 @@
 #include "tracker_tabset.hpp"
 
+#include "archive_fixture.hpp"
 #include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "osp_layout.hpp"
+#include "tracker_archive.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -816,6 +818,177 @@ TEST(TrackerTabset, SavesAtomicallyAndPreservesExistingFilesOnFailure)
     EXPECT_EQ(readFile(path), saved);
     EXPECT_FALSE(motrack::saveTrackerTabset(directory.filePath("missing/set.trk"), entries).has_value());
     EXPECT_EQ(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 1);
+}
+
+/// A small Tracker archive: two experiments, a member in a folder, one named in NFD, Finder metadata and a note.
+void writeLabArchive(const QString& path)
+{
+    ASSERT_TRUE(QDir().mkpath(QFileInfo(path).path()));
+    ASSERT_TRUE(motrack::test::writeArchive(path,
+                                            {{.name = "run.trk", .bytes = PANEL},
+                                             {.name = "second.trk", .bytes = PANEL},
+                                             {.name = "sub/inner.trk", .bytes = PANEL},
+                                             {.name = "Cafe\xCC\x81.trk", .bytes = PANEL},
+                                             {.name = "__MACOSX/._run.trk", .bytes = QByteArray::fromHex("00051607")},
+                                             {.name = "notes.txt", .bytes = "not a project"}}));
+}
+
+TEST(TrackerTabset, ReadsArchiveMemberPathsAsOspsResourceLoaderDoes)
+{
+    using Member = motrack::TabsetArchiveMember;
+    EXPECT_EQ(motrack::tabsetArchiveMember("lab.trz!/run.trk"), (Member{.archive = "lab.trz", .member = "run.trk"}));
+    EXPECT_EQ(motrack::tabsetArchiveMember("C:/x/Lab.TRZ!/sub/run.trk"), (Member{.archive = "C:/x/Lab.TRZ", .member = "sub/run.trk"}));
+    // The first marker decides, and it must follow an archive name.
+    EXPECT_EQ(motrack::tabsetArchiveMember("lab.trz!/a.trz!/run.trk"), (Member{.archive = "lab.trz", .member = "a.trz!/run.trk"}));
+    for (const auto* path : {"lab.trk", "lab.zip!/run.trk", "lab!/x.trz!/run.trk", "lab.trz!/", "trz!/run.trk", "lab.trz!\\run.trk"})
+        EXPECT_EQ(motrack::tabsetArchiveMember(path), std::nullopt) << path;
+    // A member entry is the archive's entry with the member after each path.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto archive = canonical(directory.path()) + "/lab.trz";
+    const auto sets = canonical(directory.path()) + "/sets";
+    const auto whole = motrack::tabsetEntry(archive, sets);
+    const auto entry = motrack::tabsetMemberEntry(archive, "run.trk", sets);
+    EXPECT_EQ(entry.absolute, whole.absolute.value_or("") + "!/run.trk");
+    EXPECT_EQ(whole.absolute, QDir::fromNativeSeparators(archive).toStdString());
+    EXPECT_EQ(entry.relative, "../lab.trz!/run.trk");
+}
+
+TEST(TrackerTabset, ResolvesArchiveMembersOnlyWhereTheArchiveListsThem)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    writeLabArchive(base + "/set/lab.trz");
+    writeLabArchive(base + "/elsewhere/lab.trz");
+    writeFile(base + "/set/broken.trz", "not an archive");
+    const auto archive = canonical(base + "/set/lab.trz");
+    const auto other = canonical(base + "/elsewhere/lab.trz");
+    using Target = motrack::TabsetTarget;
+    const auto resolve = [&](const TabsetEntry& entry)
+    {
+        return motrack::resolveTabsetTarget(entry, base + "/set", {});
+    };
+
+    EXPECT_EQ(resolve(relativeEntry("lab.trz!/run.trk")), (Target{.file = archive, .member = "run.trk"}));
+    EXPECT_EQ(resolve(relativeEntry("lab.trz!/sub/inner.trk")), (Target{.file = archive, .member = "sub/inner.trk"}));
+    // Names compare in NFC, as archive members do (#308), and keep the entry's spelling.
+    EXPECT_EQ(resolve(relativeEntry("lab.trz!/Caf\xC3\xA9.trk")), (Target{.file = archive, .member = "Caf\xC3\xA9.trk"}));
+    EXPECT_EQ(resolve(relativeEntry("lab.trz")), (Target{.file = archive}));
+    // Exact names only, and only experiments; Finder metadata is not one.
+    for (const auto* missing : {"lab.trz!/RUN.trk",
+                                "lab.trz!/notes.txt",
+                                "lab.trz!/__MACOSX/._run.trk",
+                                "lab.trz!/gone.trk",
+                                "gone.trz!/run.trk",
+                                "broken.trz!/run.trk"})
+        EXPECT_EQ(resolve(relativeEntry(missing)), std::nullopt) << missing;
+    // As ResourceLoader returns no resource for a missing zip entry, Tracker's search moves on to the absolute path.
+    const auto elsewhere = TabsetEntry{.absolute = other.toStdString() + "!/second.trk", .relative = "lab.trz!/gone.trk"};
+    EXPECT_EQ(resolve(elsewhere), (Target{.file = other, .member = "second.trk"}));
+    EXPECT_EQ(motrack::resolveTabsetEntry(elsewhere, base + "/set", {}), other);
+    // The member key adds the NFC member to the archive's identity.
+    EXPECT_EQ(motrack::tabsetTargetKey(archive, "Cafe\xCC\x81.trk"), motrack::tabsetTargetKey(archive, "Caf\xC3\xA9.trk"));
+    EXPECT_NE(motrack::tabsetTargetKey(archive, "run.trk"), motrack::tabsetTargetKey(archive, {}));
+    EXPECT_EQ(motrack::tabsetTargetKey(archive, {}), motrack::tabsetIdentityKey(archive));
+    EXPECT_EQ(motrack::trackerArchiveProjectNames(archive),
+              (QSet<QString>{"run.trk", "second.trk", "sub/inner.trk", QString::fromUtf8("Caf\xC3\xA9.trk")}));
+    EXPECT_EQ(motrack::trackerArchiveProjectNames(base + "/set/broken.trz"), std::nullopt);
+}
+
+TEST(TrackerTabset, ExpandsArchiveMembersOnceAndNotAfterTheirWholeArchive)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    writeLabArchive(base + "/lab.trz");
+    writeLabArchive(base + "/other.trz");
+    writeTabset(base + "/set.trk",
+                {relativeEntry("lab.trz!/second.trk"),
+                 relativeEntry("lab.trz!/second.trk"),
+                 relativeEntry("lab.trz!/Cafe\xCC\x81.trk"),
+                 relativeEntry("lab.trz!/Caf\xC3\xA9.trk"),
+                 relativeEntry("lab.trz"),
+                 relativeEntry("lab.trz!/run.trk"),
+                 relativeEntry("other.trz"),
+                 relativeEntry("other.trz!/run.trk"),
+                 relativeEntry("lab.trz!/gone.trk")});
+    const auto items = motrack::expandTrackerTabset(base + "/set.trk", {});
+    using enum TabsetItemStatus;
+    EXPECT_EQ(statuses(items), (std::vector{Resolved, Duplicate, Resolved, Duplicate, Resolved, Duplicate, Resolved, Duplicate, Missing}));
+    ASSERT_EQ(items.size(), 9U);
+    EXPECT_EQ(items[0].file, canonical(base + "/lab.trz"));
+    EXPECT_EQ(items[0].member, "second.trk");
+    EXPECT_EQ(items[2].member, "Cafe\xCC\x81.trk");
+    // The whole archive after some of its members opens the rest of them.
+    EXPECT_EQ(items[4].file, canonical(base + "/lab.trz"));
+    EXPECT_TRUE(items[4].member.isEmpty());
+    EXPECT_TRUE(items[5].file.isEmpty());
+}
+
+TEST(TrackerTabset, SavingKeepsArchiveMemberEntriesWhereTheyAreWhileTheirArchiveIsOpen)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    writeLabArchive(base + "/lab.trz");
+    writeFile(base + "/a.trk", PANEL);
+    writeFile(base + "/c.mov", "not inspected");
+    const auto lab = canonical(base + "/lab.trz");
+    const auto a = canonical(base + "/a.trk");
+    const auto c = canonical(base + "/c.mov");
+    const auto set = base + "/set.trk";
+    // As the published tabset spells them: an absolute path from another computer, and the member after the archive.
+    const std::vector<TabsetEntry> saved{
+        {.absolute = "G:/moved/lab.trz!/second.trk", .relative = "lab.trz!/second.trk"},
+        {.absolute = "G:/moved/a.trk", .relative = "a.trk"},
+        {.absolute = "G:/moved/lab.trz!/run.trk", .relative = "lab.trz!/run.trk"},
+        relativeEntry("lab.trz!/gone.trk"),
+        relativeEntry("gone.trz!/run.trk"),
+    };
+    writeTabset(set, saved);
+    const auto bytes = readFile(set);
+    const auto existing = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(existing.has_value()) << existing.error();
+    motrack::TabsetChanges changes;
+    const auto entries = [&](std::vector<QString> files, std::vector<motrack::TabsetFileKeys> closed = {})
+    {
+        changes = {};
+        return motrack::tabsetEntries(files, set, {}, &*existing, closed, &changes);
+    };
+    const std::vector missing{saved[3], saved[4]};
+
+    // Unchanged: every entry keeps its bytes. The open archive gets no entry of its own; the missing member and the
+    // missing archive stay listed, and the summary says so.
+    EXPECT_EQ(entries({lab, a}), saved);
+    EXPECT_EQ(changes.unopened, missing);
+    EXPECT_TRUE(changes.closed.empty() && changes.repeated.empty());
+    auto result = motrack::saveTrackerTabsetFiles(set, std::vector{lab, a}, {});
+    EXPECT_EQ(result.status, motrack::TabsetSave::Status::Saved) << result.diagnostic;
+    EXPECT_EQ(readFile(set), bytes);
+    // Member entries are tabs of their own: they keep their places when the order of the sources changes.
+    EXPECT_EQ(entries({a, lab}), saved);
+    // A new file follows the kept entries; the member entries keep their bytes.
+    EXPECT_EQ(entries({lab, a, c}), (std::vector{saved[0], saved[1], saved[2], saved[3], saved[4], motrack::tabsetEntry(c, base)}));
+    // With the archive not open, its members are kept and reported, like any file that did not open.
+    EXPECT_EQ(entries({a}), saved);
+    EXPECT_EQ(changes.unopened, (std::vector{saved[0], saved[2], saved[3], saved[4]}));
+    // Closing the archive drops the entries naming its members, and the summary names them.
+    EXPECT_EQ(entries({a}, {motrack::tabsetFileKeys(lab)}), (std::vector{saved[1], saved[3], saved[4]}));
+    EXPECT_EQ(changes.closed, (std::vector{saved[0], saved[2]}));
+
+    // After the tabset moves alone, a member entry whose relative path no longer finds the member is rewritten, still
+    // naming that member; Tracker's absolute fallback found it.
+    writeFile(base + "/sets/moved.trk",
+              motrack::writeTrackerTabset(
+                  std::vector{TabsetEntry{.absolute = lab.toStdString() + "!/second.trk", .relative = "lab.trz!/second.trk"}})
+                  .value());
+    const auto alone = motrack::readTrackerTabset(base + "/sets/moved.trk");
+    ASSERT_TRUE(alone.has_value()) << alone.error();
+    const auto rewritten = motrack::tabsetEntries(std::vector{lab}, base + "/sets/moved.trk", {}, &*alone);
+    ASSERT_EQ(rewritten.size(), 1U);
+    EXPECT_EQ(rewritten.front(), motrack::tabsetMemberEntry(lab, "second.trk", base + "/sets"));
+    EXPECT_EQ(rewritten.front().relative, "../lab.trz!/second.trk");
 }
 
 } // namespace
