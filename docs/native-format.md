@@ -202,8 +202,8 @@ The current revision applies Tracker 6.3.5's loader:
   open it (the calibration's `framedata`, an image sequence's `paths` when the video saves no string `path`, or a
   `tracks` list of another collection class). Import refuses such a file in every revision, naming the array and the
   class Tracker saves. When the video does save a `path`, as Tracker's saver always does, `ImageVideoType` catches
-  the failure and opens the numbered images that start at `path`; MoTrack does not reproduce that reading and
-  refuses the file with that explanation. Revisions 0–2 read such track and image arrays in file or index order and
+  the failure and opens the numbered images that start at `path`; MoTrack does not reproduce that reading yet
+  ([#370](https://github.com/mgradwohl/MoTrack/issues/370)) and refuses the file with that explanation. Revisions 0–2 read such track and image arrays in file or index order and
   such a calibration as none.
 - **Untyped tracks (deliberate difference).** Only the arrays of the objects MoTrack reads are examined. An unusable
   array of an untyped track (for example a tape measure's `framedata`) also makes Tracker open the file without any
