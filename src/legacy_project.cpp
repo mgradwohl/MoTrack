@@ -4,6 +4,7 @@
 #include "track_identity.hpp"
 #include "tracker_import.hpp"
 
+#include <QCoreApplication>
 #include <QFile>
 #include <QString>
 
@@ -91,8 +92,8 @@ int clipFrameShift(const tracker::PanelLoad& panel)
 /// length above 1, so saved index n loads at frame n - shift. An array no longer than the shift becomes null and loads
 /// no frames; one of length 1 (only `[0]`) is unchanged. The Java length is the last element's index plus one
 /// (XMLControlElement.arrayValue). TrackerPanel loads the coordinate system without the adjuster: its keys never move.
-/// Java cannot load an array whose last index is unreadable or negative; MoTrack keeps such an array unshifted, as it
-/// read it before #313, rather than refuse a file (and the native documents preserving it) that it opened before.
+/// Java cannot load an array whose last index is unreadable or negative, which the current reading refuses (#315);
+/// earlier readings, reproduced for native migration only, kept such an array unshifted.
 template <typename Data> std::optional<int> droppedSlots(const tracker::FrameArray<Data>& array, int shift)
 {
     const auto last = array.frames.empty() ? tracker::Read<std::int32_t>(0) : array.frames.back().element.index;
@@ -192,8 +193,8 @@ std::optional<int> loadedFrame(const tracker::ArrayElement& element, std::option
 
 /// A track's object elements as Tracker's array loader keeps them (TrackerReading::LastTrackSlot): in index order, with
 /// a later element of the same index replacing an earlier one, a null one included, as XMLControlElement.arrayValue
-/// assigns Java array slots. Java cannot load an array whose indices it cannot place; MoTrack then keeps reading every
-/// object element in file order, as before, rather than refuse a file it opened before (#315 decides refusals).
+/// assigns Java array slots. Java cannot load an array whose indices it cannot place, and importTracker refuses it
+/// (#315); earlier readings and the compact form, which holds no frame objects, read object elements in file order.
 template <typename Data>
 std::vector<const tracker::Frame<Data>*>
 trackFrames(const osp::Source& source, const tracker::FrameArray<Data>& array, TrackerReading reading)
@@ -290,8 +291,8 @@ CalibrationKey calibrationKey(int frame, const CoordFrame& data)
 
 /// The coordinate keys as ImageCoordSystem.Loader reads `framedata`: XMLControlElement.arrayValue fills a Java array, so
 /// a later element with the same index replaces an earlier one, a null one included, and Tracker keeps the last saved
-/// key (#314). An unreadable or out-of-order index makes Java's loader throw; such a coordinate system, like one with
-/// unreadable numbers, imports as no calibration.
+/// key (#314). An unreadable or out-of-order index makes Java's loader throw, so importTracker refuses the file (#315);
+/// keys in the compact form, like unreadable numbers, import as no calibration.
 std::vector<CalibrationKey> indexedKeys(const osp::Source& source, const tracker::FrameArray<tracker::CoordFrameData>& frames)
 {
     const auto indexed = osp::PropertyView(source, frames.property).indexedElements();
@@ -377,6 +378,74 @@ bool decodesAsWindows1252(std::string_view bytes) noexcept
 
 } // namespace
 
+std::string detail::unloadableMessage(const tracker::Unloadable& problem)
+{
+    // The English texts equal model::unloadableMessage's (LegacyProject.UnloadableMessagesMatchTheTypedImport).
+    const bool wrongClass = problem.shape == tracker::UnloadableShape::WrongClass;
+    const auto expected = QString::fromStdString(problem.expectedClass);
+    QString text;
+    switch (problem.place)
+    {
+    case tracker::UnloadablePlace::ImagePaths:
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the image sequence's \"paths\" array does not "
+                                                        "have the class Tracker saves (%3), and the video saves no \"path\".")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the image sequence's \"paths\" array has an "
+                                                        "element whose index is unreadable or beyond the last element's, and the video "
+                                                        "saves no \"path\".");
+        break;
+    case tracker::UnloadablePlace::ImagePathFallback:
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" "
+                                                        "array does not have the class Tracker saves (%3), so Tracker opens the numbered "
+                                                        "images that start at its \"path\" instead, which MoTrack does not support.")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" "
+                                                        "array has an element whose index is unreadable or beyond the last element's, so "
+                                                        "Tracker opens the numbered images that start at its \"path\" instead, which "
+                                                        "MoTrack does not support.");
+        break;
+    case tracker::UnloadablePlace::Coordinates:
+        text = wrongClass ? QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the calibration's \"framedata\" array does not "
+                                                        "have the class Tracker saves (%3).")
+                                .arg(expected)
+                          : QCoreApplication::translate("LegacyProject",
+                                                        "Tracker cannot open this file: the calibration's \"framedata\" array has an "
+                                                        "element whose index is unreadable or beyond the last element's.");
+        break;
+    case tracker::UnloadablePlace::TrackList:
+        text = QCoreApplication::translate("LegacyProject",
+                                           "Tracker cannot load the tracks of this file: its \"tracks\" list does not have the class "
+                                           "Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.")
+                   .arg(expected);
+        break;
+    case tracker::UnloadablePlace::TrackArray:
+        text = wrongClass
+                   ? QCoreApplication::translate("LegacyProject",
+                                                 "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" does not "
+                                                 "have the class Tracker saves (%3). Tracker opens the file without any of its tracks.")
+                         .arg(QString::fromStdString(problem.track), QString::fromStdString(problem.property), expected)
+                   : QCoreApplication::translate("LegacyProject",
+                                                 "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an "
+                                                 "element whose index is unreadable or beyond the last element's. Tracker opens the "
+                                                 "file without any of its tracks.")
+                         .arg(QString::fromStdString(problem.track), QString::fromStdString(problem.property));
+        break;
+    }
+    return text.toStdString();
+}
+std::string detail::timeUnitLabel(const tracker::PanelLoad& panel)
+{
+    // TrackerPanel.Loader passes a saved time_unit to VideoPanel.setTimeUnit, which ignores an empty or unreadable one.
+    // It also trims the label and ignores one with a digit, which MoTrack does not do yet (#356).
+    auto unit = text(panel.timeUnit);
+    return unit.empty() ? LegacyProject{}.timeUnit : unit;
+}
+
 std::shared_ptr<const osp::Source> detail::parseTrackerXml(std::string_view xml)
 {
     if (xml.size() > MAX_TRACKER_XML_BYTES)
@@ -409,6 +478,12 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
     {
         throw ProjectError("Expected a TrackerPanel project.");
     }
+    // Tracker cannot open the file, or opens it without any of its tracks: show neither, rather than tracks or a
+    // calibration Tracker never shows (#315).
+    if (const auto problem = tracker::findUnloadable(*source, panel))
+    {
+        throw ProjectError(detail::unloadableMessage(*problem));
+    }
     const auto frameShift = reading == TrackerReading::SavedIndices ? 0 : clipFrameShift(panel);
     ImportedTracker result{
         .source = std::move(source), .panel = std::move(panel), .project = {}, .bindings = {}, .trackFrameShift = std::max(frameShift, 0)};
@@ -423,14 +498,20 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
                             .lengthUnit = present(loaded.lengthUnit) ? text(loaded.lengthUnit) : std::string(tracker::DEFAULT_LENGTH_UNIT),
                             .pointMasses = {},
                             .unsupportedTrackTypes = {}};
-    if (auto unit = text(loaded.massUnit); !unit.empty())
+    if (reading >= TrackerReading::SavedMassUnit)
+    {
+        // TrackerPanel.Loader assigns a saved mass_unit as it is, an empty one included (#315). Java's getString of
+        // another type gives null, which hides every unit label in Tracker; MoTrack shows it empty, as for length_unit.
+        if (present(loaded.massUnit))
+        {
+            project.massUnit = text(loaded.massUnit);
+        }
+    }
+    else if (auto unit = text(loaded.massUnit); !unit.empty())
     {
         project.massUnit = std::move(unit);
     }
-    if (auto unit = text(loaded.timeUnit); !unit.empty())
-    {
-        project.timeUnit = std::move(unit);
-    }
+    project.timeUnit = timeUnitLabel(loaded);
     for (const auto& item : loaded.trackItems)
     {
         if (!item.object)
@@ -504,7 +585,15 @@ ImportedTrackerProject parseTrackerProject(std::string xml)
 
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
 {
-    static_cast<void>(detail::validatedTrackerSource(source, project));
+    if (source.bindings)
+    {
+        static_cast<void>(detail::validatedTrackerSource(source, project));
+        return;
+    }
+    // Without associations nothing is bound to the source, so it only has to parse: a source the current reader refuses
+    // to import, which a native document then holds native-only (#315), can be saved again.
+    validateTrackIdentities(project);
+    static_cast<void>(detail::parseTrackerXml(source.xml));
 }
 
 detail::ImportedTracker detail::validatedTrackerSource(const TrackerSource& source, const LegacyProject& project)

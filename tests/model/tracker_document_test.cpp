@@ -308,7 +308,7 @@ TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
                                             vectorFrame(0, "NaN") + "</property>");
     for (const auto& [label, xml] : std::vector<std::pair<std::string, std::string>>{
              {"no keys", panel(coords(""))},
-             {"unreadable key", panel(coords(coordKey(-1)))},
+             {"unreadable key", panel(coords(coordKey(0, "NaN")))},
              {"reference frame", panel(coords(coordKey(0)) + text("referenceframe", "origin"))},
              {"other class",
               panel("<property name='coords' type='object'><object class='org.opensourcephysics.cabrillo.tracker.ReferenceFrame'>"
@@ -393,20 +393,30 @@ TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
     EXPECT_EQ(refusal(images(text("[0]", "a.png") + text("[2]", "c.png"))), "Invalid Tracker image sequence.");
     EXPECT_EQ(refusal(images(text("[0]", ""))), "Invalid Tracker image sequence.");
     EXPECT_EQ(refusal(images(number("[0]", "1", "int"))), "Invalid Tracker image sequence.");
-    EXPECT_EQ(refusal(images(text("[-1]", "a.png"))), "Invalid Tracker array entry.");
-    EXPECT_EQ(refusal(images(text("[1]", "b.png") + text("[0]", "a.png"))), "accepted");
+    // Indices Java's array loader cannot place make Tracker's load fail (#315).
+    const std::string unplacedPaths = "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
+                                      "unreadable or beyond the last element's, and the video saves no \"path\".";
+    EXPECT_EQ(refusal(images(text("[-1]", "a.png"))), unplacedPaths);
+    EXPECT_EQ(refusal(images(text("[1]", "b.png") + text("[0]", "a.png"))), unplacedPaths);
     const auto mass = [](std::string_view frames)
     {
         return panel("<property name='tracks' type='collection' class='java.util.ArrayList'>" + track("PointMass", "m", marks(frames)) +
                      "</property>");
     };
-    EXPECT_EQ(refusal(mass(mark(-2, "1.0", "1.0"))), "Invalid Tracker array entry.");
+    const std::string unplacedFrames = "Tracker cannot load the tracks of this file: the \"framedata\" array of track \"m\" has an element "
+                                       "whose index is unreadable or beyond the last element's. Tracker opens the file without any of its "
+                                       "tracks.";
+    EXPECT_EQ(refusal(mass(mark(-2, "1.0", "1.0"))), unplacedFrames);
     EXPECT_EQ(refusal(mass(mark(0, "Infinity", "1.0"))), "Invalid Tracker numeric property.");
-    // Java's slots: the last of duplicate indices wins. Where Java cannot place the indices, file order applies, and a
-    // repeated frame is refused there as before.
+    // Java's slots: the last of duplicate indices wins, and any index below the last one's is placed. An index beyond
+    // the last one's makes Tracker load none of the tracks (#315).
     EXPECT_EQ(refusal(mass(mark(0, "1.0", "1.0") + mark(0, "2.0", "2.0"))), "accepted");
-    EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0"))), "accepted");
-    EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0") + mark(1, "3.0", "3.0"))), "Duplicate Tracker point mass frame.");
+    EXPECT_EQ(refusal(mass(mark(1, "1.0", "1.0") + mark(0, "2.0", "2.0") + mark(3, "3.0", "3.0"))), "accepted");
+    EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0"))), unplacedFrames);
+    EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0") + mark(1, "3.0", "3.0"))), unplacedFrames);
+    EXPECT_EQ(refusal(panel(coords(coordKey(-1)))),
+              "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is unreadable or beyond "
+              "the last element's.");
     EXPECT_FALSE(TrackerDocument::importBaseline(nullptr));
 }
 

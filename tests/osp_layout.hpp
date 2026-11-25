@@ -25,7 +25,24 @@ inline bool indexedName(const QString& name)
 
 inline osp::ObjectValue layoutObject(const QDomElement& element);
 
-inline osp::PropertyValue layoutProperty(const QDomElement& element)
+/// The array class Tracker's savers write for a property of an object of class `owner`, for snippets that leave it out:
+/// OSP's array loader needs it, so Tracker cannot load an array without one (#315). Write `class=''` to test that.
+inline std::string savedArrayClass(const QString& owner, const QString& name)
+{
+    if (name == "framedata" &&
+        (owner == "org.opensourcephysics.cabrillo.tracker.PointMass" || owner == "org.opensourcephysics.cabrillo.tracker.Vector" ||
+         owner == "org.opensourcephysics.media.core.ImageCoordSystem"))
+    {
+        return "[L" + owner.toStdString() + "$FrameData;";
+    }
+    if (name == "keyFrames")
+    {
+        return "[I";
+    }
+    return name == "paths" ? "[Ljava.lang.String;" : "[Ljava.lang.Object;";
+}
+
+inline osp::PropertyValue layoutProperty(const QDomElement& element, const QString& owner = {})
 {
     osp::PropertyValue value;
     const auto name = element.attribute("name");
@@ -60,8 +77,9 @@ inline osp::PropertyValue layoutProperty(const QDomElement& element)
     value.typeName = type.toStdString();
     if (type == "array" || type == "collection")
     {
-        value.className =
-            element.hasAttribute("class") ? element.attribute("class").toStdString() : (type == "collection" ? "java.util.ArrayList" : "");
+        value.className = element.hasAttribute("class") ? element.attribute("class").toStdString()
+                          : type == "collection"        ? "java.util.ArrayList"
+                                                        : savedArrayClass(owner, name);
         for (auto child = first; !child.isNull(); child = child.nextSiblingElement("property"))
         {
             value.elements.push_back(layoutProperty(child));
@@ -86,7 +104,7 @@ inline osp::ObjectValue layoutObject(const QDomElement& element)
     osp::ObjectValue value{.className = element.attribute("class").toStdString()};
     for (auto child = element.firstChildElement("property"); !child.isNull(); child = child.nextSiblingElement("property"))
     {
-        value.properties.push_back(layoutProperty(child));
+        value.properties.push_back(layoutProperty(child, element.attribute("class")));
     }
     return value;
 }

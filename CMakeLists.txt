@@ -186,7 +186,7 @@ qt_add_translations(motrack
     TS_FILES ${motrack_ts_files}
     PLURALS_TS_FILE translations/motrack_en.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
-            src/tracker_archive.cpp src/workspace_input.cpp
+            src/tracker_archive.cpp src/workspace_input.cpp src/legacy_project.cpp
             src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
 )

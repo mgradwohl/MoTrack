@@ -3,6 +3,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -10,6 +11,7 @@ import java.util.Set;
 import java.util.function.ToDoubleFunction;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.numerics.SuryonoParser;
+import org.opensourcephysics.tools.UserFunction;
 
 /**
  * Kernel oracle for MoTrack's expression engine (K1). Every case is parsed and evaluated with OSP's actual
@@ -19,6 +21,9 @@ import org.opensourcephysics.numerics.SuryonoParser;
  * Cases tagged with a defect also carry independent "intended" values: a bug-free equivalent expression
  * evaluated by the same parser, an fdlibm-style formula, or a direct evaluation of the generating tree.
  * The same deterministic generators run on every invocation, so a rerun reproduces the committed fixture.
+ *
+ * A separate list runs model and fit function text through OSP's UserFunction, which prepares the text
+ * before it reaches the parser, so that its rejection of `+` exponents (MoTrack #215) is pinned too.
  */
 public final class ExpressionOracle {
     private static final int RANDOM_SAMPLES = 2000;
@@ -37,6 +42,7 @@ public final class ExpressionOracle {
     private static final String[] INEXACT = {"sin", "cos", "tan", "ln", "log", "exp", "^"};
 
     private final List<Case> cases = new ArrayList<>();
+    private final List<UserCase> userCases = new ArrayList<>();
     private final Set<String> ids = new HashSet<>();
 
     private static final class Case {
@@ -76,6 +82,36 @@ public final class ExpressionOracle {
         }
     }
 
+    /** A model or fit function: UserFunction text over independent variables, then parameters. */
+    private static final class UserCase {
+        final String id;
+        final String expression;
+        final String equivalent;
+        final String[] variables;
+        final List<String> parameters = new ArrayList<>();
+        final List<Double> parameterValues = new ArrayList<>();
+        final List<double[]> points = new ArrayList<>();
+
+        UserCase(String id, String expression, String equivalent, String[] variables) {
+            this.id = id;
+            this.expression = expression;
+            this.equivalent = equivalent;
+            this.variables = variables;
+        }
+
+        UserCase with(String name, double value) {
+            parameters.add(name);
+            parameterValues.add(value);
+            return this;
+        }
+
+        UserCase at(double... values) {
+            if (values.length != variables.length) throw new IllegalArgumentException(id + ": wrong value count");
+            points.add(values);
+            return this;
+        }
+    }
+
     public static void main(String[] args) {
         try {
             if (args.length != 1) throw new IllegalArgumentException("Usage: ExpressionOracle output.json");
@@ -85,6 +121,7 @@ public final class ExpressionOracle {
             oracle.functions();
             oracle.literals();
             oracle.generated();
+            oracle.userFunctions();
             Files.writeString(Path.of(args[0]), oracle.report(), StandardCharsets.UTF_8);
             System.exit(0);
         } catch (Throwable error) {
@@ -125,7 +162,9 @@ public final class ExpressionOracle {
             "underscore", "1_000", "huge-exponent", "1e99999999999999999999", "huge-negative-exponent", "1e-99999999999999999999",
             "zero-huge-exponent", "0e99999", "number-identifier", "2x", "number-exponent-identifier", "1e5e5",
             "long-zeros", "0." + "0".repeat(400) + "1e400", "long-mantissa", "1" + "0".repeat(350) + "e-350",
-            "infinity-name", "Infinity", "nan-name", "NaN");
+            "infinity-name", "Infinity", "nan-name", "NaN",
+            // The text UserFunction.padNames makes of 1e+5 and 2*1e+5 (see userFunctions()).
+            "split-plus-exponent", "1e +5", "split-plus-exponent-product", "2*1e +5");
         constants("constant", "pi", "pi", "e", "e", "negative-pi", "-pi", "two-pi", "2*pi", "e-squared", "e^2",
             "upper-pi", "PI", "upper-e", "E", "pie", "pie", "pi-call", "pi(1)", "e-call", "e(1)");
 
@@ -580,6 +619,96 @@ public final class ExpressionOracle {
         if (made != 160) throw new IllegalStateException("Expression generator could not create its cases");
     }
 
+    // ---- UserFunction: the text preparation of Tracker's models and Fit Builder functions ----
+
+    private UserCase user(String id, String expression, String equivalent, String... variables) {
+        if (!id.matches("[a-z0-9-]+") || !ids.add(id)) throw new IllegalArgumentException("Invalid or duplicate case " + id);
+        UserCase c = new UserCase(id, expression, equivalent, variables);
+        userCases.add(c);
+        return c;
+    }
+
+    /**
+     * UserFunction.setExpression removes spaces and pads names with spaces before parsing. The padding also
+     * splits a `+` exponent (1e+5 becomes 1e +5), so the parse fails and the function becomes 0. A case with
+     * an equivalent records the intended value of the same function written without the sign; the others
+     * are controls, including the constant e and parameters named e and E, which are never part of a literal.
+     */
+    private void userFunctions() {
+        user("user-function-exponent", "x*1e5", null, "x").at(2).at(-0.5);
+        user("user-function-negative-exponent", "x*1e-5", null, "x").at(2).at(-0.5);
+        user("user-function-plus-exponent", "x*1e+5", "x*1e5", "x").at(2).at(-0.5);
+        user("user-function-upper-plus-exponent", "x*1E+5", "x*1E5", "x").at(2);
+        user("user-function-fraction-plus-exponent", "2.5e+3+x", "2.5e3+x", "x").at(2);
+        user("user-function-small-plus-exponent", "x*1e+2", "x*1e2", "x").at(3);
+        user("user-function-trailing-dot-plus-exponent", "1.e+2*x", "1.e2*x", "x").at(2);
+        user("user-function-leading-dot-plus-exponent", ".5e+1*x", ".5e1*x", "x").at(2);
+        user("user-function-zero-plus-exponent", "x+1e+0", "x+1e0", "x").at(2);
+        user("user-function-parameter-plus-exponent", "A*x*1e+5", "A*x*1e5", "x").with("A", 2).at(2);
+        user("user-function-condition-plus-exponent", "if(x<1e+3,x,0)", "if(x<1e3,x,0)", "x").at(2).at(5000);
+        user("user-function-analytic-model", "1e+1*t-4.9*t*t", "1e1*t-4.9*t*t", "t").at(0.5);
+        user("user-function-dynamic-force", "-k*x-1e+0*vx", "-k*x-1e0*vx", "x", "vx", "y", "vy", "t").with("k", 3).at(1, 2, 3, 4, 5);
+        user("user-function-constant-e-sum", "x*e+5", null, "x").at(2);
+        user("user-function-constant-e-difference", "x*e-5", null, "x").at(2);
+        user("user-function-exponent-and-constant-e", "x*1e5+e+1", null, "x").at(2);
+        user("user-function-parameter-named-e", "e*x", null, "x").with("e", 7).at(2);
+        user("user-function-parameter-named-upper-e", "x*E+5", null, "x").with("E", 3).at(2);
+        user("user-function-literal-beside-parameter-e", "2E+5*x", "2E5*x", "x").with("E", 3).at(2);
+    }
+
+    private static UserFunction userFunction(UserCase c, String expression, boolean[] valid) {
+        UserFunction f = new UserFunction("f");
+        int n = c.parameters.size();
+        double[] values = new double[n];
+        for (int i = 0; i < n; i++) values[i] = c.parameterValues.get(i);
+        String[] descriptions = new String[n];
+        Arrays.fill(descriptions, "");
+        f.setParameters(c.parameters.toArray(new String[0]), values, descriptions);
+        valid[0] = f.setExpression(expression, c.variables);
+        return f;
+    }
+
+    /** UserFunction.evaluate keeps 0 for NaN; no case here evaluates to NaN. */
+    private static double evaluate(UserFunction f, double[] values) {
+        double result = values.length == 1 ? f.evaluate(values[0]) : f.evaluate(values);
+        if (f.evaluatedToNaN()) throw new IllegalStateException("Unexpected NaN from UserFunction " + f.getInputString());
+        return result;
+    }
+
+    private String userCaseJson(UserCase c) {
+        boolean[] valid = new boolean[1];
+        UserFunction f = userFunction(c, c.expression, valid);
+        UserFunction intended = null;
+        if (c.equivalent != null) {
+            boolean[] equivalentValid = new boolean[1];
+            intended = userFunction(c, c.equivalent, equivalentValid);
+            if (!equivalentValid[0]) throw new IllegalStateException(c.id + ": invalid equivalent");
+        }
+        StringBuilder out = new StringBuilder("    {\"id\": ").append(json(c.id)).append(", \"expression\": ").append(json(c.expression))
+            .append(", \"equivalent\": ").append(c.equivalent == null ? "null" : json(c.equivalent)).append(", \"variables\": [");
+        for (int i = 0; i < c.variables.length; i++) out.append(i == 0 ? "" : ", ").append(json(c.variables[i]));
+        out.append("], \"parameters\": [");
+        for (int i = 0; i < c.parameters.size(); i++) out.append(i == 0 ? "" : ", ").append(json(c.parameters.get(i)));
+        out.append("], \"parameter_values\": [");
+        for (int i = 0; i < c.parameters.size(); i++) out.append(i == 0 ? "" : ", ").append(json(Double.toString(c.parameterValues.get(i))));
+        out.append("], \"valid\": ").append(valid[0]).append(", \"stored\": ").append(json(f.getExpression()))
+            .append(", \"saved\": ").append(json(f.getInputString())).append(", \"evaluations\": [");
+        for (int i = 0; i < c.points.size(); i++) {
+            double[] values = c.points.get(i);
+            out.append(i == 0 ? "\n      " : ",\n      ").append("{\"values\": [");
+            for (int j = 0; j < values.length; j++) out.append(j == 0 ? "" : ", ").append(json(Double.toString(values[j])));
+            out.append(']');
+            double result = evaluate(f, values);
+            out.append(valueJson("result", result));
+            if (intended != null) {
+                double expected = evaluate(intended, values);
+                if (Double.doubleToRawLongBits(expected) != Double.doubleToRawLongBits(result)) out.append(valueJson("intended", expected));
+            }
+            out.append('}');
+        }
+        return out.append("\n    ]}").toString();
+    }
+
     // ---- Independent fdlibm-style inverse hyperbolic functions (OSP uses cancellation-prone formulas) ----
 
     static double asinh(double x) {
@@ -670,6 +799,10 @@ public final class ExpressionOracle {
         out.append("},\n  \"cases\": [\n");
         for (int i = 0; i < cases.size(); i++) {
             out.append(caseJson(cases.get(i))).append(i + 1 < cases.size() ? ",\n" : "\n");
+        }
+        out.append("  ],\n  \"user_functions\": [\n");
+        for (int i = 0; i < userCases.size(); i++) {
+            out.append(userCaseJson(userCases.get(i))).append(i + 1 < userCases.size() ? ",\n" : "\n");
         }
         return out.append("  ]\n}\n").toString();
     }

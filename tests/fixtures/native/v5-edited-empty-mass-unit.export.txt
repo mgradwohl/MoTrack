@@ -1,0 +1,1 @@
+refused: Tracker export is unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Import the Tracker file again.
