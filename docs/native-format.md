@@ -611,8 +611,9 @@ files. Each referenced extracted file must also match the SHA-256 digest capture
 its original archive member; missing or same-path replaced files are rejected before destination
 replacement. Selected XML and media must also resolve within the physical extraction root captured
 at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
-Prepared XML is resolved back through the original archive inventory and must name the same media
-members, so even an in-root rename/alias cannot produce links to files absent from the output ZIP.
+The references rebuilt from the extracted files are resolved back through the original archive
+inventory and must name the same media members, so even an in-root rename/alias is refused and cannot
+produce links to files absent from the output ZIP.
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy validates the ImageVideo or audited XuggleVideo paths, and each is written back exactly as the

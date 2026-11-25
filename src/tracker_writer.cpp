@@ -15,9 +15,12 @@
 #include <atomic>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <span>
+#include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace motrack
 {
@@ -109,14 +112,16 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
 
 namespace
 {
-/// Renders @p document as the standard file at @p path, with its media references rebased to that file.
-/// @p sourceReferences, when given, are the references exactly as the source XML spells them, in the same order:
-/// the caller has checked that each still names the same media, and they are kept instead of the rebased spelling,
-/// so the exported XML leaves them untouched.
+/// Chooses the references an export writes, given the ones rebuilt from the media files and rebased to the
+/// exported file, in the same order. It may throw to refuse the export.
+using ReferenceSpelling = std::function<std::vector<std::string>(const std::vector<std::string>& rebased)>;
+
+/// Renders @p document as the standard file at @p path, with its media references rebased to that file, or as
+/// @p spelling chooses when it is given.
 std::string prepareTrackerDocument(const QString& path,
                                    const WorkspaceDocument& document,
                                    const QString& mediaProjectPath,
-                                   const std::vector<std::string>* sourceReferences = nullptr)
+                                   const ReferenceSpelling& spelling = {})
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
@@ -161,10 +166,11 @@ std::string prepareTrackerDocument(const QString& path,
                                                   : std::cmp_equal(count, document.movieFrameTimes.size()) || count == clipEnd));
             project.clip.sourceFrameCount.reset();
         }
-        if (sourceReferences)
+        if (spelling)
         {
-            require(sourceReferences->size() == project.clip.mediaReferences.size());
-            project.clip.mediaReferences = *sourceReferences;
+            auto written = spelling(project.clip.mediaReferences);
+            require(written.size() == project.clip.mediaReferences.size());
+            project.clip.mediaReferences = std::move(written);
         }
     }
     return renderTrackerProjectImpl(project, source, media, document.movieFrameTimes);
@@ -217,11 +223,18 @@ std::string prepareArchiveMember(const WorkspaceDocument& document, const std::a
     snapshot.archiveMember.reset();
     // Imported archive references are validated archive-root-relative members, independent of
     // the original archive's location or the companion document's later location.
-    const auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"), &sourceReferences);
-    auto exported = parseLegacyProject(xml);
-    require(exported.clip.mediaReferences == sourceReferences);
-    archive.resolveMedia(exported, member);
-    require(exported.clip.mediaReferences == baseline.clip.mediaReferences);
+    const auto keepSourceSpelling = [&](const std::vector<std::string>& rebased)
+    {
+        // The references rebuilt from the extracted files must still name the original members, so an alias inside
+        // the extraction (a renamed directory behind a link) cannot stand in for one.
+        LegacyProject rebuilt;
+        rebuilt.clip.mediaReferences = rebased;
+        archive.resolveMedia(rebuilt, member);
+        require(rebuilt.clip.mediaReferences == baseline.clip.mediaReferences);
+        return std::vector<std::string>(sourceReferences);
+    };
+    auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"), keepSourceSpelling);
+    require(parseLegacyProject(xml).clip.mediaReferences == sourceReferences);
     return xml;
 }
 } // namespace
