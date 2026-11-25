@@ -236,7 +236,10 @@ fixed-offset fits, which do not converge from Tracker's own initial guess.
   undefined value; the fitter applies OSP's NaN-as-0 rule (Tracker) or rejects the vector (Corrected). The
   expression dialect (K1 `Corrected` or
   `Tracker`) decides operator precedence; K3 does not depend on it. Clones of the built-in polynomials stay
-  `KnownPolynomial`s (closed form) under their own names.
+  `KnownPolynomial`s (closed form) under their own names. Tracker's Fit Builder rejects an expression with a
+  `+` exponent literal (`plusExponentSign`, [#215](https://github.com/mgradwohl/MoTrack/issues/215)) and fits
+  the constant 0. The kernel fits the expression as written (`CurveFit.UserFitWithAPlusExponentLiteral`); I4
+  warns when it opens such a Tracker fit and writes `trackerText()`.
 - **State.** Keep each tab's fits, fixed flags, Autofit and the scratch fallback per tab
   ([#245](https://github.com/mgradwohl/MoTrack/issues/245)); refit from current values when data change and
   from scratch on selection or when Autofit is switched on; clear uncertainties when a fit is skipped.

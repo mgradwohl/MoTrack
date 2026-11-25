@@ -4588,6 +4588,34 @@ class ExpressionOracleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.compare_expression_reference(self.fixture, dict(self.fixture, tolerance={"ulp": 0, "random_samples": 2000}))
 
+    def test_user_functions_pin_trackers_zero_for_plus_exponents(self):
+        """UserFunction (models, fits) rejects a + exponent literal, evaluates 0 and saves the text (#215)."""
+        functions = self.fixture["user_functions"]
+        ids = [function["id"] for function in functions] + [case["id"] for case in self.fixture["cases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertGreaterEqual(sum(not function["valid"] for function in functions), 10)
+        for function in functions:
+            with self.subTest(function=function["id"]):
+                plus = re.search(r"[0-9.][eE]\+", function["expression"]) is not None
+                self.assertEqual(function["valid"], not plus)
+                self.assertEqual(function["saved"], function["expression"])
+                self.assertEqual(function["stored"], function["expression"] if function["valid"] else "0")
+                self.assertEqual(function["equivalent"] is None, function["valid"])
+                if not function["valid"]:
+                    self.assertTrue(all(e["result_bits"] == "0000000000000000" for e in function["evaluations"]))
+                    self.assertTrue(any("intended_bits" in e for e in function["evaluations"]))
+        mutations = [lambda f: f.__setitem__("valid", not f["valid"]), lambda f: f.pop("saved"),
+                     lambda f: f["evaluations"][0].__setitem__("result", "1.0")]
+        for index, mutate in enumerate(mutations):
+            actual = copy.deepcopy(self.fixture)
+            mutate(next(f for f in actual["user_functions"] if f["id"] == "user-function-plus-exponent"))
+            with self.subTest(mutation=index), self.assertRaisesRegex(ValueError, "user-function-plus-exponent"):
+                corpus.compare_expression_reference(self.fixture, actual)
+        actual = copy.deepcopy(self.fixture)
+        actual["user_functions"].pop()
+        with self.assertRaisesRegex(ValueError, "user function count"):
+            corpus.compare_expression_reference(self.fixture, actual)
+
     def test_oracle_runs_the_pinned_jar_in_a_private_home_and_can_record(self):
         manifest = corpus.load_manifest()
         root = Path(tempfile.mkdtemp(prefix="motrack-expression-test-"))
