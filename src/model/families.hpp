@@ -402,4 +402,25 @@ inline constexpr double MINIMUM_POINT_MASS = 1e-30;
 [[nodiscard]] bool supportsConstantClipTimingEdits(std::span<const std::string> mediaReferences,
                                                    std::span<const std::string> unknownTrackClasses);
 
+/// The clip as B1's import policy presents it: Tracker's loaded first frame, the step size and count, the frame
+/// duration and start time in milliseconds, whether the experiment has media, and the discovered source frame count.
+/// Frames are original video frames.
+struct ClipTimeline
+{
+    std::int32_t firstFrame = 0;
+    std::int32_t stepSize = 1;
+    std::optional<std::int32_t> stepCount{};
+    std::optional<double> frameDurationMs{};
+    double startTimeMs = 0.0;
+    bool media = false;
+    std::optional<std::int32_t> sourceFrameCount{};
+
+    bool operator==(const ClipTimeline&) const = default;
+};
+
+/// Whether a media-free clip has constant timing that Tracker 6.3.5 loads and saves without loss: a positive finite
+/// frame duration, a finite start time, a bounded clip that Java's int arithmetic holds and fits the source frames,
+/// and step times that increase by the duration within rounding in milliseconds and seconds.
+[[nodiscard]] bool validConstantClipTiming(const ClipTimeline& clip);
+
 } // namespace motrack::model

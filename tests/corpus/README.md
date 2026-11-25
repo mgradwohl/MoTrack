@@ -329,6 +329,7 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py compose-check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py state-check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
@@ -345,6 +346,16 @@ python -m unittest discover -s tests -p 'test_corpus*.py'
 
 `library-oracle` compares the [library collection model](../../docs/library-collections.md) with the pinned
 OSP `Library` classes.
+
+`compose-check` compares the descriptor composition of slice B2.3 ([design](../../docs/tracker-document.md)) with
+B1's composition, which production export still uses, without Java: every edit of
+[`compose_scenarios.hpp`](../compose_scenarios.hpp) on every case (`motrack_corpus_probe --compose-scenarios`), then
+every MoTrack export of the round trip whose input exists without Tracker. Each must make B1's decision, with B1's
+bytes where both export; refusals may give another reason, which the summary counts. `roundtrip` makes the same
+comparison of its own exports, including those of Tracker-authored inputs (`first-mark`, `first-vector`,
+`clip-boundary`). With `MOTRACK_COMPOSE_REPORT` naming a file, the probe appends one JSON line per composition.
+`compose-check` writes its exports to a temporary directory under the checkout's `build` directory, never into the
+cache, and runs on Linux CI.
 
 `filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
 the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
