@@ -298,6 +298,16 @@ class DeprecatedFormatWarnings
     }
 };
 
+// Positive control for DeprecatedFormatWarnings: a context that swscale itself initialises for a JPEG-range
+// format still logs the warning, so a count of zero means the converter avoided it, not that FFmpeg reworded it.
+void expectSwscaleStillWarnsAboutJpegRangeFormats()
+{
+    const auto before = DeprecatedFormatWarnings::count();
+    const std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale(
+        sws_getContext(16, 2, AV_PIX_FMT_YUVJ420P, 16, 2, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr), &sws_freeContext);
+    ASSERT_TRUE(scale);
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), before + 1);
+}
 // Disables FFmpeg's SIMD code, so swscale takes its C converters, until the end of the scope.
 class WithoutSimd
 {
@@ -508,6 +518,7 @@ TEST(RgbaFrameConverter, ReusesOneContextWhileTheFrameFormatIsUnchanged)
     }
     // FFmpeg asks callers to give the range of a deprecated JPEG-range format; it warned for every context.
     EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
+    expectSwscaleStillWarnsAboutJpegRangeFormats();
 }
 
 // Gray frames stay full range, as in swscale's frame API.
@@ -769,6 +780,9 @@ TEST(VideoReader, DecodesUnalignedMovieWidthsIntoPaddedImages)
 }
 
 // The Motion JPEG decoder returns yuvj420p frames; swscale warned about the deprecated format for each one (#261).
+// The missing warning shows that the reader gives swscale the range itself. It does not show context reuse,
+// since a context rebuilt for the mapped format would not warn either; the RgbaFrameConverter tests count the
+// contexts.
 TEST(VideoReader, DecodesJpegRangeMoviesInFullRange)
 {
     constexpr Pattern FULL_FLAT{.ramp = false, .fullRange = true};
@@ -787,6 +801,7 @@ TEST(VideoReader, DecodesJpegRangeMoviesInFullRange)
     }
     EXPECT_EQ(frames, 3);
     EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
+    expectSwscaleStillWarnsAboutJpegRangeFormats();
 }
 
 } // namespace
