@@ -96,6 +96,33 @@ bool appleDouble(const QString& member, const QByteArray& head)
     return head.startsWith(magic) || (fileName(member).startsWith("._") && member.split('/').contains(QStringLiteral("__MACOSX")));
 }
 
+using ArchiveReader = std::unique_ptr<archive, decltype(&archive_read_free)>;
+
+/// A reader of the ZIP at @p path, set up as Tracker reads archives, or null. The caller holds a ScopedUtf8ThreadLocale
+/// for as long as it reads names.
+ArchiveReader openZipReader(const QString& path)
+{
+    ArchiveReader reader(archive_read_new(), &archive_read_free);
+    // Tracker reads archives with java.util.zip, which decodes every member name as UTF-8 whether or not the
+    // name's UTF-8 flag (general-purpose bit 11) is set, and refuses a name that is not UTF-8. libarchive would
+    // otherwise decode an unflagged name through the C locale or the OEM code page, which differ between motrack,
+    // the test binaries and the user's system (#275; CONTRIBUTING.md, "Tracker compatibility exceptions").
+    // macOS builds of libarchive hide "__MACOSX/" members by default, bypassing every check below and
+    // differing from the raw records the writer copies. Read the same entries on every platform.
+    if (!reader || archive_read_support_format_zip_seekable(reader.get()) != ARCHIVE_OK ||
+        archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") != ARCHIVE_OK ||
+        archive_read_set_options(reader.get(), "zip:!mac-ext") != ARCHIVE_OK)
+        return {nullptr, &archive_read_free};
+#ifdef _WIN32
+    const auto opened = archive_read_open_filename_w(reader.get(), QDir::toNativeSeparators(path).toStdWString().c_str(), READ_BLOCK_BYTES);
+#else
+    const auto opened = archive_read_open_filename(reader.get(), QFile::encodeName(path).constData(), READ_BLOCK_BYTES);
+#endif
+    if (opened != ARCHIVE_OK)
+        return {nullptr, &archive_read_free};
+    return reader;
+}
+
 QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !*cancelled);
@@ -132,6 +159,37 @@ std::string archiveMemberKey(std::string_view member)
     return QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size())).normalized(QString::NormalizationForm_C).toStdString();
 }
 
+std::optional<QSet<QString>> trackerArchiveProjectNames(const QString& path)
+{
+    const QFileInfo info(path);
+    if (!info.isFile() || info.size() <= 0 || info.size() > MAX_TRACKER_ARCHIVE_BYTES)
+        return std::nullopt;
+    const ScopedUtf8ThreadLocale utf8Names;
+    const auto reader = openZipReader(path);
+    if (!reader)
+        return std::nullopt;
+    QSet<QString> names;
+    int members = 0;
+    archive_entry* entry = nullptr;
+    // Headers only: libarchive skips each member's data when the next header is read.
+    for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
+         status = archive_read_next_header(reader.get(), &entry))
+    {
+        // As TrackerArchive::open, any header problem (a name that is not UTF-8 among them) refuses the archive.
+        if (status != ARCHIVE_OK || ++members > MAX_MEMBERS || !entry)
+            return std::nullopt;
+        if (archive_entry_filetype(entry) != AE_IFREG)
+            continue;
+        const auto* utf8 = archive_entry_pathname_utf8(entry);
+        const auto member = QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry)).normalized(QString::NormalizationForm_C);
+        if (member.contains(QChar::ReplacementCharacter))
+            return std::nullopt;
+        if (member.endsWith(".trk", Qt::CaseInsensitive) && !appleDouble(member, {}))
+            names.insert(member);
+    }
+    return names;
+}
+
 bool detail::isNameConversionWarning(std::string_view libarchiveError) noexcept
 {
     // libarchive's ZIP reader: "Pathname cannot be converted from UTF-8 to current locale." and the same for
@@ -148,22 +206,8 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     result.m_SourceDigest = snapshotArchive(path, result.sourcePath(), cancelled);
     // libarchive converts names through the thread's LC_CTYPE on POSIX; outlives the reader below.
     const ScopedUtf8ThreadLocale utf8Names;
-    const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
-    // Tracker reads archives with java.util.zip, which decodes every member name as UTF-8 whether or not the
-    // name's UTF-8 flag (general-purpose bit 11) is set, and refuses a name that is not UTF-8. libarchive would
-    // otherwise decode an unflagged name through the C locale or the OEM code page, which differ between motrack,
-    // the test binaries and the user's system (#275; CONTRIBUTING.md, "Tracker compatibility exceptions").
-    // macOS builds of libarchive hide "__MACOSX/" members by default, bypassing every check below and
-    // differing from the raw records the writer copies. Read the same entries on every platform.
-    require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK &&
-            archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") == ARCHIVE_OK &&
-            archive_read_set_options(reader.get(), "zip:!mac-ext") == ARCHIVE_OK);
-#ifdef _WIN32
-    require(archive_read_open_filename_w(
-                reader.get(), QDir::toNativeSeparators(result.sourcePath()).toStdWString().c_str(), READ_BLOCK_BYTES) == ARCHIVE_OK);
-#else
-    require(archive_read_open_filename(reader.get(), QFile::encodeName(result.sourcePath()).constData(), READ_BLOCK_BYTES) == ARCHIVE_OK);
-#endif
+    const auto reader = openZipReader(result.sourcePath());
+    require(reader != nullptr);
     const QDir destination(result.m_Directory.path());
     QSet<QString> seen;
     std::array<char, READ_BLOCK_BYTES> buffer{};

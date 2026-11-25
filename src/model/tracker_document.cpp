@@ -10,6 +10,7 @@
 #include <ranges>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -337,23 +338,6 @@ std::uint64_t assignCountdown(std::vector<ObjectSlot>& objects, std::uint64_t lo
         lowWater = next--;
     }
     return lowWater;
-}
-
-std::optional<std::string> graphLabel(const ObjectSlot& object)
-{
-    if (const auto* mass = std::get_if<PointMassState>(object.value.get()))
-    {
-        return mass->name ? std::optional(*mass->name) : std::nullopt;
-    }
-    if (const auto* vector = std::get_if<VectorState>(object.value.get()))
-    {
-        return vector->name ? std::optional(*vector->name) : std::nullopt;
-    }
-    if (const auto* unknown = std::get_if<UnknownState>(object.value.get()))
-    {
-        return unknown->label;
-    }
-    return std::nullopt;
 }
 
 bool familyFitsRole(Role role, Family family)
@@ -853,19 +837,7 @@ const ObjectSlot* TrackerDocument::object(ObjectId id) const
 
 const ObjectSlot* TrackerDocument::singleton(Role role) const
 {
-    const ObjectSlot* unknown = nullptr;
-    for (const auto& object : m_Parts.objects)
-    {
-        if (object.role == role && object.state == ObjectState::Live)
-        {
-            if (object.family() != Family::Unknown)
-            {
-                return &object;
-            }
-            unknown = &object;
-        }
-    }
-    return unknown;
+    return findSingleton(m_Parts.objects, role);
 }
 
 std::span<const ObjectId> TrackerDocument::trackOrder() const noexcept
@@ -940,6 +912,121 @@ bool operator==(const TrackerDocument& left, const TrackerDocument& right)
     return sameBaseline && a.associations == b.associations && a.readerRevision == b.readerRevision && a.objects == b.objects &&
            a.trackOrder == b.trackOrder && a.nextObjectId == b.nextObjectId && a.countdownLowWater == b.countdownLowWater &&
            a.media == b.media;
+}
+
+void TrackerDocument::swap(TrackerDocument& other) noexcept
+{
+    // The parts hold only vectors, shared pointers and scalars; the index is swapped by member, since MSVC's
+    // unordered_map can allocate when moved.
+    static_assert(std::is_nothrow_swappable_v<DocumentParts>);
+    std::swap(m_Parts, other.m_Parts);
+    m_Index.swap(other.m_Index);
+    m_Graph.swap(other.m_Graph);
+    m_ReferenceIssues.swap(other.m_ReferenceIssues);
+}
+
+std::optional<std::string> graphLabel(const ObjectSlot& object)
+{
+    if (const auto* mass = std::get_if<PointMassState>(object.value.get()))
+    {
+        return mass->name ? std::optional(*mass->name) : std::nullopt;
+    }
+    if (const auto* vector = std::get_if<VectorState>(object.value.get()))
+    {
+        return vector->name ? std::optional(*vector->name) : std::nullopt;
+    }
+    if (const auto* unknown = std::get_if<UnknownState>(object.value.get()))
+    {
+        return unknown->label;
+    }
+    return std::nullopt;
+}
+
+const ObjectSlot* findSingleton(std::span<const ObjectSlot> objects, Role role)
+{
+    const ObjectSlot* unknown = nullptr;
+    for (const auto& object : objects)
+    {
+        if (object.role == role && object.state == ObjectState::Live)
+        {
+            if (object.family() != Family::Unknown)
+            {
+                return &object;
+            }
+            unknown = &object;
+        }
+    }
+    return unknown;
+}
+
+std::optional<double> loadedFrameDuration(const ObjectSlot* video, const ObjectSlot* control)
+{
+    if (video && video->className != tracker::IMAGE_VIDEO_CLASS)
+    {
+        return std::nullopt;
+    }
+    const auto* controlState = control ? std::get_if<ClipControlState>(control->value.get()) : nullptr;
+    const auto controlDuration = controlState ? finiteValue(controlState->deltaT) : std::nullopt;
+    auto duration = controlDuration;
+    if (duration.value_or(0.0) <= 0.0)
+    {
+        const auto* videoState = video ? std::get_if<VideoState>(video->value.get()) : nullptr;
+        duration = videoState ? finiteValue(videoState->deltaT) : std::nullopt;
+    }
+    if (duration.value_or(0.0) <= 0.0)
+    {
+        duration.reset();
+    }
+    if (!video && (!controlState || controlDuration == 0.0))
+    {
+        duration = tracker::DEFAULT_STEPPER_FRAME_DURATION_MS;
+    }
+    return duration;
+}
+
+ClipTimeline clipTimeline(std::span<const ObjectSlot> objects, const MediaExtension& media)
+{
+    ClipTimeline timeline{.media = !media.references.empty(), .sourceFrameCount = media.sourceFrameCount};
+    if (const auto* clip = findSingleton(objects, Role::Clip);
+        const auto* state = clip ? std::get_if<ClipState>(clip->value.get()) : nullptr)
+    {
+        timeline.firstFrame = loadedStartFrame(*state).value_or(timeline.firstFrame);
+        timeline.stepSize = state->stepSize.value_or(timeline.stepSize);
+        if (state->stepCount)
+        {
+            timeline.stepCount = *state->stepCount;
+        }
+        timeline.startTimeMs = finiteValue(state->startTime).value_or(0.0);
+    }
+    timeline.frameDurationMs = loadedFrameDuration(findSingleton(objects, Role::Video), findSingleton(objects, Role::ClipControl));
+    return timeline;
+}
+
+ClipTimeline clipTimeline(const TrackerDocument& document)
+{
+    return clipTimeline(document.objects(), document.media());
+}
+
+std::optional<PointMassState> baselinePointMass(const TrackerDocument& document, ObjectId id)
+{
+    const auto* object = document.object(id);
+    if (object == nullptr || !object->binding || document.associations() != Associations::Known || object->family() != Family::PointMass)
+    {
+        return std::nullopt;
+    }
+    // Tracker's application loader shifts every track's frames by the clip's positive frame shift (#313); no command
+    // edits the shift, so the document's clip holds the baseline's.
+    const auto* clip = findSingleton(document.objects(), Role::Clip);
+    const auto* clipState = clip ? std::get_if<ClipState>(clip->value.get()) : nullptr;
+    const auto& source = *document.baseline();
+    try
+    {
+        return pointMass(source, tracker::loadPointMass(source, *object->binding), clipState ? trackFrameShift(*clipState) : 0);
+    }
+    catch (const Refusal&)
+    {
+        return std::nullopt; // Unreachable: importing the same baseline typed this object.
+    }
 }
 
 std::vector<PathStep> baselinePath(const osp::Source& source, osp::NodeId node)
