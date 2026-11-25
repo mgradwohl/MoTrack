@@ -487,28 +487,28 @@ TEST(WorkspaceLocale, ReadsRegionalAndClassicNumbersButRefusesAmbiguousOnes)
     // The cases the reviewer asked for. A lone "." or "," other than the decimal mark before exactly three digits
     // reads two ways; grouping needs a decimal mark or a second separator.
     const std::array cases{
-        Case{"2.5", 2.5, 2.5},
-        Case{"1.234", 1.234, AMBIGUOUS},
-        Case{"0.125", 0.125, AMBIGUOUS},
-        Case{"2.500", 2.5, AMBIGUOUS},
-        Case{"1,234", AMBIGUOUS, 1.234},
-        Case{"0,125", AMBIGUOUS, 0.125},
-        Case{"1,5", INVALID, 1.5},
-        Case{"1.234,5", INVALID, 1234.5},
-        Case{"1,234.5", 1234.5, INVALID},
-        Case{"1.234.567", INVALID, 1234567.0},
-        Case{"1e3", 1000.0, 1000.0},
-        Case{"1,5e3", INVALID, 1500.0},
-        Case{"1.234e3", 1234.0, AMBIGUOUS},
-        Case{" -0,25 ", INVALID, -0.25},
-        Case{"-1.000", -1.0, AMBIGUOUS},
-        Case{"1,234,567", 1234567.0, INVALID},
-        Case{"12.34,5", INVALID, INVALID},
-        Case{"", INVALID, INVALID},
-        Case{"abc", INVALID, INVALID},
-        Case{"1,5x", INVALID, INVALID},
-        Case{"inf", INVALID, INVALID},
-        Case{"nan", INVALID, INVALID},
+        Case{.text = "2.5", .english = 2.5, .german = 2.5},
+        Case{.text = "1.234", .english = 1.234, .german = AMBIGUOUS},
+        Case{.text = "0.125", .english = 0.125, .german = AMBIGUOUS},
+        Case{.text = "2.500", .english = 2.5, .german = AMBIGUOUS},
+        Case{.text = "1,234", .english = AMBIGUOUS, .german = 1.234},
+        Case{.text = "0,125", .english = AMBIGUOUS, .german = 0.125},
+        Case{.text = "1,5", .english = INVALID, .german = 1.5},
+        Case{.text = "1.234,5", .english = INVALID, .german = 1234.5},
+        Case{.text = "1,234.5", .english = 1234.5, .german = INVALID},
+        Case{.text = "1.234.567", .english = INVALID, .german = 1234567.0},
+        Case{.text = "1e3", .english = 1000.0, .german = 1000.0},
+        Case{.text = "1,5e3", .english = INVALID, .german = 1500.0},
+        Case{.text = "1.234e3", .english = 1234.0, .german = AMBIGUOUS},
+        Case{.text = " -0,25 ", .english = INVALID, .german = -0.25},
+        Case{.text = "-1.000", .english = -1.0, .german = AMBIGUOUS},
+        Case{.text = "1,234,567", .english = 1234567.0, .german = INVALID},
+        Case{.text = "12.34,5", .english = INVALID, .german = INVALID},
+        Case{.text = "", .english = INVALID, .german = INVALID},
+        Case{.text = "abc", .english = INVALID, .german = INVALID},
+        Case{.text = "1,5x", .english = INVALID, .german = INVALID},
+        Case{.text = "inf", .english = INVALID, .german = INVALID},
+        Case{.text = "nan", .english = INVALID, .german = INVALID},
     };
     const QLocale english(QLocale::English, QLocale::UnitedStates);
     for (const auto& expected : cases)
@@ -646,7 +646,8 @@ TEST(WorkspaceLocale, RefusesAnAmbiguousMassOrCalibration)
         const char* ambiguous; ///< 1000 times too large or too small if guessed
         const char* worldX;    ///< the unchanged world x of the first mark
     };
-    for (const auto& expected : {Case{"de", "DE", "1.500", "0,75"}, Case{"en", "US", "0,125", "0.75"}})
+    for (const auto& expected : {Case{.language = "de", .region = "DE", .ambiguous = "1.500", .worldX = "0,75"},
+                                 Case{.language = "en", .region = "US", .ambiguous = "0,125", .worldX = "0.75"}})
     {
         SCOPED_TRACE(std::string(expected.language) + '_' + expected.region);
         const UserLocale locale(expected.language, expected.region);
