@@ -186,7 +186,7 @@ std::optional<QSet<QString>> trackerArchiveProjectNames(const QString& path)
         if (archive_entry_filetype(entry) != AE_IFREG)
             continue;
         const auto* utf8 = archive_entry_pathname_utf8(entry);
-        const auto member = QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry)).normalized(QString::NormalizationForm_C);
+        const auto member = archiveMemberKey(QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry)));
         if (member.contains(QChar::ReplacementCharacter))
             return std::nullopt;
         if (member.endsWith(".trk", Qt::CaseInsensitive) && !appleDouble(member, {}))

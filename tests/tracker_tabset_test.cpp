@@ -896,6 +896,29 @@ TEST(TrackerTabset, ResolvesArchiveMembersOnlyWhereTheArchiveListsThem)
     EXPECT_EQ(motrack::trackerArchiveProjectNames(base + "/set/broken.trz"), std::nullopt);
 }
 
+TEST(TrackerTabset, FindsAMemberStoredDecomposedUnderEitherSpelling)
+{
+    // An archive made on macOS stores "Café.trk" decomposed. libarchive returns that name composed on Windows and
+    // Linux and decomposed on macOS, so the lookup compares member identities (#308). The archive is written record
+    // by record, because libarchive's writers would store the composed name here.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    ASSERT_TRUE(QDir().mkpath(base + "/set"));
+    const QByteArray decomposed("Cafe\xCC\x81.trk");
+    const QByteArray composed("Caf\xC3\xA9.trk");
+    ASSERT_TRUE(motrack::test::writeStoredArchive(
+        base + "/set/mac.trz", {{.name = decomposed.constData(), .bytes = "<object/>"}, {.name = "run.trk", .bytes = "<object/>"}}));
+    const auto archive = canonical(base + "/set/mac.trz");
+    EXPECT_EQ(motrack::trackerArchiveProjectNames(archive), (QSet<QString>{"run.trk", QString::fromUtf8(composed)}));
+    for (const auto& spelling : {decomposed, composed})
+    {
+        // The entry keeps its own spelling, which is what a saved tabset writes back.
+        const auto target = motrack::resolveTabsetTarget(relativeEntry(("mac.trz!/" + spelling).toStdString()), base + "/set", {});
+        EXPECT_EQ(target, (motrack::TabsetTarget{.file = archive, .member = QString::fromUtf8(spelling)})) << spelling.toStdString();
+    }
+}
+
 TEST(TrackerTabset, ExpandsArchiveMembersOnceAndNotAfterTheirWholeArchive)
 {
     QTemporaryDir directory;
