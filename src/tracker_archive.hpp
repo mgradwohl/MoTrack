@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 
 #include <atomic>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -35,6 +36,12 @@ inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 ///   it is compared. Two stored names with one identity make the archive ambiguous, and it is refused.
 [[nodiscard]] QString archiveMemberKey(QStringView member);
 [[nodiscard]] std::string archiveMemberKey(std::string_view member);
+
+/// The NFC names of the `.trk` members of the Tracker archive at @p path, read from its member headers alone within
+/// TrackerArchive::open's size and member bounds, without extracting anything. Nullopt when the file cannot be read as
+/// a Tracker archive, including a member name that is not UTF-8. Finder metadata under `__MACOSX/` is left out by
+/// name; TrackerArchive::open still decides which members are projects.
+[[nodiscard]] std::optional<QSet<QString>> trackerArchiveProjectNames(const QString& path);
 
 namespace detail
 {

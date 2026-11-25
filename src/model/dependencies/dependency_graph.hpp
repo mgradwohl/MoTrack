@@ -274,6 +274,8 @@ struct RemovedObject
     /// Other objects' references to this identity, which now dangle. They stay in the graph, are reported by
     /// every plan and bind again when the identity is restored. Informational: restoreObject does not read it.
     std::vector<DependencyKey> danglingReferences;
+
+    bool operator==(const RemovedObject&) const = default;
 };
 
 enum class CyclePolicy : std::uint8_t
@@ -379,8 +381,9 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     /// native reopen of a document whose references still name an object removed before the save. References
     /// to it are then accepted as dangling, and it can only come back through restoreObject.
     DependencyResult<> retireIdentity(ObjectId id);
-    /// Changes the label only. No reference follows or loses a name, and no node is invalidated.
-    DependencyResult<> renameObject(ObjectId id, std::string label);
+    /// Changes the label only, to none for an object without a readable name. No reference follows or loses a
+    /// name, and no node is invalidated.
+    DependencyResult<> renameObject(ObjectId id, std::optional<std::string> label);
     /// Adds a dependency to a live owner. A Definition owner may target only Definition facets. A bound target must be live, removed or
     /// retired (never unknown), and a target that is not live leaves the new reference dangling. With CyclePolicy::Reject, a cycle is
     /// refused; undoing removeDependency uses CyclePolicy::Record.
@@ -390,6 +393,12 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     /// Records that the node's own inputs changed, such as a mass (Definition) or a mark (Geometry). Later
     /// facets of the object and all dependents are invalidated.
     DependencyResult<> markChanged(NodeKey node);
+    /// The revision floor: marks every live node changed at a new revision, the next one or `floor` when that is
+    /// later, and returns it. A document owner that assigns a value (a replacement or Revert) calls it on the
+    /// incoming graph with the outgoing live graph's revision + 1, so that isCurrent rejects every result computed
+    /// against either value, however low the incoming graph's own revisions are. It never skips the step: a floor
+    /// at or below this graph's revision is ignored, and the revision still advances. Cannot fail.
+    Revision markAllChanged(Revision floor) noexcept;
 
     [[nodiscard]] bool contains(ObjectId id) const;
     /// True for an identity that was removed or retired and not restored.
