@@ -258,45 +258,43 @@ FramePtr taggedFrame(AVPixelFormat format, QSize size, const Pattern& pattern, A
     return frame;
 }
 
-// Collects the warnings swscale logs while it exists. The FFmpeg log callback is process-wide.
-class SwscaleWarnings
+// Counts swscale's warning about FFmpeg's deprecated JPEG-range formats, which it logs when it initialises a
+// context for one, while it exists. Other messages, such as the arm64 "No accelerated colorspace conversion"
+// warning, differ by platform; they go to FFmpeg's default log. The FFmpeg log callback is process-wide.
+class DeprecatedFormatWarnings
 {
   public:
-    SwscaleWarnings(const SwscaleWarnings&) = delete;
-    SwscaleWarnings& operator=(const SwscaleWarnings&) = delete;
-    SwscaleWarnings()
+    DeprecatedFormatWarnings(const DeprecatedFormatWarnings&) = delete;
+    DeprecatedFormatWarnings& operator=(const DeprecatedFormatWarnings&) = delete;
+    DeprecatedFormatWarnings()
     {
-        lines().clear();
+        logged() = 0;
         av_log_set_callback(collect);
     }
-    ~SwscaleWarnings()
+    ~DeprecatedFormatWarnings()
     {
         av_log_set_callback(av_log_default_callback);
     }
 
-    [[nodiscard]] static std::vector<std::string> logged()
+    [[nodiscard]] static int count()
     {
-        return lines();
+        return logged();
     }
 
   private:
-    static std::vector<std::string>& lines()
+    static int& logged()
     {
-        static std::vector<std::string> collected;
-        return collected;
+        static int warnings = 0;
+        return warnings;
     }
 
     static void collect(void* context, int level, const char* format, va_list arguments)
     {
-        const auto* type = context != nullptr ? *static_cast<const AVClass* const*>(context) : nullptr;
-        if (level > AV_LOG_WARNING || type == nullptr || std::string_view(type->class_name) != "SWScaler")
+        if (format != nullptr && std::string_view(format).starts_with("deprecated pixel format used"))
         {
-            return;
+            ++logged();
         }
-        std::array<char, 1024> line{};
-        int prefix = 1;
-        av_log_format_line2(context, level, format, arguments, line.data(), static_cast<int>(line.size()), &prefix);
-        lines().emplace_back(line.data());
+        av_log_default_callback(context, level, format, arguments);
     }
 };
 
@@ -485,7 +483,7 @@ TEST(RgbaFrameConverter, RejectsFramesItCannotConvert)
 // input, so sws_getCachedContext never matched such a context and built a new one for every frame (#261).
 TEST(RgbaFrameConverter, ReusesOneContextWhileTheFrameFormatIsUnchanged)
 {
-    const SwscaleWarnings warnings;
+    const DeprecatedFormatWarnings warnings;
     for (const auto pixels : {AV_PIX_FMT_YUVJ420P,
                               AV_PIX_FMT_YUVJ422P,
                               AV_PIX_FMT_YUVJ444P,
@@ -509,7 +507,7 @@ TEST(RgbaFrameConverter, ReusesOneContextWhileTheFrameFormatIsUnchanged)
         }
     }
     // FFmpeg asks callers to give the range of a deprecated JPEG-range format; it warned for every context.
-    EXPECT_EQ(SwscaleWarnings::logged(), std::vector<std::string>{});
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
 }
 
 // Gray frames stay full range, as in swscale's frame API.
@@ -778,7 +776,7 @@ TEST(VideoReader, DecodesJpegRangeMoviesInFullRange)
     ASSERT_TRUE(temporary.isValid());
     const auto path = temporary.filePath("mjpeg-640x16.avi");
     writeMovie(path, AV_CODEC_ID_MJPEG, {640, 16}, FULL_FLAT, 3);
-    const SwscaleWarnings warnings;
+    const DeprecatedFormatWarnings warnings;
     motrack::VideoReader reader(path, motrack::VideoOrientation::Encoded);
     int frames = 0;
     while (const auto frame = reader.readNext())
@@ -788,7 +786,7 @@ TEST(VideoReader, DecodesJpegRangeMoviesInFullRange)
         EXPECT_EQ(firstMismatch(frame->image, FULL_FLAT, 4), "") << frames;
     }
     EXPECT_EQ(frames, 3);
-    EXPECT_EQ(SwscaleWarnings::logged(), std::vector<std::string>{});
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
 }
 
 } // namespace
