@@ -38,6 +38,8 @@ inline constexpr std::string_view COORD_FRAME_CLASS = "org.opensourcephysics.med
 inline constexpr std::string_view TFRAME_CLASS = "org.opensourcephysics.cabrillo.tracker.TFrame";
 inline constexpr std::string_view STRING_ARRAY_CLASS = "[Ljava.lang.String;";
 inline constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
+inline constexpr std::string_view INT_ARRAY_CLASS = "[I";
+inline constexpr std::string_view ARRAY_LIST_CLASS = "java.util.ArrayList";
 
 /// Loader defaults of pinned Tracker 6.3.5 for properties a file does not save (#214).
 /// TrackerPanel starts with `Tracker.preferredLengthUnit` (SI "m" without a preference file) and only replaces it
@@ -225,6 +227,62 @@ struct TabsetLoad
     std::vector<TabsetTabLoad> tabElements{}; ///< Elements of `tabs` in file order, when it is an array.
 };
 
+/// Why OSP's loader cannot build an array or collection that a Tracker loader casts to its own type (#315).
+/// XMLControlElement.arrayValue resolves the component type from the `class` attribute before it reads any element:
+/// an empty or unresolvable class (getPropertyClass returns null) or a class that is no array throws a
+/// NullPointerException, and another array class yields an array the loader's cast refuses (ClassCastException); the
+/// `tracks` list must be the ArrayList TrackerPanel.Loader casts it to. An indexed array (one not in the compact
+/// "array" form) is sized by its last element's index, so an element whose index Integer.parseInt cannot read, or one
+/// beyond the last element's, throws while the array is filled.
+enum class UnloadableShape : std::uint8_t
+{
+    /// The container's class is not the one Tracker's saver writes and its loader casts to.
+    WrongClass,
+    UnplacedIndex,
+};
+
+/// The shape of `container` (an array or collection property) that Java cannot load as `expectedClass`, or none.
+[[nodiscard]] std::optional<UnloadableShape>
+unloadableShape(const osp::Source& source, osp::NodeId container, std::string_view expectedClass);
+
+/// Where Tracker 6.3.5's application loader meets a container it cannot load, among the ones MoTrack reads.
+enum class UnloadablePlace : std::uint8_t
+{
+    /// The ImageVideo `paths` of a video that saves no string `path`: VideoClip.Loader reads `paths` itself, the
+    /// exception escapes TrackerPanel.Loader, and Tracker cannot open the file.
+    ImagePaths,
+    /// The ImageVideo `paths` of a video that also saves a string `path`: ImageVideoType.getVideo catches the exception
+    /// and opens the numbered images that start at `path`, which MoTrack does not reproduce.
+    ImagePathFallback,
+    /// The ImageCoordSystem `framedata` of the panel's `coords`: Tracker cannot open the file either.
+    Coordinates,
+    /// The panel's `tracks` property itself: without a usable collection class collectionValue catches the exception and
+    /// Tracker opens the file without any of its tracks; another collection class fails the load.
+    TrackList,
+    /// A point mass's `framedata` or `keyFrames`, or a vector's `framedata`: the exception leaves the track's loader
+    /// and collectionValue drops the whole `tracks` collection, so Tracker opens the file without any of its tracks.
+    TrackArray,
+};
+
+struct Unloadable
+{
+    UnloadablePlace place = UnloadablePlace::TrackArray;
+    UnloadableShape shape = UnloadableShape::WrongClass;
+    osp::NodeId container{};
+    /// The container's property name: `paths`, `framedata`, `tracks` or `keyFrames`.
+    std::string property{};
+    /// The class Tracker's saver writes for the container, such as `[I` for `keyFrames`.
+    std::string expectedClass{};
+    /// The track's saved name (TTrack.Loader's `name`), or "" when unreadable; only for `TrackArray`.
+    std::string track{};
+};
+
+/// The first container of the objects MoTrack models that Tracker's loader cannot build, in its loading order: the
+/// video's `paths` (ImageVideo only), the coordinate system's `framedata` (ImageCoordSystem only), the `tracks`
+/// property, then each point mass's `framedata` and `keyFrames` and each vector's `framedata` in `tracks` order.
+/// Other objects are preserved, not read, so their containers are not examined, although Tracker drops every track
+/// when an untyped track's array fails too (a deliberate difference, docs/native-format.md).
+[[nodiscard]] std::optional<Unloadable> findUnloadable(const osp::Source& source, const PanelLoad& panel);
 /// Loads the root object. The caller checks its class.
 [[nodiscard]] PanelLoad loadPanel(const osp::Source& source);
 /// Loads a tabset's root object. The caller checks its class and the shape of `tabs`.

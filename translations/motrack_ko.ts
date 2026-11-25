@@ -326,8 +326,9 @@
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
     <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
-    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project (%1) Its saved measurements are shown unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data and mass unit. Save the project to keep them.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -416,9 +417,21 @@
     <message><source>Discard and close</source><translation type="unfinished"></translation></message>
   </context>
   <context>
+    <name>LegacyProject</name>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array has an element whose index is unreadable or beyond the last element's.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array does not have the class Tracker saves (%3), and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array does not have the class Tracker saves (%3), so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves (%3).</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
     <name>NumberInput</name>
     <message><source>This number can be read two ways. Type it without digit grouping, with “%1” as the decimal mark.</source><translation type="unfinished"></translation></message>
-    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
     <message><source>This is not a number. Type digits with “%1” as the decimal mark, such as %2.</source><translation type="unfinished"></translation></message>
+    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

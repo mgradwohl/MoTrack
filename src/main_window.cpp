@@ -1115,19 +1115,25 @@ void MainWindow::activateProject(const QString& path)
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     m_SaveTracker->setEnabled(viewDocument().trackerSource.has_value());
+    const auto& sourceRefusal = viewDocument().trackerSourceRefusal;
     const bool bindingsReset = viewDocument().trackerBindingsReset;
     const bool readingOutdated = viewDocument().trackerReadingOutdated;
     const bool readingMigrated = viewDocument().trackerReadingMigrated;
-    m_SourceNotice->setText(readingOutdated ? tr("Tracker export unavailable: an earlier MoTrack saved these measurements without the "
-                                                 "Tracker file's frame shift or duplicate calibration keys, and they could not be "
-                                                 "updated safely. Measurements are unchanged.")
-                            : bindingsReset ? tr("Tracker export unavailable: the links to this project's Tracker tracks could not be "
-                                                 "restored. Measurements are unchanged.")
-                            : readingMigrated
-                                ? tr("Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and "
-                                     "frame data. Save the project to keep them.")
-                                : QString{});
-    m_SourceNotice->setVisible(bindingsReset || readingOutdated || readingMigrated);
+    m_SourceNotice->setText(
+        !sourceRefusal.empty()
+            ? tr("Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project "
+                 "(%1) Its saved measurements are shown unchanged.")
+                  .arg(QString::fromStdString(sourceRefusal))
+        : readingOutdated
+            ? tr("Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame "
+                 "data or mass unit differently, and the measurements it saved could not be updated safely. Measurements "
+                 "are unchanged.")
+        : bindingsReset   ? tr("Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements "
+                               "are unchanged.")
+        : readingMigrated ? tr("Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data "
+                               "and mass unit. Save the project to keep them.")
+                          : QString{});
+    m_SourceNotice->setVisible(!sourceRefusal.empty() || bindingsReset || readingOutdated || readingMigrated);
     m_ExportArchive->setEnabled(isLinkedMediaDocument(viewDocument()));
     refreshEditViews(0);
     syncClipControls();

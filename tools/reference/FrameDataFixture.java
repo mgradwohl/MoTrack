@@ -15,24 +15,25 @@ import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.VideoClip;
 
-/** Authors the frame-data loader fixtures (MoTrack #313, #314) through the pinned Java serializers.
- * Tracker 6.3.5's savers write neither a clip `frameshift` nor duplicate array indices, so each mode makes one
- * documented change to the serialized document: `frame-shift` adds `frameshift` 2 to the saved VideoClip through
- * the XMLControl API; `duplicate-coords` renames the coordinate key [1] to a second [0] and appends a null [3].
+/** Authors the frame-data and panel loader fixtures (MoTrack #313, #314, #315) through the pinned Java serializers.
+ * Tracker 6.3.5's savers write neither a clip `frameshift`, duplicate array indices nor empty unit labels, so each
+ * mode makes one documented change to the serialized document: `frame-shift` adds `frameshift` 2 to the saved
+ * VideoClip through the XMLControl API; `duplicate-coords` renames the coordinate key [1] to a second [0] and appends
+ * a null [3]; `empty-units` saves empty `time_unit` and `mass_unit` strings through the XMLControl API.
  */
 public final class FrameDataFixture {
     public static void main(String[] args) {
         try {
             if (args.length != 2 || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Usage (Tracker 6.3.5): FrameDataFixture frame-shift|duplicate-coords fresh-output.trk");
+                throw new IllegalArgumentException("Usage (Tracker 6.3.5): FrameDataFixture frame-shift|duplicate-coords|empty-units fresh-output.trk");
             String mode = args[0];
-            if (!List.of("frame-shift", "duplicate-coords").contains(mode)) throw new IllegalArgumentException("Unknown fixture mode");
+            if (!List.of("frame-shift", "duplicate-coords", "empty-units").contains(mode)) throw new IllegalArgumentException("Unknown fixture mode");
             Path path = Path.of(args[1]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
             // Like TrackerPanel's saver, omit trailing null array elements: they would set every array's Java length.
             XMLPropertyElement.defaultWriteNullFinalArrayElements = false;
-            XMLControlElement root = mode.equals("frame-shift") ? frameShift() : duplicateCoords();
+            XMLControlElement root = mode.equals("frame-shift") ? frameShift() : mode.equals("duplicate-coords") ? duplicateCoords() : emptyUnits();
             if (root.write(path.toString()) == null) throw new IllegalStateException("Could not write fixture");
             // The repository pins LF bytes on every host, independently of the Java host newline.
             String text = Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n");
@@ -125,5 +126,31 @@ public final class FrameDataFixture {
         // No three consecutive marks: derivative columns stay outside this loader case (#207).
         for (int frame = 0; frame < 5; frame += 2) mass.createStep(frame, 10 + 10 * frame, 20);
         return panel(clip, coords, List.of(new CoordAxes(), mass));
+    }
+
+    /** Empty saved `time_unit` and `mass_unit` labels (#315), in the order TrackerPanel's saver writes the units.
+     * TrackerPanel.Loader assigns the mass label as saved but passes the time label to VideoPanel.setTimeUnit, which
+     * ignores an empty one, so Tracker shows no mass unit and its default time unit "s". A calibration of 2 px per m and
+     * marks two frames apart keep the world coordinates and data columns of this case simple (#207).
+     */
+    private static XMLControlElement emptyUnits() {
+        VideoClip clip = new VideoClip(null);
+        clip.setStepCount(5);
+        ImageCoordSystem coords = new ImageCoordSystem(10);
+        coords.setOriginXY(0, 320, 240);
+        coords.setScaleXY(0, 2, 2);
+        PointMass mass = new PointMass();
+        mass.setName("mass A");
+        mass.setMass(1.5);
+        for (int frame = 0; frame < 5; frame += 2) mass.createStep(frame, 300 + 10 * frame, 200);
+        XMLControlElement root = new XMLControlElement(TrackerPanel.class);
+        root.setValue("semantic_version", OSPRuntime.VERSION);
+        root.setValue("videoclip", clip);
+        root.setValue("coords", coords);
+        root.setValue("time_unit", "");
+        root.setValue("length_unit", "m");
+        root.setValue("mass_unit", "");
+        root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), mass)));
+        return root;
     }
 }

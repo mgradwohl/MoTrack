@@ -67,6 +67,10 @@ struct WorkspaceDocument
     /// Runtime: opening migrated values of an earlier reading to the current one and so changed measurements; a native
     /// save records the current reading. Never serialized.
     bool trackerReadingMigrated = false;
+    /// Runtime: why the current reader refuses to import the preserved source, for example because Tracker cannot load
+    /// it either (#315), or empty. The stored values then open native-only and unchanged, with the source associations
+    /// dropped and the earlier `trackerReading` kept, so standard export is unavailable. Re-derived on every open.
+    std::string trackerSourceRefusal = {};
     std::shared_ptr<const MovieTimeline> movieTimeline = {};
 };
 

@@ -160,6 +160,108 @@ ClipControlLoad loadClipControl(const osp::Source& source, osp::NodeId object)
 
 } // namespace
 
+std::optional<UnloadableShape> unloadableShape(const osp::Source& source, osp::NodeId container, std::string_view expectedClass)
+{
+    const osp::PropertyView property(source, container);
+    if (property.type() != osp::PropertyType::Array && property.type() != osp::PropertyType::Collection)
+    {
+        return std::nullopt;
+    }
+    if (property.className() != expectedClass)
+    {
+        return UnloadableShape::WrongClass;
+    }
+    if (property.type() == osp::PropertyType::Collection)
+    {
+        return std::nullopt; // collectionValue adds elements in order, whatever their names.
+    }
+    const auto elements = property.elements();
+    if (elements.empty() || elements.front().name() == "array")
+    {
+        return std::nullopt; // Empty, or the compact form, which arrayValue reads without indices.
+    }
+    return property.indexedElements() ? std::nullopt : std::optional(UnloadableShape::UnplacedIndex);
+}
+
+std::optional<Unloadable> findUnloadable(const osp::Source& source, const PanelLoad& panel)
+{
+    const auto check = [&](UnloadablePlace place,
+                           std::optional<osp::NodeId> container,
+                           std::string_view expectedClass,
+                           std::string track = {}) -> std::optional<Unloadable>
+    {
+        const auto shape = container ? unloadableShape(source, *container, expectedClass) : std::nullopt;
+        if (!shape)
+        {
+            return std::nullopt;
+        }
+        return Unloadable{.place = place,
+                          .shape = *shape,
+                          .container = *container,
+                          .property = std::string(osp::PropertyView(source, *container).name().value_or(std::string_view{})),
+                          .expectedClass = std::string(expectedClass),
+                          .track = std::move(track)};
+    };
+    if (const auto& clip = panel.videoClip; clip && clip->video && clip->video->className == IMAGE_VIDEO_CLASS)
+    {
+        // VideoClip.Loader reads `paths` only when getString("path") is null; with a string `path`, ImageVideoType falls
+        // back to the numbered images that start there.
+        const auto place = clip->video->path ? UnloadablePlace::ImagePathFallback : UnloadablePlace::ImagePaths;
+        if (auto problem = check(place, clip->video->paths, STRING_ARRAY_CLASS))
+        {
+            return problem;
+        }
+    }
+    if (panel.coords && panel.coords->className == COORD_SYSTEM_CLASS && panel.coords->frames)
+    {
+        if (auto problem = check(UnloadablePlace::Coordinates, panel.coords->frames->property, "[L" + std::string(COORD_FRAME_CLASS) + ";"))
+        {
+            return problem;
+        }
+    }
+    if (panel.tracks)
+    {
+        // TrackerPanel.Loader casts getObject("tracks") to an ArrayList; a property of another kind is no list of tracks.
+        const auto type = osp::PropertyView(source, *panel.tracks).type();
+        if (type == osp::PropertyType::Array)
+        {
+            return Unloadable{.place = UnloadablePlace::TrackList,
+                              .shape = UnloadableShape::WrongClass,
+                              .container = *panel.tracks,
+                              .property = "tracks",
+                              .expectedClass = std::string(ARRAY_LIST_CLASS),
+                              .track = {}};
+        }
+        if (auto problem = check(UnloadablePlace::TrackList, panel.tracks, ARRAY_LIST_CLASS))
+        {
+            return problem;
+        }
+    }
+    for (const auto& item : panel.trackItems)
+    {
+        if (!item.object || (item.className != POINT_MASS_CLASS && item.className != VECTOR_CLASS))
+        {
+            continue;
+        }
+        const auto object = *item.object;
+        const auto saved = osp::ObjectView(source, object).getString("name");
+        const auto name = saved ? *saved : std::string{};
+        // PointMass.Loader reads `framedata`, then `keyFrames`; Vector.Loader reads only `framedata`.
+        const auto frameClass = "[L" + item.className + "$FrameData;";
+        if (auto problem = check(UnloadablePlace::TrackArray, propertyNode(source, object, "framedata"), frameClass, name))
+        {
+            return problem;
+        }
+        if (item.className == POINT_MASS_CLASS)
+        {
+            if (auto problem = check(UnloadablePlace::TrackArray, propertyNode(source, object, "keyFrames"), INT_ARRAY_CLASS, name))
+            {
+                return problem;
+            }
+        }
+    }
+    return std::nullopt;
+}
 CoordSystemLoad loadCoordSystem(const osp::Source& source, osp::NodeId object)
 {
     const osp::ObjectView view(source, object);
