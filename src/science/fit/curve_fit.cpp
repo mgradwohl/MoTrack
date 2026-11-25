@@ -152,9 +152,10 @@ class Curve
         m_Values = std::move(values);
     }
 
-    /// f(x); `undefined` becomes true when a UserFunction evaluated to NaN (OSP returns 0 then). OSP passes an
-    /// infinity through as a value, so log(0) or an overflowing exp gives an infinite deviation; Corrected
-    /// treats it as undefined, like NaN (MoTrack #311).
+    /// f(x); `undefined` becomes true when a UserFunction evaluated to NaN, which OSP's parser
+    /// (`SuryonoParser.Func.evaluate`, reached through `UserFunction`) returns as 0. OSP passes an infinity
+    /// through as a value, so log(0) or an overflowing exp gives an infinite deviation; Corrected treats it as
+    /// undefined, like NaN (MoTrack #311).
     [[nodiscard]] double value(double x, bool& undefined, FitDialect dialect) const
     {
         if (m_KnownPolynomial)

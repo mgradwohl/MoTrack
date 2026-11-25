@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -651,6 +652,31 @@ TEST(CurveFitReference, CorrectedTreatsLogOfZeroAsUndefined)
     EXPECT_EQ(corrected.parameters, (std::vector<double>{1, 0}));
     EXPECT_TRUE(corrected.uncertainties.empty());
     EXPECT_TRUE(corrected.uncertaintyBand.empty());
+    // Without a fit (Autofit off, or every parameter fixed) the deviation is measured the same way: Tracker
+    // shows an infinite rms without the warning, Corrected an undefined one with it.
+    const CaseData data = caseData(*found);
+    FitOptions manual;
+    manual.autofit = false;
+    manual.start = FitStart::FromCurrent;
+    FitOptions fixed;
+    fixed.fixed = {true, true};
+    for (const auto& [what, unfitted, status] :
+         {std::tuple{"manual", manual, FitStatus::Manual}, std::tuple{"fixed", fixed, FitStatus::NothingToFit}})
+    {
+        SCOPED_TRACE(what);
+        FitOptions run = unfitted;
+        run.dialect = FitDialect::Tracker;
+        const FitResult trackerResult = motrack::science::fitCurve(caseFunction("log"), data.x, data.y, run);
+        EXPECT_EQ(trackerResult.status, status);
+        EXPECT_TRUE(std::isinf(trackerResult.rmsDeviation));
+        EXPECT_FALSE(trackerResult.nonRealValues);
+        run.dialect = FitDialect::Corrected;
+        const FitResult correctedResult = motrack::science::fitCurve(caseFunction("log"), data.x, data.y, run);
+        EXPECT_EQ(correctedResult.status, status);
+        EXPECT_TRUE(std::isnan(correctedResult.rmsDeviation));
+        EXPECT_TRUE(correctedResult.nonRealValues);
+        EXPECT_EQ(correctedResult.parameters, (std::vector<double>{1, 0}));
+    }
 }
 
 TEST(CurveFitReference, CorrectedBandRefitsTheOtherParameters)

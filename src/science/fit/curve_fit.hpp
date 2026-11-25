@@ -27,9 +27,11 @@ enum class FitDialect : std::uint8_t
 /// Evaluates a fit function f(x; parameters), parameters in declaration order.
 ///
 /// The callback runs synchronously on the fitting thread, many times per fit. It reports an undefined
-/// value with NaN rather than throwing. Like OSP's `UserFunction`, the fitter treats a NaN value as 0 while
-/// minimizing and as a "non-real value" when measuring the deviation. OSP passes an infinity through as a
-/// value; the Corrected dialect treats it as undefined, like NaN. An exception propagates out of
+/// value with NaN rather than throwing. Like OSP, whose parser (`SuryonoParser.Func.evaluate`, reached through
+/// `UserFunction`) returns a NaN result as 0, the fitter treats a NaN value as 0 while minimizing and as a
+/// "non-real value" when measuring the deviation. OSP passes an infinity, such as log(0) or an overflowing exp,
+/// through as a value; the Corrected dialect treats it as undefined, like NaN. (A literal division by zero gives
+/// no infinity: the parser divides by 1.0e-128 instead, which K1 keeps.) An exception propagates out of
 /// `fitCurve`, which has no side effects. Slice I4 binds user-defined fits to the K1 expression engine by
 /// compiling the expression over the variables {x, parameters...} and evaluating it here.
 using FitModel = std::function<double(double x, std::span<const double> parameters)>;

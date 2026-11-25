@@ -593,13 +593,33 @@ TEST(CurveFit, CorrectedTreatsInfiniteValuesAsUndefined)
     EXPECT_TRUE(std::isnan(corrected.rmsDeviation));
     EXPECT_EQ(corrected.parameters, (std::vector<double>{1, 100, 0}));
     EXPECT_TRUE(corrected.uncertainties.empty());
-    // A start defined everywhere fits the same data; the minimizers reject the vectors that overflow.
+    // A start defined everywhere fits the same data.
     const FitResult fitted =
         fitCurve(withValues(exponential, std::vector<double>{1, -1, 0}), x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
     EXPECT_EQ(fitted.status, FitStatus::Fitted);
     EXPECT_FALSE(fitted.nonRealValues);
     EXPECT_TRUE(std::isfinite(fitted.rmsDeviation));
     expectNear(std::vector<double>{1.5, -0.3, 0.2}, fitted.parameters, 0.05);
+}
+
+TEST(CurveFit, CorrectedTreatsAPowerPoleAsUndefined)
+{
+    // A*x^B from (1, -1) on data that include x = 0: Math.pow(0, -1) = +inf at the first point.
+    const auto x = grid(0, 0.25, 12);
+    const FitFunction power = withValues(builtInFit(BuiltInFit::Power), std::vector<double>{1, -1});
+    const auto y = wiggle(grid(0.5, 0.2, 12), 0.02);
+    ASSERT_TRUE(std::isinf(power.model(0.0, std::vector<double>{1, -1})));
+    const FitResult tracker = fitCurve(power, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_NE(tracker.status, FitStatus::UndefinedAtStart);
+    EXPECT_TRUE(std::isinf(tracker.rmsDeviation));
+    EXPECT_FALSE(tracker.nonRealValues);
+    const FitResult corrected = fitCurve(power, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(corrected.status, FitStatus::UndefinedAtStart);
+    EXPECT_EQ(corrected.method, FitMethod::None);
+    EXPECT_TRUE(corrected.nonRealValues);
+    EXPECT_TRUE(std::isnan(corrected.rmsDeviation));
+    EXPECT_EQ(corrected.parameters, (std::vector<double>{1, -1}));
+    EXPECT_TRUE(corrected.uncertainties.empty());
 }
 
 /// Gauss-Newton least squares for A*exp(B*x)+C, solving the 3x3 normal equations by Cramer's rule.
