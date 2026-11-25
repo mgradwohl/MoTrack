@@ -75,12 +75,12 @@ TEST(LegacyProject, AssignsDistinctIdentitiesToImportedTracksWithDuplicateNames)
 {
     const auto project = motrack::parseLegacyProject(projectXml(R"(
       <property name="tracks">
-        <property name="[0]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+        <property name="item"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
           <property name="name">same</property></object></property>
-        <property name="[1]"><object class="UnknownTrack"><property name="name">same</property></object></property>
-        <property name="[2]"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
+        <property name="item"><object class="UnknownTrack"><property name="name">same</property></object></property>
+        <property name="item"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
           <property name="name">same</property></object></property>
-        <property name="[3]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+        <property name="item"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
           <property name="name">same</property></object></property>
       </property>)"));
     ASSERT_EQ(project.pointMasses.size(), 2u);
@@ -669,7 +669,8 @@ std::string trackArrayRefusal(std::string_view track, std::string_view array, st
 
 std::string withClass(std::string text, std::string_view from, std::string_view to)
 {
-    return replaced(std::move(text), " class=\"" + std::string(from) + "\"", to.empty() ? std::string{} : " class=\"" + std::string(to) + "\"");
+    return replaced(
+        std::move(text), " class=\"" + std::string(from) + "\"", to.empty() ? std::string{} : " class=\"" + std::string(to) + "\"");
 }
 
 TEST(LegacyProject, RefusesArraysTrackersLoaderCannotBuild)
@@ -683,7 +684,10 @@ TEST(LegacyProject, RefusesArraysTrackersLoaderCannotBuild)
     // java.lang.String, [Ljava.lang.Object;), keyFrames ([D) and the calibration ([Ljava.lang.Object;).
     const auto base = fixtureText("native/baseline.trk");
     const auto images = fixtureText("image-sequence.trk");
-    const auto mass = [&](std::string_view from, std::string_view to) { return replaced(base, from, to); };
+    const auto mass = [&](std::string_view from, std::string_view to)
+    {
+        return replaced(base, from, to);
+    };
     // Mass A's [0] [1] [3] become [0] [5] [3]: the last index sets the length 4, so [5] has no slot.
     EXPECT_EQ(refusalOf(fixtureText("unloadable-track-frames.trk")), trackArrayRefusal("mass A", "framedata"));
     EXPECT_EQ(fixtureText("unloadable-track-frames.trk"),
@@ -699,8 +703,9 @@ TEST(LegacyProject, RefusesArraysTrackersLoaderCannotBuild)
     EXPECT_EQ(refusalOf(secondClassless), trackArrayRefusal("mass B", "framedata", MASS_FRAMES));
     EXPECT_EQ(refusalOf(mass(R"(<property name="keyFrames" type="array" class="[I">)", R"(<property name="keyFrames" type="array">)")),
               trackArrayRefusal("mass A", "keyFrames", "[I"));
-    EXPECT_EQ(refusalOf(mass(R"(<property name="keyFrames" type="array" class="[I">)", R"(<property name="keyFrames" type="array" class="[D">)")),
-              trackArrayRefusal("mass A", "keyFrames", "[I"));
+    EXPECT_EQ(
+        refusalOf(mass(R"(<property name="keyFrames" type="array" class="[I">)", R"(<property name="keyFrames" type="array" class="[D">)")),
+        trackArrayRefusal("mass A", "keyFrames", "[I"));
     const std::string compactKeys = "                    <property name=\"array\" type=\"string\">{0,1,3}</property>\n";
     EXPECT_EQ(refusalOf(mass(compactKeys,
                              "                    <property name=\"[1]\" type=\"int\">3</property>\n"
@@ -770,7 +775,8 @@ TEST(LegacyProject, RefusesArraysTrackersLoaderCannotBuild)
               "the last element's, and the video saves no \"path\".");
     EXPECT_EQ(refusalOf(withClass(images, "[Ljava.lang.String;", "")),
               "Tracker cannot open this file: the image sequence's \"paths\" array does not have the class Tracker saves "
-              "([Ljava.lang.String;), and the video saves no \"path\".");    // A control Tracker loads: unordered indices within the last one's (mass A's [1] [0] [3]). MoTrack examines only the
+              "([Ljava.lang.String;), and the video saves no \"path\"."); // A control Tracker loads: unordered indices within the last
+                                                                          // one's (mass A's [1] [0] [3]). MoTrack examines only the
     // arrays of the objects it reads; those of untyped tracks are preserved unread.
     const auto unordered = motrack::parseLegacyProject(
         replaced(replaced(replaced(base,
@@ -832,12 +838,8 @@ TEST(LegacyProject, UnloadableMessagesMatchTheTypedImport)
     {
         for (const auto shape : {UnloadableShape::WrongClass, UnloadableShape::UnplacedIndex})
         {
-            const motrack::tracker::Unloadable problem{.place = place,
-                                                       .shape = shape,
-                                                       .container = {},
-                                                       .property = "keyFrames",
-                                                       .expectedClass = "[I",
-                                                       .track = "%2 %3 & \"%1\""};
+            const motrack::tracker::Unloadable problem{
+                .place = place, .shape = shape, .container = {}, .property = "keyFrames", .expectedClass = "[I", .track = "%2 %3 & \"%1\""};
             const auto message = motrack::model::unloadableMessage(problem);
             EXPECT_EQ(motrack::detail::unloadableMessage(problem), message);
             EXPECT_EQ(message.find("%1") != std::string::npos, place == UnloadablePlace::TrackArray) << message;

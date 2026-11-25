@@ -242,7 +242,8 @@ enum class UnloadableShape : std::uint8_t
 };
 
 /// The shape of `container` (an array or collection property) that Java cannot load as `expectedClass`, or none.
-[[nodiscard]] std::optional<UnloadableShape> unloadableShape(const osp::Source& source, osp::NodeId container, std::string_view expectedClass);
+[[nodiscard]] std::optional<UnloadableShape>
+unloadableShape(const osp::Source& source, osp::NodeId container, std::string_view expectedClass);
 
 /// Where Tracker 6.3.5's application loader meets a container it cannot load, among the ones MoTrack reads.
 enum class UnloadablePlace : std::uint8_t

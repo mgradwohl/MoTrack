@@ -1072,13 +1072,14 @@
   </context>
   <context>
     <name>LegacyProject</name>
-    <message><source>Tracker cannot open this file: the image sequence's "paths" array has no class.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker cannot open this file: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker cannot open this file: the calibration's "framedata" array has no class.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker cannot open this file: the calibration's "framedata" array has an element whose index is unreadable or beyond the last element's.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker cannot load the tracks of this file: its "tracks" list has no class. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker cannot load the tracks of this file: its "tracks" list has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" has no class. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array does not have the class Tracker saves (%3), and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array does not have the class Tracker saves (%3), so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves (%3).</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>
