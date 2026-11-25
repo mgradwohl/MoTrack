@@ -415,4 +415,9 @@
     <message><source>&amp;Stop</source><translation type="unfinished"></translation></message>
     <message><source>Discard and close</source><translation type="unfinished"></translation></message>
   </context>
+  <context>
+    <name>NumberInput</name>
+    <message><source>This number can be read two ways. Type it without digit grouping, with “%1” as the decimal mark.</source><translation type="unfinished"></translation></message>
+    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
+  </context>
 </TS>

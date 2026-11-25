@@ -64,8 +64,7 @@ QString editableNumber(double value)
 
 NumberValidator::NumberValidator(double minimum, double maximum, QObject* parent)
     : QValidator(parent), m_Minimum(minimum), m_Maximum(maximum)
-{
-}
+{}
 
 QValidator::State NumberValidator::validate(QString& input, int& /*position*/) const
 {
@@ -101,8 +100,7 @@ void requireNumber(QLineEdit& field, double minimum, double maximum, QDialogButt
     update();
 }
 
-std::optional<double>
-askNumber(QWidget* parent, const QString& title, const QString& label, double value, double minimum, double maximum)
+std::optional<double> askNumber(QWidget* parent, const QString& title, const QString& label, double value, double minimum, double maximum)
 {
     // Owned here; a parent destroyed while the dialog runs deletes it first, and the pointer then reads null.
     auto* window = new QDialog(parent);

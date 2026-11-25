@@ -48,6 +48,13 @@ QString fixturePath(const QString& name)
     return QString::fromUtf8(MOTRACK_FIXTURES) + '/' + name;
 }
 
+/// A Tracker-written image project that MoTrack can save back: frames 0 and 2 of "image mass" at image (4, 16) and
+/// (12, 4), origin (2, 20), scale (2, 4) px per m, starting at -0.25 s with 0.125 s per frame.
+QString linkedImages()
+{
+    return QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/linked-images.trk";
+}
+
 QByteArray readBytes(const QString& path)
 {
     QFile input(path);
@@ -170,8 +177,8 @@ QString shownMass(motrack::MainWindow& window)
     return shown;
 }
 
-/// Calibrates frame 0 of image-sequence.trk with the calibration stick from image (0, 1) to (2, 1), typing
-/// @p distance and the unit cm. The fixture's scale (2, 4) px per m and a known length of 2.5 give (0.8, 1.6).
+/// Calibrates the current frame with the calibration stick from image (0, 1) to (2, 1), typing @p distance and the
+/// unit cm. With a scale of (2, 4) px per m, as both fixtures have, a known length of 2.5 gives (0.8, 1.6).
 bool typeCalibration(motrack::MainWindow& window, const QString& distance)
 {
     auto* action = window.findChild<QAction*>("calibrationStick");
@@ -237,7 +244,8 @@ QString writeLargeValues(const QTemporaryDir& temporary)
     auto document = motrack::WorkspaceDocument{};
     document.project.clip.stepCount = 2;
     document.project.clip.frameDurationMs = 1000.0;
-    document.project.clip.mediaReferences = {fixturePath("frames/frame00.ppm").toStdString(), fixturePath("frames/frame02.ppm").toStdString()};
+    document.project.clip.mediaReferences = {fixturePath("frames/frame00.ppm").toStdString(),
+                                             fixturePath("frames/frame02.ppm").toStdString()};
     motrack::PointMass mass{.name = "Cart", .id = motrack::allocateTrackId(document.project)};
     mass.marks = {{.frame = 0, .x = 12345.125, .y = -2500.5}, {.frame = 1, .x = 23456.625, .y = -1500.5}};
     document.project.pointMasses.push_back(mass);
@@ -340,8 +348,7 @@ TEST(WorkspaceLocale, GroupsDigitsInReadoutsButNotInDataViews)
         auto* quantities = window.findChild<QComboBox*>("plotQuantity");
         ASSERT_TRUE(marks && plot && quantities);
         EXPECT_EQ(row(*marks, 0), expected.firstRow);
-        EXPECT_EQ(plot->axisLabels().top, QLocale().toString(23457));
-        EXPECT_EQ(plot->axisLabels().top.size(), 5) << "data views never group digits";
+        EXPECT_EQ(plot->axisLabels().top, "23457");
         EXPECT_EQ(plot->axisLabels().bottom, "12345");
         EXPECT_EQ(fitSummary(window), expected.fit);
         quantities->setCurrentIndex(1);
@@ -358,6 +365,8 @@ TEST(WorkspaceLocale, ExportsAndSavesTheSameBytesInEveryLocale)
     QTemporaryDir temporary;
     ASSERT_TRUE(temporary.isValid());
     const auto directory = temporary.filePath("save");
+    const auto source = linkedImages();
+
     std::map<std::string, std::map<QString, QByteArray>> saved;
     for (const auto* region : {"US", "DE"})
     {
@@ -368,14 +377,14 @@ TEST(WorkspaceLocale, ExportsAndSavesTheSameBytesInEveryLocale)
             const UserLocale locale(language, region);
             motrack::MainWindow window;
             window.show();
-            ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+            ASSERT_TRUE(window.loadProject(source));
             ASSERT_TRUE(typeMass(window, QLocale().toString(2.5)));
             ASSERT_TRUE(typeCalibration(window, QLocale().toString(2.5)));
             auto* plot = dynamic_cast<motrack::PositionPlot*>(window.findChild<QWidget*>("positionPlot"));
             ASSERT_NE(plot, nullptr);
             ASSERT_TRUE(window.saveMeasurements(directory + "/measurements.csv"));
             const auto series = plot->csv();
-            ASSERT_TRUE(window.saveTrackerProject(directory + "/experiment.trk"));
+            ASSERT_TRUE(window.saveTrackerProject(directory + "/experiment.trk")) << window.statusBar()->currentMessage().toStdString();
             ASSERT_TRUE(window.saveWorkspace(directory + "/native.motrack"));
             auto& files = saved[language];
             files["plot.csv"] = QByteArray::fromStdString(series);
@@ -397,15 +406,16 @@ TEST(WorkspaceLocale, ExportsAndSavesTheSameBytesInEveryLocale)
         ASSERT_TRUE(german.contains(name));
         EXPECT_EQ(german.at(name), bytes);
     }
-    EXPECT_TRUE(english.at("measurements.csv").contains("Ball,0,1.5,1.5,1.875,1.5625,cm\r\n")) << english.at("measurements.csv").toStdString();
-    EXPECT_EQ(english.at("plot.csv"), "frame,time_s,x position (cm)\r\n0,-0.5,1.875\r\n2,0,3.125\r\n");
+    EXPECT_TRUE(english.at("measurements.csv").contains("image mass,0,4,16,2.5,2.5,cm\r\n"))
+        << english.at("measurements.csv").toStdString();
+    EXPECT_EQ(english.at("plot.csv"), "frame,time_s,x position (cm)\r\n0,-0.25,2.5\r\n2,0,12.5\r\n");
     const auto& xml = english.at("experiment.trk");
     EXPECT_TRUE(xml.contains(R"(<property name="mass" type="double">2.5</property>)"));
     EXPECT_TRUE(xml.contains(R"(<property name="xscale" type="double">0.8</property>)"));
     EXPECT_TRUE(xml.contains(R"(<property name="yscale" type="double">1.6</property>)"));
     for (const auto& [name, bytes] : english)
     {
-        EXPECT_FALSE(bytes.contains("2,5") || bytes.contains("1,875")) << name.toStdString();
+        EXPECT_FALSE(bytes.contains("2,5") || bytes.contains("12,5") || bytes.contains("0,8")) << name.toStdString();
     }
 }
 
@@ -414,13 +424,15 @@ TEST(WorkspaceLocale, RoundTripsEditedValuesThroughTheUiInGerman)
     QTemporaryDir temporary;
     ASSERT_TRUE(temporary.isValid());
     const auto path = temporary.filePath("edited.trk");
+    const auto source = linkedImages();
+
     const UserLocale locale("de", "DE");
-    const QStringList firstRow{"Ball", "0", "1,5", "1,5", "1,875", "1,5625"};
+    const QStringList firstRow{"image mass", "0", "4", "16", "2,5", "2,5"};
     {
         motrack::MainWindow window;
         window.show();
-        ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
-        EXPECT_EQ(shownMass(window), "1");
+        ASSERT_TRUE(window.loadProject(source));
+        EXPECT_EQ(shownMass(window), "2");
         ASSERT_TRUE(typeMass(window, "0,125"));
         EXPECT_EQ(shownMass(window), "0,125");
         // A classic number pasted from a CSV export: 2.5, not the 25 a QDoubleSpinBox would read.
@@ -428,7 +440,7 @@ TEST(WorkspaceLocale, RoundTripsEditedValuesThroughTheUiInGerman)
         auto* marks = window.findChild<QTableWidget*>("marksTable");
         ASSERT_NE(marks, nullptr);
         EXPECT_EQ(row(*marks, 0), firstRow);
-        ASSERT_TRUE(window.saveTrackerProject(path));
+        ASSERT_TRUE(window.saveTrackerProject(path)) << window.statusBar()->currentMessage().toStdString();
     }
     const auto xml = readBytes(path);
     EXPECT_TRUE(xml.contains(R"(<property name="mass" type="double">0.125</property>)"));

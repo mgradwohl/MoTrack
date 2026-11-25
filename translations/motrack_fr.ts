@@ -1069,4 +1069,9 @@
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un nom de membre de cette archive Tracker n'est pas un texte UTF-8 valide : l'archive ne peut donc pas être ouverte. Tracker ne peut pas l'ouvrir non plus.</translation></message>
   </context>
+  <context>
+    <name>NumberInput</name>
+    <message><source>This number can be read two ways. Type it without digit grouping, with “%1” as the decimal mark.</source><translation type="unfinished"></translation></message>
+    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
+  </context>
 </TS>

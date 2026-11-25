@@ -1519,7 +1519,7 @@ void MainWindow::setSelectedPointMassValue()
     else
     {
         statusBar()->showMessage(!mass && mass.error() == NumberInputError::Ambiguous ? ambiguousNumberMessage()
-                                                                                       : tr("Enter a finite, positive mass."));
+                                                                                      : tr("Enter a finite, positive mass."));
     }
 }
 
@@ -1793,9 +1793,9 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
                                                         .imageDeltaX = delta.x(),
                                                         .imageDeltaY = delta.y(),
                                                         .knownLength = *knownLength,
-                                         .defaultOriginX = imageSize.width() / 2.0,
-                                         .defaultOriginY = imageSize.height() / 2.0,
-                                         .unit = unit->text().trimmed().toStdString()}))
+                                                        .defaultOriginX = imageSize.width() / 2.0,
+                                                        .defaultOriginY = imageSize.height() / 2.0,
+                                                        .unit = unit->text().trimmed().toStdString()}))
     {
         refreshEditViews(m_TrackPicker->currentIndex());
         statusBar()->showMessage(tr("Calibration updated."));

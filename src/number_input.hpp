@@ -9,6 +9,7 @@
 #include <QString>
 #include <QValidator>
 
+#include <cstdint>
 #include <expected>
 #include <optional>
 
@@ -21,7 +22,7 @@ namespace motrack
 {
 
 /// Why parseUserNumber() refused a text.
-enum class NumberInputError
+enum class NumberInputError : std::uint8_t
 {
     Invalid,   ///< neither form reads it as a finite number
     Ambiguous, ///< both forms read it, as different numbers
