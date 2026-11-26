@@ -1,0 +1,1 @@
+refused: Tracker export is unavailable: this MoTrack cannot read the copy of the original Tracker file kept in the project (Tracker cannot load the tracks of this file: the "framedata" array of track "mass A" has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.)

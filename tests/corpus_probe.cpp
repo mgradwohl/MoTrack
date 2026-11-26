@@ -1,6 +1,7 @@
 #include "app_locale.hpp"
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
+#include "compose_scenarios.hpp"
 #include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "legacy_view.hpp"
@@ -10,7 +11,9 @@
 #include "library/resource.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
+#include "model/command_json.hpp"
 #include "model/descriptors.hpp"
+#include "model/document_history.hpp"
 #include "model/tracker_document.hpp"
 #include "movie_authoring.hpp"
 #include "osp/java_text.hpp"
@@ -19,6 +22,7 @@
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_compose.hpp"
 #include "tracker_references.hpp"
 #include "tracker_tabset.hpp"
 #include "tracker_writer.hpp"
@@ -58,6 +62,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #if defined(_WIN32) && defined(_DEBUG)
@@ -287,7 +292,7 @@ std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> read
 /// defect of the bound conversion (B2.1).
 void requireTypedNative(const motrack::WorkspaceDocument& document, const std::string& label)
 {
-    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated;
+    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated || !document.trackerSourceRefusal.empty();
     const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, dropped, document.trackerReading);
     if (!motrack::keepsRecordedAssociations(typed, document.trackerSource, dropped, document.trackerReading))
     {
@@ -657,6 +662,46 @@ QJsonObject stateSnapshot(const motrack::model::TrackerDocument& document)
     return {{"schema_version", 1},
             {"producer", QJsonObject{{"kind", "motrack"}, {"supported_classes", QJsonArray{POINT_MASS_CLASS, VECTOR_CLASS}}}},
             {"panel", panel}};
+}
+
+/// The MoTrack side of oracle O6 (docs/tracker-document.md §5): applies an operations file (tests/model/command_json.hpp)
+/// to the typed document of a Tracker file through one history and returns the state snapshot of the result, in the
+/// schema of `--state`. An operation whose outcome differs from its `expect` fails the run.
+QJsonObject applySnapshot(const QString& operationsPath, const std::filesystem::path& input)
+{
+    auto document = readTrackerProjectWithParity(input).second;
+    QFile file(operationsPath);
+    if (!file.open(QIODevice::ReadOnly))
+    {
+        throw motrack::ProjectError("Could not read the operations file.");
+    }
+    QJsonParseError parsed{};
+    const auto json = QJsonDocument::fromJson(file.readAll(), &parsed);
+    if (parsed.error != QJsonParseError::NoError || !json.isObject() || json["schema_version"].toInt() != 1 ||
+        !json["operations"].isArray())
+    {
+        throw motrack::ProjectError("Expected an operations file of schema version 1.");
+    }
+    motrack::model::DocumentHistory history;
+    const auto operations = json["operations"].toArray();
+    for (qsizetype index = 0; index < operations.size(); ++index)
+    {
+        const auto operation = operations[index].toObject();
+        const auto expect = operation["expect"].toString("applied");
+        if (expect != "applied" && expect != "refused")
+        {
+            throw motrack::ProjectError("Operation " + std::to_string(index) + " expects neither applied nor refused.");
+        }
+        const auto result = operation.contains("undo")   ? history.undo(document)
+                            : operation.contains("redo") ? history.redo(document)
+                                                         : history.apply(document, motrack::test::decodeCommand(operation));
+        if (result.has_value() != (expect == "applied"))
+        {
+            throw motrack::ProjectError("Operation " + std::to_string(index) +
+                                        (result ? " applied but was expected to be refused." : " was refused: " + result.error().message));
+        }
+    }
+    return stateSnapshot(document);
 }
 
 /// Summarizes one experiment prepared through the desktop open path, without measurements.
@@ -1106,6 +1151,37 @@ QJsonObject libraryDump(const QString& kind, const std::filesystem::path& input)
     }
     throw motrack::ProjectError("Unknown library dump kind.");
 }
+/// Where B2.3's comparison of each export with the descriptor composition is reported (MOTRACK_COMPOSE_REPORT), and the
+/// probe command it belongs to.
+QString& compositionReport()
+{
+    static QString path;
+    return path;
+}
+
+QString& compositionCommand()
+{
+    static QString command;
+    return command;
+}
+
+/// Composes every production (B1) export of this run again with the descriptors and appends one JSON line describing
+/// the comparison; `corpus.py compose-check` reads them. The export itself is unchanged.
+void reportComposition(const motrack::LegacyProject& project,
+                       const motrack::TrackerSource& source,
+                       const motrack::ExportMedia& media,
+                       const motrack::detail::CompositionOutcome& outcome)
+{
+    const auto comparison = motrack::detail::compareWithDescriptorComposition(project, source, media, outcome);
+    const QJsonObject line{{"command", compositionCommand()},
+                           {"exported", std::holds_alternative<std::string>(comparison.legacy)},
+                           {"equivalent", comparison.equivalent()},
+                           {"identical", comparison.identical()},
+                           {"description", QString::fromStdString(comparison.describe())}};
+    QFile file(compositionReport());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append) || file.write(QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n') < 0)
+        throw motrack::ProjectError("Could not write the composition report.");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1117,6 +1193,12 @@ try
     const QCoreApplication application(argc, argv);
     motrack::configureProcessLocale();
     const auto args = application.arguments();
+    if (const auto report = qEnvironmentVariable("MOTRACK_COMPOSE_REPORT"); !report.isEmpty())
+    {
+        compositionReport() = report;
+        compositionCommand() = args.size() > 1 ? args[1] : QString();
+        motrack::detail::setCompositionObserver(&reportComposition);
+    }
     if (args.size() >= 4 && args[1] == "--write-tabset")
     {
         // MoTrack's tabset writer, with paths relative to the destination's directory.
@@ -1150,12 +1232,59 @@ try
             items.push_back(
                 QJsonObject{{"status", static_cast<int>(std::to_underlying(item.status))},
                             {"file", item.file},
+                            {"member", item.member},
                             {"relative", QString::fromStdString(item.entry.relative)},
                             {"absolute", item.entry.absolute ? QJsonValue(QString::fromStdString(*item.entry.absolute)) : QJsonValue()}});
         QSaveFile output(args[3]);
         if (!output.open(QIODevice::WriteOnly) || output.write(QJsonDocument(items).toJson()) < 0 || !output.commit())
             throw motrack::ProjectError("Could not write the tabset report.");
         return EXIT_SUCCESS;
+    }
+    if (args.size() == 4 && args[1] == "--compose-scenarios")
+    {
+        // B2.3's corpus comparison: every edit of tests/compose_scenarios.hpp exported by B1's composition and by the
+        // descriptor composition. A file B1 refuses to import reports no scenarios.
+        QJsonArray scenarios;
+        std::optional<motrack::ImportedTrackerProject> imported;
+        QString refused;
+        try
+        {
+            imported = motrack::readTrackerProject(motrack::toFilesystemPath(args[2]));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            refused = QString::fromStdString(error.what());
+        }
+        if (imported)
+        {
+            for (const auto& [scenario, route, comparison] :
+                 motrack::test::compareScenarios(*imported, motrack::importTypedTracker(imported->source.xml)))
+            {
+                scenarios.append(QJsonObject{{"scenario", QString::fromUtf8(scenario.data(), static_cast<qsizetype>(scenario.size()))},
+                                             {"route",
+                                              route == motrack::LinkedMedia::None     ? "media-free"
+                                              : route == motrack::LinkedMedia::Images ? "linked-images"
+                                                                                      : "linked-movie"},
+                                             {"exported", std::holds_alternative<std::string>(comparison.legacy)},
+                                             {"equivalent", comparison.equivalent()},
+                                             {"identical", comparison.identical()},
+                                             {"description", QString::fromStdString(comparison.describe())}});
+            }
+        }
+        const auto bytes =
+            QJsonDocument(QJsonObject{{"imported", imported.has_value()}, {"refused", refused}, {"scenarios", scenarios}}).toJson();
+        QSaveFile output(args[3]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write the composition comparison.");
+        return 0;
+    }
+    if (args.size() == 5 && args[1] == "--apply")
+    {
+        const auto bytes = QJsonDocument(applySnapshot(args[2], motrack::toFilesystemPath(args[3]))).toJson();
+        QSaveFile output(args[4]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write corpus snapshot.");
+        return 0;
     }
     if (args.size() == 4 && args[1] == "--osp-dump")
     {
@@ -2042,6 +2171,7 @@ try
     if (args.size() != 3 && !flagged)
     {
         std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json"
+                   " | --apply operations.json input.trk output.json"
                    " | --open input.trk|.trz|.zip output.json | --library-dump kind input output.json"
                    " | --export-<case> input.trk output.trk\n",
                    stderr);

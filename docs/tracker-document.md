@@ -5,11 +5,16 @@ This is the design and implementation plan for slice B2 of wave 1 in the
 `WorkspaceDocument::project`, ID-addressed commands, native v7 with v1–6 readers; `LegacyProject` read-only."
 **Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the
 typed document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy
-view and the conversion from the reduced model; nothing in the application uses them yet. B2.2 to B2.5 are not
-implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
+view and the conversion from the reduced model. B2.2 adds the ID-addressed commands and `DocumentHistory`
+([commands.hpp](../src/model/commands.hpp), [document_history.hpp](../src/model/document_history.hpp)), at parity with
+`TrackEdits`. B2.3 is implemented
+([PR #355](https://github.com/mgradwohl/MoTrack/pull/355), [`tracker_compose.hpp`](../src/tracker_compose.hpp)): the descriptor composition makes B1's decision, with B1's bytes,
+on every writer test, corpus case and fixture, and O8 covers the bytes outside nodes (#316); production export still
+uses B1's composition. Nothing in the application uses the commands or the descriptor composition yet. B2.4 and B2.5
+are not implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
 then moves the track list, selection and inspector to identities and deletes
 `LegacyProject` and the legacy writer; B4 makes O3–O8 required checks. Wave 2 families build on this model and
-on the [dependency graph](dependency-graph.md) (C0), a library that no loader or command uses yet.
+on the [dependency graph](dependency-graph.md) (C0), which the typed document builds and the commands maintain.
 
 The wave-1 exit gate holds after every slice: the 237 edited actual-Tracker cases, all native migrations,
 paired save and recovery, and the workspace tests pass. B2 intends no user-visible change except the
@@ -176,7 +181,11 @@ advances the graph's revision several times. Assignment never skips this step, e
 revision is already high, because a node's effective revision can still be low; only an explicit floor call
 ignores a floor at or below the graph's own revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
 document revision), and snapshots carry that stamp. Revert keeps the runtime identity, so that key protects
-against a rewind only because the document revision always advances on assignment.
+against a rewind only because the document revision always advances on assignment. The allocators never rewind
+either: an assignment or an update takes the higher counter and the lower countdown low-water mark of the outgoing
+and incoming values (`installedValue`), so a reverted value keeps the counter's high-water mark and no identity a
+discarded or recorded edit holds is handed out again. A history belongs to the live document it is first given and
+refuses any other.
 
 ### Behind `WorkspaceDocument::project`
 
@@ -214,8 +223,12 @@ composition.
 
 Today's edits map onto these: creation is `Insert`; rename, mass, unit labels, marks and vector samples are
 `SetField`; calibration (keys and length label together) and clip range or timing are each a `Batch`; deletion
-is `Remove`. `DocumentHistory` keeps `TrackEdits`' per-output save heads, `isModified` and `invalidateSaved`;
-`SaveState` checkpoints keep using the history revision.
+is `Remove`. A mark is a `SetField` of `framedata`, batched with one of `keyFrames` when B1's key rule changes them:
+for a bound point mass the baseline's keys without its removed marks and with every mark that differs from the
+baseline's, for a created one every mark (`setMark`). `DocumentHistory` keeps `TrackEdits`' per-output save heads,
+`isModified` and `invalidateSaved`; `SaveState` checkpoints keep using the history revision. A command that advances
+the counter leaves every saved output stale, as creation does today; the countdown low-water mark is not saved before
+native v7.
 
 ### Validation and atomicity
 
@@ -235,14 +248,27 @@ commit is then a sequence of `noexcept` pointer swaps, so it cannot stop half wa
 member against the state that the previous members produce and commits once. A refused command leaves the
 document, the history, both revisions and the save heads unchanged. Undo and redo check the same
 preconditions, the current value against the entry's `after` or `before`, and refuse without moving the head,
-as `TrackEdits` does now.
+as `TrackEdits` does now. The domain checks apply to new values only, since an undo restores whatever the object
+held, an unreadable baseline value included. The clip's invariants apply in every direction, except that an undo
+that restores exactly the timeline its command started from is accepted, so a legacy timing that is not constant
+returns as it was (`TrackEdits`' rule).
+
+Deliberate differences from `TrackEdits`, which the B2.4a façade keeps or reconciles: a command must change something,
+so a calibration that changes nothing records no undo entry, where `TrackEdits` records one; and new names and units
+pass the codecs, so creating a track with a name standard export cannot store (empty, surrounding white space, the
+packed view separators) is refused, where `TrackEdits` accepts any name on creation and export refuses it later. A new
+object saves only the fields commands edit (and a coordinate system's fixed flags); a key list returns to an unsaved
+or unreadable value only when that is the baseline's own reading.
 
 ### Undo, redo and dependencies
 
 Undo and redo apply inverses with `CyclePolicy::Record`, so they restore an earlier state even when it holds a
 cycle read from a file. Redoing a creation restores the stored object and its ID instead of allocating a new
-one. `Remove` keeps the binding and the `RemovedObject`; undoing it brings back the same identity, its own edges
-and every reference that dangled, and export writes the original node again. A history belongs to one live
+one. A removed object that is bound keeps its slot in the `Removed` state; an unbound one (a created track, an
+inserted coordinate system) leaves the document while its history entry keeps it, its identity kept from reuse by the
+allocators, and returns to the place its entry recorded. `Remove` keeps the binding and the `RemovedObject`; undoing
+it brings back the same identity, its own edges and every reference that dangled, and export writes the original
+node again. A history belongs to one live
 document and is cleared when the document is replaced; native files store no history.
 
 ### Deleting referenced objects
@@ -295,6 +321,22 @@ only the edit set; this check covers what O8 cannot, an intended edit that was n
 under one rule: a removal deletes only the removed element's own lines, an insertion adds only its own lines
 after the preceding sibling or the container's opening line, and every other gap stays byte-identical. B2.3
 first confirms that `osp::render` follows this rule, or states the rule it does follow, and O8 then enforces it.
+`osp::render` follows it with one precision, which O8 enforces: a removal deletes the element's lines with the line
+break of its last line; an insertion at index *i* goes just before the first line of original sibling *i*, so after
+the whole gap that precedes it, or just before the closing line when appending; a renamed element is rewritten in
+place with the file's line ending; and a self-closing container that receives elements is reopened. O8 also keeps
+an edited container's opening and closing lines and the text around an edited value.
+
+As built in B2.3, a scalar the file did not save is appended to its owner, as B1 appends it, rather than inserted in
+Tracker's saver order, because the exit criterion requires B1's bytes; insertion in saver order can follow the switch.
+The clip range (`startframe`, `stepsize`, `stepcount`) and the clip timing (`starttime` and the clip control's
+`delta_t`) are each composed as one batch, as B1 writes them: when one field differs, every field of the batch is
+written, an unsaved one with Tracker's loader default. The reimport check compares every typed field except the
+panel's `selectedtrack`, a view reference that the audited cleanup rewrites. `renderName` covers the references the
+graph holds (typed reference fields and slots of untyped owners); view references (selections, plot and table owners,
+plot guests) are not graph edges, so the last row of the table above covers them through B1's audited cleanup and
+its reference checks, not through `renderName`. Mark edits must keep the key frames with the marks they change: every
+changed or new mark is a key frame and no removed one is, which B1 computes and the descriptor composition checks.
 
 ## 3. Native version 7
 
@@ -307,7 +349,7 @@ metadata replaces the reduced model:
 | --- | --- |
 | `format`, `version` | `"MoTrack"`, 7 |
 | `requires` | Feature names that a reader must implement; empty in B2 |
-| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently. A version-5 body, standalone or in a v6 group, has the same number as its `trackerReading` ([native format](native-format.md#tracker-reading-revisions): absent is 0, #330 writes 2); v1–v4 count as revision 0 |
+| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently. A version-5 body, standalone or in a v6 group, has the same number as its `trackerReading` ([native format](native-format.md#tracker-reading-revisions): absent is 0, #330 wrote 2, #315 writes 3); v1–v4 count as revision 0 |
 | `nextObjectId`, `countdownLowWater` | The counter and the countdown low-water mark, as decimal strings |
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
@@ -386,11 +428,16 @@ migrated body already holds the current reading, and an outdated one keeps its e
   for such a source is handled the same way, not kept as an edit. Export of changed or new samples of a shifted
   source is refused until [#328](https://github.com/mgradwohl/MoTrack/issues/328) decides how frames map back to
   saved indices, including for objects created in MoTrack.
-- **Empty `mass_unit` (#315):** planned as revision 3. A stored `kg` where the file saved an empty label is the old
-  default, not an edit, and becomes empty.
-- **Inputs Java cannot load (#315):** still read as before #330. Coordinate arrays whose indices Java cannot place
-  import without calibration, and such track arrays keep file order. B2 proposes refusing the baseline and opening the
-  document native-only from its JSON with associations stale.
+- **Empty `mass_unit` (#315, revision 3):** a stored `kg` where the file saved an empty (or unreadable) label is the
+  old default, not an edit, and becomes empty under the same all-or-nothing rule; another stored label keeps the
+  document outdated. `typedDocumentFromReduced` holds an unbound panel's labels as stored, so a native file with an
+  empty mass or time unit converts (an empty time unit, which Tracker never loads, only native-only and stale).
+- **Inputs Java cannot load (#315):** import refuses arrays that OSP's loader cannot build (a class other than the one
+  Tracker saves, or an index unreadable or beyond the last element's) in the panel's typed objects, whatever the revision,
+  and image `paths` that Tracker replaces with the numbered images from `path`. A native body whose
+  source the current reader parses but refuses opens native-only from its stored values, unchanged, with the
+  associations dropped, its earlier `trackerReading`, export refused and the note on every open; B2.1's conversion
+  then gives stale associations, as for a v7 baseline the reader refuses.
 Loader defaults (#214) and the time-unit recovery apply as they do now. Documents without known associations
 keep native-only editing and refuse standard export with the re-import note.
 
@@ -457,12 +504,12 @@ Order: the loader-fidelity prerequisite, B2.1, then B2.2 and B2.3 in parallel, t
 parallel. Each slice depends on merged slices only, so no stack is more than one PR deep. Each slice updates the
 R02–R04 rows of the migration plan and the status line of this document.
 
-**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), merged)
-- Fixes #313, #314 and #315's track slots, and adds the v≤6 migrations of §3 to the current native reader as
-  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, so #315's empty `mass_unit` (revision 3)
-  and its refusals now gate B2.4a: until then B1's reading maps an empty saved mass or time label to its default,
-  and `typedDocumentFromReduced` refuses a native file that stores an empty `massUnit` or `timeUnit`, which would be
-  an open failure once B2.4a reads native files through it.
+**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330) and the rest of
+[#315](https://github.com/mgradwohl/MoTrack/issues/315))
+- #330 fixed #313, #314 and #315's track slots, and added the v≤6 migrations of §3 to the current native reader as
+  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, which then added the empty `mass_unit` as
+  revision 3, the refusal of inputs Java cannot load and native-only opening of a refused preserved source, and made
+  `typedDocumentFromReduced` accept stored empty unit labels. #315 no longer gates B2.4a.
 
 **B2.1 — Typed document** (first)
 - Content: `motrack_model`; `TrackerDocument`, families, descriptors and reference-only descriptors; identities,
@@ -557,8 +604,8 @@ R02–R04 rows of the migration plan and the status line of this document.
    B2.5 updates it.
 2. **Where do #313–#315 land?** Decided: #330 landed #313, #314 and #315's track slots with the v≤6 migrations
    before B2.1, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit.
-   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which now
-   gate B2.4a.
+   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which landed
+   before B2.4a.
 3. **Should removing a referenced object be refused?** Recommended: no. Allow it in the native document with
    export refused while references dangle, as today; the families add explicit cleanup edits.
 4. **Should untyped classes get graph edges in B2?** Recommended: yes, through reference-only descriptors that

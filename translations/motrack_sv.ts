@@ -116,6 +116,8 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Släpp för att öppna %n fil</numerusform><numerusform>Släpp för att öppna %n filer</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n länk till filer som inte är lokala hoppas över.</numerusform><numerusform>%n länkar till filer som inte är lokala hoppas över.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Vissa begärda filer öppnades med begränsningar.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 är redan öppen.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Kontrollerar %1…</translation></message>
     <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack- och Tracker-projekt (*.motrack *.trk *.trz *.zip)</translation></message>
   </context>
   <context>
@@ -324,8 +326,9 @@
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
-    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys and frame data. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project (%1) Its saved measurements are shown unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data and mass unit. Save the project to keep them.</source><translation type="unfinished"></translation></message>
     <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
@@ -414,5 +417,17 @@
     <message><source>The camera supplied no frame times, so each frame is timed by when it reached MoTrack.</source><translation type="unfinished"></translation></message>
     <message><source>&amp;Stop</source><translation type="unfinished"></translation></message>
     <message><source>Discard and close</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>LegacyProject</name>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array has an element whose index is unreadable or beyond the last element's.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" has an element whose index is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array does not have the class Tracker saves (%3), and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, and the video saves no "path".</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array does not have the class Tracker saves (%3), so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot open this file as Tracker does: the image sequence's "paths" array has an element whose index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "path" instead, which MoTrack does not support.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves (%3).</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

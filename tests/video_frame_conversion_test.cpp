@@ -13,6 +13,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/cpu.h>
 #include <libavutil/frame.h>
+#include <libavutil/log.h>
 #include <libavutil/mem.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
@@ -24,6 +25,7 @@ extern "C" {
 #include <cerrno>
 #include <climits>
 #include <cmath>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -34,6 +36,7 @@ extern "C" {
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -79,33 +82,52 @@ constexpr std::array ALIGNED_WIDTHS{16, 32, 1088, 1920};
 // Even widths and heights take swscale's unscaled YUV 4:2:0 and 4:2:2 converters; other sizes take its general scaler.
 constexpr std::array HEIGHTS{2, 3};
 
+// The red and blue luma weights of a YCbCr matrix.
+struct Matrix
+{
+    double red;
+    double blue;
+};
+
+constexpr Matrix BT601{.red = 0.299, .blue = 0.114}; // ITU-R BT.601, swscale's default.
+constexpr Matrix BT709{.red = 0.2126, .blue = 0.0722};
+constexpr Matrix BT2020{.red = 0.2627, .blue = 0.0593};
+
 struct Pattern
 {
     bool ramp = true;
     bool fullRange = false;
+    int u = CHROMA_U;
+    int v = CHROMA_V;
+    Matrix matrix = BT601;
 
     [[nodiscard]] int luma(int x, int y) const
     {
         return ramp ? 16 + ((x * 7) + (y * 31)) % 220 : 120;
     }
 
-    // ITU-R BT.601, which swscale uses for frames without colorspace details.
+    // Inverts Y = Kr R + Kg G + Kb B, Pb = (B - Y) / (2 (1 - Kb)) and Pr = (R - Y) / (2 (1 - Kr)). Limited range
+    // puts black at Y = 16, white at Y = 235 and spans 224 levels of chroma.
     [[nodiscard]] std::array<int, 4> rgba(int x, int y) const
     {
         const double chromaScale = fullRange ? 1.0 : 255.0 / 224.0;
-        const double pb = (CHROMA_U - 128) * chromaScale;
-        const double pr = (CHROMA_V - 128) * chromaScale;
+        const double pb = (u - 128) * chromaScale;
+        const double pr = (v - 128) * chromaScale;
         const double value = fullRange ? luma(x, y) : (luma(x, y) - 16) * 255.0 / 219.0;
+        const double red = value + (2 * (1 - matrix.red) * pr);
+        const double blue = value + (2 * (1 - matrix.blue) * pb);
+        const double green = (value - (matrix.red * red) - (matrix.blue * blue)) / (1 - matrix.red - matrix.blue);
         const auto channel = [](double level)
         {
             return static_cast<int>(std::lround(std::clamp(level, 0.0, 255.0)));
         };
-        return {channel(value + (1.402 * pr)), channel(value - (0.344136 * pb) - (0.714136 * pr)), channel(value + (1.772 * pb)), 255};
+        return {channel(red), channel(green), channel(blue), 255};
     }
 };
 
 constexpr Pattern RAMP{};
 constexpr Pattern FLAT{.ramp = false};
+constexpr Pattern FULL_RAMP{.fullRange = true};
 
 struct Format
 {
@@ -113,10 +135,9 @@ struct Format
     Pattern pattern;
 };
 
-// Tests use one converter per pixel format, as each movie has its own reader. sws_getCachedContext copies the
-// options of the context it replaces, including the full range it set for a JPEG-range format (#261).
+// One converter sees every format and size in turn, as a reader does when a stream changes format (#261).
 constexpr std::array FORMATS{Format{.pixels = AV_PIX_FMT_YUV420P, .pattern = RAMP},
-                             Format{.pixels = AV_PIX_FMT_YUVJ420P, .pattern = Pattern{.fullRange = true}},
+                             Format{.pixels = AV_PIX_FMT_YUVJ420P, .pattern = FULL_RAMP},
                              Format{.pixels = AV_PIX_FMT_YUV422P, .pattern = RAMP},
                              Format{.pixels = AV_PIX_FMT_YUV444P, .pattern = RAMP},
                              Format{.pixels = AV_PIX_FMT_NV12, .pattern = RAMP},
@@ -218,16 +239,90 @@ FramePtr syntheticFrame(AVPixelFormat format, QSize size, const Pattern& pattern
             write(descriptor->comp[0], x, y, pattern.luma(x, y));
         }
     }
-    for (int y = 0; y < chromaSize.height(); ++y)
+    for (int y = 0; descriptor->nb_components >= 3 && y < chromaSize.height(); ++y)
     {
         for (int x = 0; x < chromaSize.width(); ++x)
         {
-            write(descriptor->comp[1], x, y, CHROMA_U);
-            write(descriptor->comp[2], x, y, CHROMA_V);
+            write(descriptor->comp[1], x, y, pattern.u);
+            write(descriptor->comp[2], x, y, pattern.v);
         }
     }
     return frame;
 }
+
+FramePtr taggedFrame(AVPixelFormat format, QSize size, const Pattern& pattern, AVColorRange range, AVColorSpace space)
+{
+    auto frame = syntheticFrame(format, size, pattern);
+    frame->color_range = range;
+    frame->colorspace = space;
+    return frame;
+}
+
+// Counts swscale's warning about FFmpeg's deprecated JPEG-range formats, which it logs when it initialises a
+// context for one, while it exists. Other messages, such as the arm64 "No accelerated colorspace conversion"
+// warning, differ by platform; they go to FFmpeg's default log. The FFmpeg log callback is process-wide.
+class DeprecatedFormatWarnings
+{
+  public:
+    DeprecatedFormatWarnings(const DeprecatedFormatWarnings&) = delete;
+    DeprecatedFormatWarnings& operator=(const DeprecatedFormatWarnings&) = delete;
+    DeprecatedFormatWarnings()
+    {
+        logged() = 0;
+        av_log_set_callback(collect);
+    }
+    ~DeprecatedFormatWarnings()
+    {
+        av_log_set_callback(av_log_default_callback);
+    }
+
+    [[nodiscard]] static int count()
+    {
+        return logged();
+    }
+
+  private:
+    static int& logged()
+    {
+        static int warnings = 0;
+        return warnings;
+    }
+
+    static void collect(void* context, int level, const char* format, va_list arguments)
+    {
+        if (format != nullptr && std::string_view(format).starts_with("deprecated pixel format used"))
+        {
+            ++logged();
+        }
+        av_log_default_callback(context, level, format, arguments);
+    }
+};
+
+// Positive control for DeprecatedFormatWarnings: a context that swscale itself initialises for a JPEG-range
+// format still logs the warning, so a count of zero means the converter avoided it, not that FFmpeg reworded it.
+void expectSwscaleStillWarnsAboutJpegRangeFormats()
+{
+    const auto before = DeprecatedFormatWarnings::count();
+    const std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale(
+        sws_getContext(16, 2, AV_PIX_FMT_YUVJ420P, 16, 2, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr), &sws_freeContext);
+    ASSERT_TRUE(scale);
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), before + 1);
+}
+// Disables FFmpeg's SIMD code, so swscale takes its C converters, until the end of the scope.
+class WithoutSimd
+{
+  public:
+    WithoutSimd(const WithoutSimd&) = delete;
+    WithoutSimd& operator=(const WithoutSimd&) = delete;
+    WithoutSimd()
+    {
+        av_force_cpu_flags(0);
+    }
+    ~WithoutSimd()
+    {
+        av_force_cpu_flags(-1);
+    }
+};
 
 // Describes the first pixel that differs from the pattern by more than the tolerance in any channel.
 std::string firstMismatch(std::span<const std::uint8_t> pixels, qsizetype stride, QSize size, const Pattern& pattern, int tolerance)
@@ -299,8 +394,9 @@ void writePackets(AVCodecContext& codec, AVFormatContext& format, const AVStream
     }
 }
 
-// MoTrack's FFmpeg build has no portable H.264 encoder, so the movies use FFmpeg's own encoders. Both decoders
+// MoTrack's FFmpeg build has no portable H.264 encoder, so the movies use FFmpeg's own encoders. Their decoders
 // return YUV 4:2:0 frames, as H.264 does, and MPEG-4 Part 2 crops macroblock-coded frames to the display width.
+// A full-range pattern is encoded with JPEG range, which the Motion JPEG decoder returns as yuvj420p.
 void writeMovie(const QString& path, AVCodecID codecId, QSize size, const Pattern& pattern, int frames)
 {
     const auto name = path.toUtf8();
@@ -318,6 +414,7 @@ void writeMovie(const QString& path, AVCodecID codecId, QSize size, const Patter
     codec->width = size.width();
     codec->height = size.height();
     codec->pix_fmt = AV_PIX_FMT_YUV420P;
+    codec->color_range = pattern.fullRange ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
     codec->time_base = AVRational{.num = 1, .den = 25};
     codec->framerate = AVRational{.num = 25, .den = 1};
     codec->flags |= AV_CODEC_FLAG_QSCALE; // Lossy encoders keep a fixed, fine quantizer.
@@ -329,7 +426,7 @@ void writeMovie(const QString& path, AVCodecID codecId, QSize size, const Patter
     check(avformat_write_header(format.get(), nullptr), "write the synthetic movie header");
     for (int number = 0; number < frames; ++number)
     {
-        const auto frame = syntheticFrame(AV_PIX_FMT_YUV420P, size, pattern);
+        const auto frame = taggedFrame(AV_PIX_FMT_YUV420P, size, pattern, codec->color_range, AVCOL_SPC_UNSPECIFIED);
         frame->pts = number;
         frame->quality = codec->global_quality;
         check(avcodec_send_frame(codec.get(), frame.get()), "submit a synthetic frame");
@@ -383,6 +480,164 @@ TEST(RgbaFrameConverter, RejectsFramesItCannotConvert)
     empty->height = 2;
     empty->format = AV_PIX_FMT_CUDA;
     EXPECT_THROW(converter.convertInto(*empty, packed), motrack::VideoError);
+    EXPECT_EQ(converter.contextsCreated(), 0U);
+
+    // A failed context leaves the converter usable.
+    EXPECT_EQ(firstMismatch(converter.convert(*frame), RAMP, 3), "");
+    EXPECT_THROW(converter.convertInto(*empty, packed), motrack::VideoError);
+    EXPECT_EQ(firstMismatch(converter.convert(*frame), RAMP, 3), "");
+    EXPECT_EQ(converter.contextsCreated(), 1U);
+}
+
+// swscale rewrites the format option of a context for a JPEG-range format and the flags of one for unsubsampled
+// input, so sws_getCachedContext never matched such a context and built a new one for every frame (#261).
+TEST(RgbaFrameConverter, ReusesOneContextWhileTheFrameFormatIsUnchanged)
+{
+    const DeprecatedFormatWarnings warnings;
+    for (const auto pixels : {AV_PIX_FMT_YUVJ420P,
+                              AV_PIX_FMT_YUVJ422P,
+                              AV_PIX_FMT_YUVJ444P,
+                              AV_PIX_FMT_YUV444P,
+                              AV_PIX_FMT_YUV420P,
+                              AV_PIX_FMT_NV12,
+                              AV_PIX_FMT_GRAY8,
+                              AV_PIX_FMT_RGB24,
+                              AV_PIX_FMT_GBRP})
+    {
+        for (const auto width : {1080, 635})
+        {
+            SCOPED_TRACE(std::string(av_get_pix_fmt_name(pixels)) + " " + std::to_string(width));
+            motrack::detail::RgbaFrameConverter converter;
+            const auto frame = syntheticFrame(pixels, {width, 2}, RAMP);
+            for (int number = 0; number < 4; ++number)
+            {
+                static_cast<void>(converter.convert(*frame));
+            }
+            EXPECT_EQ(converter.contextsCreated(), 1U);
+        }
+    }
+    // FFmpeg asks callers to give the range of a deprecated JPEG-range format; it warned for every context.
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
+    expectSwscaleStillWarnsAboutJpegRangeFormats();
+}
+
+// Gray frames stay full range, as in swscale's frame API.
+TEST(RgbaFrameConverter, ConvertsGrayFramesAsFullRange)
+{
+    constexpr Pattern FULL_GRAY{.fullRange = true, .u = 128, .v = 128};
+    motrack::detail::RgbaFrameConverter converter;
+    for (const auto width : {1080, 635})
+    {
+        const auto frame = syntheticFrame(AV_PIX_FMT_GRAY8, {width, 3}, FULL_GRAY);
+        EXPECT_EQ(firstMismatch(converter.convert(*frame), FULL_GRAY, 3), "") << width;
+    }
+}
+
+struct Step
+{
+    AVPixelFormat pixels;
+    QSize size;
+    AVColorRange range = AVCOL_RANGE_UNSPECIFIED;
+    AVColorSpace space = AVCOL_SPC_UNSPECIFIED;
+    Pattern pattern;
+    bool reusesContext = false; ///< The frame has the swscale inputs of the step before it.
+};
+
+// Converts each step's frame in turn through one converter and checks it against the step's own pattern.
+void expectEachFrameInItsOwnColours(std::span<const Step> steps)
+{
+    motrack::detail::RgbaFrameConverter converter;
+    std::uint64_t contexts = 0;
+    for (const auto& step : steps)
+    {
+        SCOPED_TRACE(std::string(av_get_pix_fmt_name(step.pixels)) + " " + std::to_string(step.size.width()) + "x" +
+                     std::to_string(step.size.height()) + " " + av_color_range_name(step.range) + " " + av_color_space_name(step.space));
+        const auto frame = taggedFrame(step.pixels, step.size, step.pattern, step.range, step.space);
+        EXPECT_EQ(firstMismatch(converter.convert(*frame), step.pattern, 3), "");
+        contexts += step.reusesContext ? 0 : 1;
+        EXPECT_EQ(converter.contextsCreated(), contexts);
+    }
+}
+
+// Each limited-range frame here follows a full-range one. A context that sws_getCachedContext rebuilt for a
+// new format copied the full range swscale set for a JPEG-range format, and a yuv420p frame of the same size
+// matched the context's rewritten format; neither saw the range in a frame's metadata (#261).
+constexpr std::array RANGE_STEPS{
+    Step{.pixels = AV_PIX_FMT_YUVJ420P, .size = {1080, 2}, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1080, 2}, .pattern = RAMP},
+    Step{.pixels = AV_PIX_FMT_YUVJ422P, .size = {634, 3}, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV444P, .size = {31, 2}, .pattern = RAMP},
+    Step{.pixels = AV_PIX_FMT_YUVJ444P, .size = {31, 2}, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV422P, .size = {1080, 2}, .pattern = RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1080, 2}, .range = AVCOL_RANGE_JPEG, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1080, 2}, .range = AVCOL_RANGE_MPEG, .pattern = RAMP},
+    Step{.pixels = AV_PIX_FMT_YUV420P10, .size = {426, 2}, .range = AVCOL_RANGE_JPEG, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_NV12, .size = {540, 3}, .range = AVCOL_RANGE_JPEG, .pattern = FULL_RAMP},
+    Step{.pixels = AV_PIX_FMT_NV12, .size = {540, 3}, .pattern = RAMP},
+};
+
+TEST(RgbaFrameConverter, ConvertsEachFrameWithItsOwnRange)
+{
+    expectEachFrameInItsOwnColours(RANGE_STEPS);
+}
+
+TEST(RgbaFrameConverter, ConvertsEachFrameWithItsOwnRangeWithoutSimd)
+{
+    const WithoutSimd noSimd;
+    expectEachFrameInItsOwnColours(RANGE_STEPS);
+}
+
+// Strong chroma on mid-gray luma, where BT.601 and BT.709 differ by 12 levels of red and 11 of green.
+constexpr Pattern BT601_LIMITED{.ramp = false, .u = 90, .v = 190};
+constexpr Pattern BT709_LIMITED{.ramp = false, .u = 90, .v = 190, .matrix = BT709};
+constexpr Pattern BT709_FULL{.ramp = false, .fullRange = true, .u = 90, .v = 190, .matrix = BT709};
+constexpr Pattern BT2020_LIMITED{.ramp = false, .u = 90, .v = 190, .matrix = BT2020};
+
+constexpr std::array MATRIX_STEPS{
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1920, 2}, .range = AVCOL_RANGE_MPEG, .space = AVCOL_SPC_BT709, .pattern = BT709_LIMITED},
+    Step{
+        .pixels = AV_PIX_FMT_YUV420P, .size = {1920, 2}, .range = AVCOL_RANGE_MPEG, .space = AVCOL_SPC_SMPTE170M, .pattern = BT601_LIMITED},
+    // swscale's default matrix is BT.601.
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1920, 2}, .range = AVCOL_RANGE_MPEG, .pattern = BT601_LIMITED, .reusesContext = true},
+    Step{.pixels = AV_PIX_FMT_YUV420P, .size = {1920, 2}, .range = AVCOL_RANGE_JPEG, .space = AVCOL_SPC_BT709, .pattern = BT709_FULL},
+    // A JPEG-range format has the swscale inputs of its limited-range format with a full range.
+    Step{.pixels = AV_PIX_FMT_YUVJ420P, .size = {1920, 2}, .space = AVCOL_SPC_BT709, .pattern = BT709_FULL, .reusesContext = true},
+    Step{.pixels = AV_PIX_FMT_YUV420P,
+         .size = {1920, 2},
+         .range = AVCOL_RANGE_MPEG,
+         .space = AVCOL_SPC_BT2020_NCL,
+         .pattern = BT2020_LIMITED},
+    Step{.pixels = AV_PIX_FMT_YUV422P10, .size = {1365, 3}, .range = AVCOL_RANGE_MPEG, .space = AVCOL_SPC_BT709, .pattern = BT709_LIMITED},
+    Step{
+        .pixels = AV_PIX_FMT_YUV422P10, .size = {1365, 3}, .range = AVCOL_RANGE_MPEG, .space = AVCOL_SPC_BT470BG, .pattern = BT601_LIMITED},
+    // swscale has no YCgCo coefficients and uses BT.601's.
+    Step{.pixels = AV_PIX_FMT_YUV422P10,
+         .size = {1365, 3},
+         .range = AVCOL_RANGE_MPEG,
+         .space = AVCOL_SPC_YCGCO,
+         .pattern = BT601_LIMITED,
+         .reusesContext = true},
+};
+
+TEST(RgbaFrameConverter, ConvertsEachFrameWithItsOwnMatrix)
+{
+    // The expectations of different matrices are further apart than the tolerance.
+    const auto distance = [](const Pattern& first, const Pattern& second)
+    {
+        const auto a = first.rgba(0, 0);
+        const auto b = second.rgba(0, 0);
+        return std::max({std::abs(a[0] - b[0]), std::abs(a[1] - b[1]), std::abs(a[2] - b[2])});
+    };
+    EXPECT_GE(distance(BT601_LIMITED, BT709_LIMITED), 11);
+    EXPECT_GE(distance(BT601_LIMITED, BT2020_LIMITED), 5);
+    EXPECT_GE(distance(BT709_LIMITED, BT2020_LIMITED), 5);
+    expectEachFrameInItsOwnColours(MATRIX_STEPS);
+}
+
+TEST(RgbaFrameConverter, ConvertsEachFrameWithItsOwnMatrixWithoutSimd)
+{
+    const WithoutSimd noSimd;
+    expectEachFrameInItsOwnColours(MATRIX_STEPS);
 }
 
 // Converts every format and size into canary-filled memory, then checks each pixel and the canary after the layout.
@@ -390,9 +645,9 @@ void expectConversionsInsideThePaddedLayout()
 {
     constexpr std::uint8_t CANARY = 0xa5;
     constexpr std::size_t GUARD_BYTES = 256;
+    motrack::detail::RgbaFrameConverter converter;
     for (const auto& format : FORMATS)
     {
-        motrack::detail::RgbaFrameConverter converter;
         for (const auto width : FRAME_WIDTHS)
         {
             for (const auto height : HEIGHTS)
@@ -423,29 +678,16 @@ TEST(RgbaFrameConverter, KeepsSwscaleWritesInsideThePaddedLayout)
 // swscale's C converters, which AArch64 uses for widths that are not multiples of 16, must also fill every column.
 TEST(RgbaFrameConverter, ConvertsEveryColumnWithoutSimd)
 {
-    struct RestoreCpuDetection
-    {
-        RestoreCpuDetection(const RestoreCpuDetection&) = delete;
-        RestoreCpuDetection& operator=(const RestoreCpuDetection&) = delete;
-        RestoreCpuDetection()
-        {
-            av_force_cpu_flags(0);
-        }
-        ~RestoreCpuDetection()
-        {
-            av_force_cpu_flags(-1);
-        }
-    };
-    const RestoreCpuDetection noSimd;
+    const WithoutSimd noSimd;
     EXPECT_EQ(av_get_cpu_flags(), 0);
     expectConversionsInsideThePaddedLayout();
 }
 
 TEST(RgbaFrameConverter, MatchesThePreviousUnpaddedConversionAtAlignedWidths)
 {
+    motrack::detail::RgbaFrameConverter converter;
     for (const auto& format : FORMATS)
     {
-        motrack::detail::RgbaFrameConverter converter;
         for (const auto width : ALIGNED_WIDTHS)
         {
             for (const auto height : HEIGHTS)
@@ -535,6 +777,31 @@ TEST(VideoReader, DecodesUnalignedMovieWidthsIntoPaddedImages)
         const std::atomic_bool cancelled{false};
         EXPECT_EQ(motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled).frameCount, 2);
     }
+}
+
+// The Motion JPEG decoder returns yuvj420p frames; swscale warned about the deprecated format for each one (#261).
+// The missing warning shows that the reader gives swscale the range itself. It does not show context reuse,
+// since a context rebuilt for the mapped format would not warn either; the RgbaFrameConverter tests count the
+// contexts.
+TEST(VideoReader, DecodesJpegRangeMoviesInFullRange)
+{
+    constexpr Pattern FULL_FLAT{.ramp = false, .fullRange = true};
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("mjpeg-640x16.avi");
+    writeMovie(path, AV_CODEC_ID_MJPEG, {640, 16}, FULL_FLAT, 3);
+    const DeprecatedFormatWarnings warnings;
+    motrack::VideoReader reader(path, motrack::VideoOrientation::Encoded);
+    int frames = 0;
+    while (const auto frame = reader.readNext())
+    {
+        ++frames;
+        ASSERT_EQ(frame->image.size(), QSize(640, 16));
+        EXPECT_EQ(firstMismatch(frame->image, FULL_FLAT, 4), "") << frames;
+    }
+    EXPECT_EQ(frames, 3);
+    EXPECT_EQ(DeprecatedFormatWarnings::count(), 0);
+    expectSwscaleStillWarnsAboutJpegRangeFormats();
 }
 
 } // namespace

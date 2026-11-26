@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 
 #include <atomic>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,11 @@ inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 /// Whether @p path names a `.zip` experiment archive. It is never a save target: Tracker never writes into the archive
 /// a tab came from, and its archive export always writes `.trz`. A standard save asks for a `.trz` instead (#224).
 [[nodiscard]] bool isTrackerZipPath(const QString& path);
+/// The NFC names of the `.trk` members of the Tracker archive at @p path, read from its member headers alone within
+/// TrackerArchive::open's size and member bounds, without extracting anything. Nullopt when the file cannot be read as
+/// a Tracker archive, including a member name that is not UTF-8. Finder metadata under `__MACOSX/` is left out by
+/// name; TrackerArchive::open still decides which members are projects.
+[[nodiscard]] std::optional<QSet<QString>> trackerArchiveProjectNames(const QString& path);
 
 namespace detail
 {

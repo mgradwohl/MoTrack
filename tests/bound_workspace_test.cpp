@@ -329,6 +329,73 @@ TEST(BoundWorkspace, ZipExperimentsSaveToANewTrzPairAndNeverReplaceTheZip)
     EXPECT_DOUBLE_EQ(native.members[0].document.project.pointMasses.front().mass, 7);
 }
 
+TEST(BoundWorkspace, ZipExperimentsOfferAFreeNameWhenTheTrzOrItsCompanionExists)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto zip = temporary.filePath("Library Lab.zip");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), zip));
+    // An unrelated archive already has the .zip's name, and an unrelated companion has the next candidate's.
+    const auto unrelated = temporary.filePath("Library Lab.trz");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), unrelated));
+    const auto unrelatedBytes = fileBytes(unrelated);
+    const auto companion = temporary.filePath("Library Lab (2).motrack");
+    {
+        QFile file(companion);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("not a companion of this experiment"), 34);
+    }
+    const auto companionBytes = fileBytes(companion);
+    const auto original = fileBytes(zip);
+    auto workspace = std::make_shared<motrack::WorkspaceContext>();
+    QSignalSpy opened(workspace.get(), &motrack::WorkspaceContext::inputOpened);
+    ASSERT_TRUE(workspace->openProject(zip));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !opened.empty(); }, 5000));
+    const auto documents = opened.front()[2].value<QList<QUuid>>();
+    ASSERT_FALSE(documents.isEmpty());
+    motrack::MainWindow view(workspace, documents[0]);
+    ASSERT_TRUE(editMass(view, 6));
+    auto* save = view.findChild<QAction*>("saveProject");
+    ASSERT_NE(save, nullptr);
+    // The dialog is cancelled once it has shown its default, so nothing is written.
+    QStringList offered;
+    QTimer poll;
+    QObject::connect(&poll,
+                     &QTimer::timeout,
+                     &view,
+                     [&]
+                     {
+                         auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                         if (!dialog)
+                             return;
+                         offered = dialog->selectedFiles();
+                         if (offered.size() == 1)
+                             dialog->reject();
+                     });
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &view,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    poll.start(10);
+    watchdog.start(10000);
+    save->trigger();
+    poll.stop();
+    watchdog.stop();
+    ASSERT_EQ(offered.size(), 1);
+    EXPECT_TRUE(sameFolderAndName(offered.front(), temporary.filePath("Library Lab (3).trz"))) << offered.front().toStdString();
+    EXPECT_TRUE(view.isWindowModified());
+    EXPECT_EQ(fileBytes(zip), original);
+    EXPECT_EQ(fileBytes(unrelated), unrelatedBytes);
+    EXPECT_EQ(fileBytes(companion), companionBytes);
+    EXPECT_FALSE(QFileInfo::exists(temporary.filePath("Library Lab (3).trz")));
+}
+
 TEST(BoundWorkspace, RejectsDuplicateEditorsAndKeepsRecordsAfterLastViewReleasesTheWorkspace)
 {
     auto workspace = std::make_shared<motrack::WorkspaceContext>();

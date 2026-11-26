@@ -52,13 +52,17 @@ Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer 
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
+Movie frames are converted to RGB with the colour range and YCbCr matrix (BT.601, BT.709, BT.2020, FCC or SMPTE 240M) that each frame declares. A YUV frame that declares no range is treated as limited range, and one that declares no matrix, or a matrix FFmpeg cannot convert such as YCgCo, as BT.601. BT.2020 constant-luminance frames use the BT.2020 non-constant-luminance matrix, and no HDR (PQ or HLG) transfer function is applied. The conversion decides the colours shown and the pixels that AutoTracker matches.
+
+This differs from Tracker on purpose ([#261](https://github.com/mgradwohl/MoTrack/issues/261)). Tracker 6.3.5 converts every movie frame with BT.601 and ignores the frame's colour tags. It treats a frame as full range only when FFmpeg decodes it to a JPEG-range (yuvj) pixel format, as for Motion JPEG and 8-bit full-range H.264. Movies without a matrix tag, in limited range or decoded to yuvj, therefore use the same matrix and range in both applications, though not identical pixels: Tracker scales into BGR24 with FFmpeg's area filter, MoTrack into RGBA with its bilinear filter. Two kinds of movie convert differently: movies tagged BT.709, BT.2020, FCC or SMPTE 240M, and full-range movies that decode to other formats (10-bit, NV12, or full-range VP9 and AV1). For them MoTrack shows different colours, AutoTracker's matches can differ from Tracker's, and the RGB-region sampling kernels (not yet available in the workspace) measure different values than Tracker would. The workspace does not yet indicate this ([#379](https://github.com/mgradwohl/MoTrack/issues/379)).
+
 Use File → Open images to start from an image sequence. Enter its frame rate when known, or enter zero to analyze by frame number.
 
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. The Tracks menu also lets you rename a point mass, delete it, or remove its mark on the current frame. Use File → Export measurements to save the current marks as CSV, or File → Export plot data to save the selected series with its frame numbers, times when available, and units. Use File → Save MoTrack copy as to keep the current tracks, calibration, and media references in a `.motrack` project. Keep externally linked media in place when reopening it.
 
 Open a Tracker `.trz` experiment archive from the same project chooser. Every experiment gets a tab, and each can be edited independently. Unopened tabs create their full editor only when selected. Saving the archive includes all member edits and retains its media and unknown files. A `.motrack` copy embeds the complete archive, so it can reopen after the original archive is removed. MoTrack never extracts archive members with unsafe names, such as the absolute `C:/Users/…` files some Tracker 6.1 exports contain, and the status bar reports them. Saved `.trz` files leave out the ones that only duplicate another member and keep the rest unchanged; their names can show the original author's folder or user name. Unlike Tracker, MoTrack refuses an archive whose project name is unsafe, and does not open a project that uses an unsafe-named file. macOS `__MACOSX` files are not shown as experiments. A project that cannot be read is reported while the others open, and the **Experiments** menu lists it with the reason ([details](docs/native-format.md#unsafe-and-non-project-archive-members)).
 
-Tracker `.zip` experiments, such as those in the Tracker Home Library and ComPADRE, open exactly like a `.trz`, with the same member rules. A `.zip` that holds no Tracker project is refused with a message, as in Tracker; Tracker would open a `.zip` of numbered images as a video, which MoTrack cannot yet do. Like Tracker, MoTrack never writes into the `.zip`. The first **Save** asks for a `.trz` Tracker archive, offering the `.zip`'s name in the same folder, and writes it with its `.motrack` companion. Later saves update that pair ([details](docs/native-format.md#live-archive-group-records-and-checkpoints)).
+Tracker `.zip` experiments, such as those in the Tracker Home Library and ComPADRE, open exactly like a `.trz`, with the same member rules. A `.zip` that holds no Tracker project is refused with a message, as in Tracker. Three cases differ from Tracker: a `.zip` of numbered images opens as a video in Tracker, which MoTrack cannot yet do ([#347](https://github.com/mgradwohl/MoTrack/issues/347)), so extract the images and use **Open images…**; a `.zip` that holds both a project and numbered images at its top level opens as the experiment in MoTrack and as the image video in Tracker; and `.jar` archives are not opened. Like Tracker, MoTrack never writes into the `.zip`. The first **Save** asks for a `.trz` Tracker archive, offering the `.zip`'s name in the same folder (or the next free name, such as `Lab (2).trz`, when that archive or its companion already exists), and writes it with its `.motrack` companion. Later saves update that pair ([details](docs/native-format.md#live-archive-group-records-and-checkpoints)).
 
 Projects, videos, and image sequences open in the same workspace. Switch or reorder tabs without resetting their playheads or undo histories. The tab × and **Hide experiment view** hide a view and retain its edits; reopen it from **Experiments**. **Close project…** closes the entire source, including hidden archive members, after Save/Discard/Cancel. Closing the window resolves every project before releasing any. **Save all projects** saves each modified source once, including hidden experiments. Failed or canceled saves retain the unsaved records. If two modified copies share a save destination, save one under a different filename before using Save All or saving both during close. Cross-tab import remains unfinished.
 
@@ -66,9 +70,11 @@ Open a Tracker **tabset** (a `.trk` that lists other files) from the same projec
 experiment, archive, video or image in order, each as its own project. Files are found next to the tabset first,
 then in the working directory, then at their recorded absolute path, so a copied folder keeps working. MoTrack asks
 you to locate a missing file, opens each file once even when Tracker listed an archive once per experiment, and
-lists anything it could not open. **File → Save tabset as…** writes a tabset that Tracker can open, offering the
+lists anything it could not open. An entry that names one experiment inside an archive (`lab.trz!/run.trk`, as a
+published tabset does) opens just that experiment, as Tracker does: the archive's other experiments stay hidden in
+**Experiments**, and edits save back into the archive. **File → Save tabset as…** writes a tabset that Tracker can open, offering the
 tabset you opened last and always ending in `.trk`; saving over a tabset changes only the entries that changed and
-keeps those whose files did not open. It lists each project's saved Tracker file, or an unchanged single video or
+keeps those whose files did not open, and keeps an archive experiment's entry in that form. It lists each project's saved Tracker file, or an unchanged single video or
 image, in tab order; a `.zip` experiment is listed as the `.zip` until it is saved as a `.trz`. A project with
 unsaved changes is saved first or, if you choose not to, listed as last saved; a failed or canceled save writes no
 tabset. MoTrack-only copies, image sequences and changed raw media are listed as not included until saved as
@@ -92,8 +98,11 @@ one is selected. Paths may contain spaces and any Unicode characters, and Window
 afterward, and the others still open. **Cancel selected open** stops the remaining requested files.
 Dropping a file never moves or deletes it. A file that is already open, including by another
 spelling of its name or as the file it was last saved to, is selected rather than opened a second time.
-**Open project…** and **Open video…** in the menu still open a second copy
-([#338](https://github.com/mgradwohl/MoTrack/issues/338)).
+**Open project…** and **Open video…** in the menu check the same way, and the status bar says the
+file is already open. Files chosen in the menu open one at a time after any requested files, and wait
+while a save, revert or close question is shown. Until one starts opening it is listed as
+"Checking…", and **Cancel selected open** removes it; canceling a requested file leaves it queued.
+**Open images…** always starts a new image-sequence experiment with the timing you choose.
 
 Unlike Tracker, a single video dropped on an experiment opens in a new tab instead of replacing that
 experiment's video ([#257](https://github.com/mgradwohl/MoTrack/issues/257)), and an image opens alone

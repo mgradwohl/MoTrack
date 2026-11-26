@@ -104,7 +104,12 @@ struct TrackerDifferences
     bool droppedNegation = false;   ///< `a+-b`, `a--b`: Tracker ignores the sign unless ^, * or / follows b.
     bool inverseHyperbolic = false; ///< asinh/acosh/atanh: Tracker's formulas lose precision or overflow.
     bool commonLogarithm = false;   ///< log(x): Tracker divides ln(x) by ln(10), so log(1000) < 3.
+    /// A literal with a `+` exponent sign (`1e+5`). Both dialects evaluate it, as SuryonoParser, Tracker's
+    /// data functions and its parameters do, but Tracker's models and fit functions (OSP UserFunction)
+    /// reject the whole expression and compute 0.
+    bool plusExponentSign = false;
 
+    /// True if Tracker computes a different value in at least one context.
     [[nodiscard]] bool any() const noexcept;
 
     bool operator==(const TrackerDifferences&) const = default;

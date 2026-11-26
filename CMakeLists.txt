@@ -56,16 +56,16 @@ add_library(motrack_library STATIC src/library/collection.cpp src/library/compad
 target_include_directories(motrack_library PUBLIC src)
 target_link_libraries(motrack_library PUBLIC motrack_osp)
 
-# The typed Tracker document (docs/tracker-document.md): typed loaders, source edits, families, descriptors, identities
-# and the unit and name codecs. Public headers are standard-only; Qt Core is linked privately for the codecs' QChar
+# The typed Tracker document (docs/tracker-document.md): typed loaders, source edits, families, descriptors, identities,
+# ID-addressed commands and history, and the unit and name codecs. Public headers are standard-only; Qt Core is linked privately for the codecs' QChar
 # classification only.
-add_library(motrack_model STATIC src/model/codecs.cpp src/model/descriptors.cpp src/model/families.cpp src/model/source_edits.cpp
-    src/model/tracker_document.cpp src/model/tracker_loaders.cpp)
+add_library(motrack_model STATIC src/model/codecs.cpp src/model/commands.cpp src/model/descriptors.cpp src/model/document_history.cpp
+    src/model/families.cpp src/model/source_edits.cpp src/model/tracker_document.cpp src/model/tracker_loaders.cpp)
 target_include_directories(motrack_model PUBLIC src)
 target_link_libraries(motrack_model PUBLIC motrack_osp motrack_dependencies PRIVATE Qt6::Core)
 
 add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/legacy_view.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
-    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_tabset.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
+    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_compose.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_tabset.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 # Tracker import/export reads and patches XML through motrack_osp only; QtXml is a test diagnostic dependency.
 target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp motrack_model PRIVATE motrack_archive motrack_motion)
@@ -186,7 +186,7 @@ qt_add_translations(motrack
     TS_FILES ${motrack_ts_files}
     PLURALS_TS_FILE translations/motrack_en.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
-            src/tracker_archive.cpp src/workspace_input.cpp
+            src/tracker_archive.cpp src/workspace_input.cpp src/legacy_project.cpp
             src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
 )
@@ -311,11 +311,12 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
-        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_tabset_test.cpp tests/tracker_writer_test.cpp
+        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_compose_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_tabset_test.cpp tests/tracker_writer_test.cpp
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/source_edits_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
         tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp tests/model/tracker_document_test.cpp tests/model/legacy_view_parity_test.cpp
+        tests/model/commands_test.cpp tests/model/history_parity_test.cpp tests/model/command_sequence_test.cpp
         tests/library_paths_test.cpp tests/library_collection_test.cpp tests/library_compadre_test.cpp tests/library_limits_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_library motrack_model motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
         motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
@@ -385,7 +386,7 @@ if(BUILD_TESTING)
         MOTRACK_EXECUTABLE="$<TARGET_FILE:motrack>")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*:WorkspaceTabset.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*:WorkspaceTabset.*:MenuOpen.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     # Tabset open/save flows, which drive several files and dialogs each, in their own time budget.
@@ -393,6 +394,8 @@ if(BUILD_TESTING)
     add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
     # Command-line, drop and operating-system opening, including child launches of the real executable.
     add_test(NAME desktop_launch COMMAND motrack_workspace_tests --gtest_filter=DesktopLaunch.*)
+    # Files chosen through the real File menu dialogs, in their own time budget.
+    add_test(NAME menu_open COMMAND motrack_workspace_tests --gtest_filter=MenuOpen.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     # Non-ASCII paths and locale-dependent display, in their own time budget.
@@ -404,7 +407,7 @@ if(BUILD_TESTING)
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
     set_tests_properties(workspace workspace_shell workspace_tabset workspace_saving workspace_document ui_translations
-        document_session document_session_journals camera_capture workspace_text desktop_launch PROPERTIES TIMEOUT 60)
+        document_session document_session_journals camera_capture workspace_text desktop_launch menu_open PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
         tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
@@ -438,7 +441,7 @@ if(BUILD_TESTING)
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
     set_tests_properties(workspace workspace_shell workspace_tabset workspace_saving workspace_document ui_translations
-        document_session document_session_journals camera_capture workspace_text desktop_launch desktop_smoke
+        document_session document_session_journals camera_capture workspace_text desktop_launch menu_open desktop_smoke
         desktop_invalid_project PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     # The application's own locale setup and, on Windows, its manifest's UTF-8 code page: the CI runners' system

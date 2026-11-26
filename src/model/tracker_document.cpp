@@ -10,6 +10,7 @@
 #include <ranges>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -84,8 +85,8 @@ template <typename T> FrameSeries<T> series(Indexed<T> frames, std::string_view 
 /// How many leading slots Tracker's application loader removes from a track's `framedata` before the track reads it,
 /// or none when it removes the whole array (#313; see legacy_project.cpp): TrackerIO's adjustFrameData drops the
 /// first `shift` slots (when positive) of every track array of Java length above 1, so saved index n loads at frame
-/// n - shift. An array no longer than the shift loads no frames, and one of length 1 is unchanged. An array whose last
-/// index Java cannot read stays unshifted, as before #313.
+/// n - shift. An array no longer than the shift loads no frames, and one of length 1 is unchanged. An array whose
+/// indices Java cannot place is refused before (#315); the compact form, which holds no frame objects, stays unshifted.
 template <typename Data> std::optional<std::int32_t> droppedSlots(const tracker::FrameArray<Data>& array, std::int32_t shift)
 {
     const auto last = array.frames.empty() ? Read<std::int32_t>(0) : array.frames.back().element.index;
@@ -102,8 +103,8 @@ template <typename Data> std::optional<std::int32_t> droppedSlots(const tracker:
 }
 
 /// A track's object elements as Java's array loader keeps them (reading revision 2): in index order, a later element
-/// of an index replacing an earlier one, a null one included. Where Java cannot place the indices, every object element
-/// in file order, as MoTrack read them before (#315 decides refusals).
+/// of an index replacing an earlier one, a null one included. Arrays whose indices Java cannot place are refused before
+/// (#315); the compact form, whose "array" element is no frame object, reads in file order and yields no frames.
 template <typename Data>
 std::vector<const tracker::Frame<Data>*> trackFrames(const osp::Source& source, const tracker::FrameArray<Data>& array)
 {
@@ -199,8 +200,9 @@ VectorState vector(const osp::Source& source, const tracker::VectorLoad& loaded,
 }
 
 /// The coordinate system as B1 presents it, or nothing where B1 imports no calibration: another class, a reference
-/// frame, no usable keys, or indices Java cannot place. Keys take Java's slots, so the last of duplicate keys wins
-/// (#314), and never shift: TrackerPanel loads `coords` without the frame adjuster.
+/// frame, no usable keys, or keys in the compact form. Keys take Java's slots, so the last of duplicate keys wins
+/// (#314), and never shift: TrackerPanel loads `coords` without the frame adjuster. Indices Java cannot place are
+/// refused before (#315).
 std::optional<CoordinatesState> coordinates(const osp::Source& source, const tracker::PanelLoad& panel)
 {
     if (!panel.coords || panel.coords->className != tracker::COORD_SYSTEM_CLASS || !loadedName(panel.referenceFrame).empty())
@@ -337,23 +339,6 @@ std::uint64_t assignCountdown(std::vector<ObjectSlot>& objects, std::uint64_t lo
         lowWater = next--;
     }
     return lowWater;
-}
-
-std::optional<std::string> graphLabel(const ObjectSlot& object)
-{
-    if (const auto* mass = std::get_if<PointMassState>(object.value.get()))
-    {
-        return mass->name ? std::optional(*mass->name) : std::nullopt;
-    }
-    if (const auto* vector = std::get_if<VectorState>(object.value.get()))
-    {
-        return vector->name ? std::optional(*vector->name) : std::nullopt;
-    }
-    if (const auto* unknown = std::get_if<UnknownState>(object.value.get()))
-    {
-        return unknown->label;
-    }
-    return std::nullopt;
 }
 
 bool familyFitsRole(Role role, Family family)
@@ -551,6 +536,58 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
 
 } // namespace
 
+std::string unloadableMessage(const tracker::Unloadable& problem)
+{
+    // Keep these texts equal to the translated ones in legacy_project.cpp (LegacyProject.UnloadableMessagesMatchTheTypedImport).
+    const bool wrongClass = problem.shape == tracker::UnloadableShape::WrongClass;
+    std::string text;
+    switch (problem.place)
+    {
+    case tracker::UnloadablePlace::ImagePaths:
+        text = wrongClass ? "Tracker cannot open this file: the image sequence's \"paths\" array does not have the class Tracker saves "
+                            "(%3), and the video saves no \"path\"."
+                          : "Tracker cannot open this file: the image sequence's \"paths\" array has an element whose index is "
+                            "unreadable or beyond the last element's, and the video saves no \"path\".";
+        break;
+    case tracker::UnloadablePlace::ImagePathFallback:
+        text = wrongClass ? "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" array does not have the class "
+                            "Tracker saves (%3), so Tracker opens the numbered images that start at its \"path\" instead, which "
+                            "MoTrack does not support."
+                          : "MoTrack cannot open this file as Tracker does: the image sequence's \"paths\" array has an element whose "
+                            "index is unreadable or beyond the last element's, so Tracker opens the numbered images that start at its "
+                            "\"path\" instead, which MoTrack does not support.";
+        break;
+    case tracker::UnloadablePlace::Coordinates:
+        text = wrongClass ? "Tracker cannot open this file: the calibration's \"framedata\" array does not have the class Tracker saves "
+                            "(%3)."
+                          : "Tracker cannot open this file: the calibration's \"framedata\" array has an element whose index is "
+                            "unreadable or beyond the last element's.";
+        break;
+    case tracker::UnloadablePlace::TrackList:
+        text = "Tracker cannot load the tracks of this file: its \"tracks\" list does not have the class Tracker saves (%3). Tracker "
+               "opens such a file without any of its tracks, or not at all.";
+        break;
+    case tracker::UnloadablePlace::TrackArray:
+        text = wrongClass ? "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" does not have the class "
+                            "Tracker saves (%3). Tracker opens the file without any of its tracks."
+                          : "Tracker cannot load the tracks of this file: the \"%2\" array of track \"%1\" has an element whose index "
+                            "is unreadable or beyond the last element's. Tracker opens the file without any of its tracks.";
+        break;
+    }
+    // Substitute every placeholder in one pass, as QString's multi-arg does, so a track name holding "%2" stays as it is.
+    std::string result;
+    for (std::size_t position = 0; position < text.size(); ++position)
+    {
+        if (text[position] == '%' && position + 1 < text.size() && text[position + 1] >= '1' && text[position + 1] <= '3')
+        {
+            const auto digit = text[++position];
+            result += digit == '1' ? problem.track : digit == '2' ? problem.property : problem.expectedClass;
+            continue;
+        }
+        result += text[position];
+    }
+    return result;
+}
 std::string_view associationsName(Associations associations) noexcept
 {
     switch (associations)
@@ -596,6 +633,10 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
     if (panel.className != tracker::TRACKER_PANEL_CLASS)
     {
         return invalid("Expected a TrackerPanel project.");
+    }
+    if (const auto problem = tracker::findUnloadable(source, panel))
+    {
+        return invalid(unloadableMessage(*problem));
     }
     DocumentParts parts{.baseline = std::move(baseline), .associations = Associations::Known};
     auto& objects = parts.objects;
@@ -853,19 +894,7 @@ const ObjectSlot* TrackerDocument::object(ObjectId id) const
 
 const ObjectSlot* TrackerDocument::singleton(Role role) const
 {
-    const ObjectSlot* unknown = nullptr;
-    for (const auto& object : m_Parts.objects)
-    {
-        if (object.role == role && object.state == ObjectState::Live)
-        {
-            if (object.family() != Family::Unknown)
-            {
-                return &object;
-            }
-            unknown = &object;
-        }
-    }
-    return unknown;
+    return findSingleton(m_Parts.objects, role);
 }
 
 std::span<const ObjectId> TrackerDocument::trackOrder() const noexcept
@@ -940,6 +969,121 @@ bool operator==(const TrackerDocument& left, const TrackerDocument& right)
     return sameBaseline && a.associations == b.associations && a.readerRevision == b.readerRevision && a.objects == b.objects &&
            a.trackOrder == b.trackOrder && a.nextObjectId == b.nextObjectId && a.countdownLowWater == b.countdownLowWater &&
            a.media == b.media;
+}
+
+void TrackerDocument::swap(TrackerDocument& other) noexcept
+{
+    // The parts hold only vectors, shared pointers and scalars; the index is swapped by member, since MSVC's
+    // unordered_map can allocate when moved.
+    static_assert(std::is_nothrow_swappable_v<DocumentParts>);
+    std::swap(m_Parts, other.m_Parts);
+    m_Index.swap(other.m_Index);
+    m_Graph.swap(other.m_Graph);
+    m_ReferenceIssues.swap(other.m_ReferenceIssues);
+}
+
+std::optional<std::string> graphLabel(const ObjectSlot& object)
+{
+    if (const auto* mass = std::get_if<PointMassState>(object.value.get()))
+    {
+        return mass->name ? std::optional(*mass->name) : std::nullopt;
+    }
+    if (const auto* vector = std::get_if<VectorState>(object.value.get()))
+    {
+        return vector->name ? std::optional(*vector->name) : std::nullopt;
+    }
+    if (const auto* unknown = std::get_if<UnknownState>(object.value.get()))
+    {
+        return unknown->label;
+    }
+    return std::nullopt;
+}
+
+const ObjectSlot* findSingleton(std::span<const ObjectSlot> objects, Role role)
+{
+    const ObjectSlot* unknown = nullptr;
+    for (const auto& object : objects)
+    {
+        if (object.role == role && object.state == ObjectState::Live)
+        {
+            if (object.family() != Family::Unknown)
+            {
+                return &object;
+            }
+            unknown = &object;
+        }
+    }
+    return unknown;
+}
+
+std::optional<double> loadedFrameDuration(const ObjectSlot* video, const ObjectSlot* control)
+{
+    if (video && video->className != tracker::IMAGE_VIDEO_CLASS)
+    {
+        return std::nullopt;
+    }
+    const auto* controlState = control ? std::get_if<ClipControlState>(control->value.get()) : nullptr;
+    const auto controlDuration = controlState ? finiteValue(controlState->deltaT) : std::nullopt;
+    auto duration = controlDuration;
+    if (duration.value_or(0.0) <= 0.0)
+    {
+        const auto* videoState = video ? std::get_if<VideoState>(video->value.get()) : nullptr;
+        duration = videoState ? finiteValue(videoState->deltaT) : std::nullopt;
+    }
+    if (duration.value_or(0.0) <= 0.0)
+    {
+        duration.reset();
+    }
+    if (!video && (!controlState || controlDuration == 0.0))
+    {
+        duration = tracker::DEFAULT_STEPPER_FRAME_DURATION_MS;
+    }
+    return duration;
+}
+
+ClipTimeline clipTimeline(std::span<const ObjectSlot> objects, const MediaExtension& media)
+{
+    ClipTimeline timeline{.media = !media.references.empty(), .sourceFrameCount = media.sourceFrameCount};
+    if (const auto* clip = findSingleton(objects, Role::Clip);
+        const auto* state = clip ? std::get_if<ClipState>(clip->value.get()) : nullptr)
+    {
+        timeline.firstFrame = loadedStartFrame(*state).value_or(timeline.firstFrame);
+        timeline.stepSize = state->stepSize.value_or(timeline.stepSize);
+        if (state->stepCount)
+        {
+            timeline.stepCount = *state->stepCount;
+        }
+        timeline.startTimeMs = finiteValue(state->startTime).value_or(0.0);
+    }
+    timeline.frameDurationMs = loadedFrameDuration(findSingleton(objects, Role::Video), findSingleton(objects, Role::ClipControl));
+    return timeline;
+}
+
+ClipTimeline clipTimeline(const TrackerDocument& document)
+{
+    return clipTimeline(document.objects(), document.media());
+}
+
+std::optional<PointMassState> baselinePointMass(const TrackerDocument& document, ObjectId id)
+{
+    const auto* object = document.object(id);
+    if (object == nullptr || !object->binding || document.associations() != Associations::Known || object->family() != Family::PointMass)
+    {
+        return std::nullopt;
+    }
+    // Tracker's application loader shifts every track's frames by the clip's positive frame shift (#313); no command
+    // edits the shift, so the document's clip holds the baseline's.
+    const auto* clip = findSingleton(document.objects(), Role::Clip);
+    const auto* clipState = clip ? std::get_if<ClipState>(clip->value.get()) : nullptr;
+    const auto& source = *document.baseline();
+    try
+    {
+        return pointMass(source, tracker::loadPointMass(source, *object->binding), clipState ? trackFrameShift(*clipState) : 0);
+    }
+    catch (const Refusal&)
+    {
+        return std::nullopt; // Unreachable: importing the same baseline typed this object.
+    }
 }
 
 std::vector<PathStep> baselinePath(const osp::Source& source, osp::NodeId node)

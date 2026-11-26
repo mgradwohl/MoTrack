@@ -78,7 +78,10 @@ over this range"). Tracker runs `HessianMinimize` (20 iterations, tolerance 1e�
 exceeds the starting one it restores the start and runs `LevenbergMarquardt` from the Hessian's best point;
 if that fails or is worse too, the starting values are kept (`FitStatus::NotImproved`). While minimizing, an
 undefined (NaN) function value counts as 0, as OSP's `UserFunction` returns, and a NaN deviation never counts
-as worse ([#307](https://github.com/mgradwohl/MoTrack/issues/307)). The fitted function then holds the *last parameter vector the objective
+as worse ([#307](https://github.com/mgradwohl/MoTrack/issues/307)). An infinite value is an ordinary value to
+OSP: Log on data with x = 0 (`log/nonpositive-x`) minimizes from an infinite deviation and reports a fit with an
+infinite rms and no warning ([#311](https://github.com/mgradwohl/MoTrack/issues/311)). The fitted function then
+holds the *last parameter vector the objective
 evaluated*, often one the minimizer rejected, and that vector's deviation decides whether the fit improved
 ([#306](https://github.com/mgradwohl/MoTrack/issues/306)); the Tracker dialect carries that state exactly.
 
@@ -148,6 +151,7 @@ unbounded). In both cases it estimates no uncertainty. The finite-difference der
 | Polynomial normal equations in powers of x: digits lost for offset or narrow x; arbitrary or NaN results for repeated x | Normal equations in x scaled to [−1, 1]; covariance in closed form; `DegenerateData` for fewer distinct x than coefficients | [#244](https://github.com/mgradwohl/MoTrack/issues/244) |
 | The last vector each minimizer evaluated, often a rejected one, is kept and decides whether the fit improved, so a worse vector is reported or an improvement is reverted | Each minimizer's best vector is kept, with the Levenberg-Marquardt fallback described above | [#306](https://github.com/mgradwohl/MoTrack/issues/306) |
 | An undefined model value counts as zero deviation and a NaN deviation as no worse, so a fit can end where the function is undefined on the data | A vector undefined at any valid point is rejected; a fit is never reported for an undefined function | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
+| An infinite model value (log 0, an overflowing exp) is a value: the fit runs from an infinite deviation and reports an infinite rms without the non-real-values warning | ±∞ is undefined like NaN: such a start is `UndefinedAtStart` with the warning and an undefined (NaN) rms, and the minimizers reject such vectors. Squared residuals that overflow on finite model values still give an infinite rms ([#372](https://github.com/mgradwohl/MoTrack/issues/372), not fixed yet) | [#311](https://github.com/mgradwohl/MoTrack/issues/311) |
 | A singular Newton step keeps the start as the fit, and an unconverged improvement is reported as a fit; any positive χ² curvature, rounding noise included, gives an uncertainty, also around a start that was not improved | Levenberg-Marquardt continues, restarting while it improves, and an improvement without convergence is `NotConverged`; σ is undetermined below a curvature of 0.001 after ten tries and for `NotImproved` or `NotConverged` | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
 | NaN or infinite x and infinite y rows repeat the last rows; only the last 524 288 rows are fitted (a deliberate capacity limit) | Rows with any non-finite value are dropped; no row limit | [#230](https://github.com/mgradwohl/MoTrack/issues/230), [#247](https://github.com/mgradwohl/MoTrack/issues/247) |
 | The band stays drawn when constant x or y discards the uncertainties | The band is dropped with them | — |
@@ -233,10 +237,13 @@ fixed-offset fits, which do not converge from Tracker's own initial guess.
 
 - **User fits.** Compile the Fit Builder expression with K1 over the variables `{x, parameters…}` (after
   `UserFunction`'s space removal and name padding) and evaluate it in the `FitModel`, returning NaN for an
-  undefined value; the fitter applies OSP's NaN-as-0 rule (Tracker) or rejects the vector (Corrected). The
-  expression dialect (K1 `Corrected` or
-  `Tracker`) decides operator precedence; K3 does not depend on it. Clones of the built-in polynomials stay
-  `KnownPolynomial`s (closed form) under their own names.
+  undefined value; the fitter applies OSP's NaN-as-0 rule (Tracker) or rejects the vector (Corrected, which
+  treats ±∞ the same way). The expression dialect (K1 `Corrected` or `Tracker`) decides operator precedence;
+  K3 does not depend on it. Clones of the built-in polynomials stay
+  `KnownPolynomial`s (closed form) under their own names. Tracker's Fit Builder rejects an expression with a
+  `+` exponent literal (`plusExponentSign`, [#215](https://github.com/mgradwohl/MoTrack/issues/215)) and fits
+  the constant 0. The kernel fits the expression as written (`CurveFit.UserFitWithAPlusExponentLiteral`); I4
+  warns when it opens such a Tracker fit and writes `trackerText()`.
 - **State.** Keep each tab's fits, fixed flags, Autofit and the scratch fallback per tab
   ([#245](https://github.com/mgradwohl/MoTrack/issues/245)); refit from current values when data change and
   from scratch on selection or when Autofit is switched on; clear uncertainties when a fit is skipped.

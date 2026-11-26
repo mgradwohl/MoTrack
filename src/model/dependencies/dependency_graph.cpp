@@ -6,6 +6,7 @@
 #include <deque>
 #include <functional>
 #include <limits>
+#include <ranges>
 #include <unordered_map>
 
 namespace motrack::model
@@ -448,7 +449,7 @@ DependencyResult<> DependencyGraph::retireIdentity(ObjectId id)
     m_Removed.insert(id);
     return std::monostate{};
 }
-DependencyResult<> DependencyGraph::renameObject(ObjectId id, std::string label)
+DependencyResult<> DependencyGraph::renameObject(ObjectId id, std::optional<std::string> label)
 {
     const auto found = m_Objects.find(id);
     if (found == m_Objects.end())
@@ -522,6 +523,19 @@ DependencyResult<> DependencyGraph::markChanged(NodeKey node)
     const auto revision = advance();
     invalidate(std::span(&node, 1), revision);
     return std::monostate{};
+}
+
+Revision DependencyGraph::markAllChanged(Revision floor) noexcept
+{
+    m_Revision = std::max(Revision{.value = m_Revision.value + 1}, floor);
+    for (auto& record : m_Objects | std::views::values)
+    {
+        for (auto& facetRecord : record.facets)
+        {
+            facetRecord.effective = m_Revision;
+        }
+    }
+    return m_Revision;
 }
 
 bool DependencyGraph::contains(ObjectId id) const
