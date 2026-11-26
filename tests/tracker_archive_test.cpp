@@ -362,6 +362,83 @@ TEST(TrackerArchive, RefusesUnflaggedMemberNamesThatAreNotUtf8LikeTracker)
     }
 }
 
+TEST(TrackerArchive, RefusesNamesJavaCannotDecodeWhateverTheFlagSays)
+{
+    // java.util.zip decodes every name with a strict UTF-8 decoder, flagged (general-purpose bit 11) or not, and
+    // throws on the first malformed sequence, so Tracker opens none of these archives (#275). The records are written
+    // directly: libarchive's writers cannot store such names.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("malformed.trz");
+    struct Case
+    {
+        const char* what;
+        QByteArray name;
+    };
+    for (const auto& malformed : {Case{.what = "IBM 437 e-acute", .name = "vid\x82o.png"},
+                                  Case{.what = "Windows-1252 e-acute", .name = "vid\xE9o.png"},
+                                  Case{.what = "truncated sequence", .name = "video\xC3"},
+                                  Case{.what = "stray continuation byte", .name = "vid\xA9o.png"},
+                                  Case{.what = "overlong slash",
+                                       .name = "videos\xC0\xAF"
+                                               "a.png"},
+                                  Case{.what = "lone surrogate", .name = "vid\xED\xA0\x80o.png"},
+                                  Case{.what = "beyond U+10FFFF", .name = "vid\xF4\x90\x80\x80o.png"}})
+    {
+        for (const bool flagged : {false, true})
+        {
+            SCOPED_TRACE(std::string(malformed.what) + (flagged ? ", flagged" : ", unflagged"));
+            ASSERT_TRUE(motrack::test::writeStoredArchive(
+                path, {{.name = "experiment.trk", .bytes = "<object/>"}, {.name = malformed.name.constData(), .bytes = "a"}}, flagged));
+            try
+            {
+                std::ignore = motrack::TrackerArchive::open(path);
+                ADD_FAILURE() << "The archive opened.";
+            }
+            catch (const motrack::ProjectError& error)
+            {
+                EXPECT_NE(std::string(error.what()).find("not valid UTF-8"), std::string::npos) << error.what();
+            }
+            EXPECT_EQ(motrack::trackerArchiveProjectNames(path), std::nullopt);
+        }
+    }
+}
+
+TEST(TrackerArchive, TreatsAReplacementCharacterInAValidNameAsUnsafeNotAsMalformed)
+{
+    // U+FFFD encoded as EF BF BD is valid UTF-8: java.util.zip reads the name and Tracker opens the archive. Such
+    // names come from tools that already replaced bytes they could not decode. MoTrack must not report the archive
+    // as "not valid UTF-8"; the name is unsafe instead (it can hide what it stood for), so the member is skipped and
+    // the rest of the archive opens, and a project with such a name refuses the archive as other unsafe ones do.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("replaced.trz");
+    const QByteArray replaced("notes \xEF\xBF\xBD.txt");
+    for (const bool flagged : {false, true})
+    {
+        SCOPED_TRACE(flagged ? "flagged" : "unflagged");
+        ASSERT_TRUE(motrack::test::writeStoredArchive(
+            path, {{.name = "experiment.trk", .bytes = "<object/>"}, {.name = replaced.constData(), .bytes = "kept"}}, flagged));
+        const auto archive = motrack::TrackerArchive::open(path);
+        EXPECT_EQ(archive.projects(), QStringList{"experiment.trk"});
+        EXPECT_EQ(archive.skippedMembers(), QStringList{QString::fromUtf8(replaced)});
+        EXPECT_TRUE(archive.omittedOnSave().isEmpty());
+        EXPECT_EQ(extractedFiles(archive.root()), QStringList{"experiment.trk"});
+        EXPECT_EQ(motrack::trackerArchiveProjectNames(path), QSet<QString>{"experiment.trk"});
+
+        ASSERT_TRUE(motrack::test::writeStoredArchive(path, {{.name = "exp\xEF\xBF\xBD.trk", .bytes = "<object/>"}}, flagged));
+        try
+        {
+            std::ignore = motrack::TrackerArchive::open(path);
+            ADD_FAILURE() << "A project with a replacement character in its name was extracted.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_NE(std::string(error.what()).find("unsafe member name"), std::string::npos) << error.what();
+        }
+    }
+}
+
 TEST(TrackerArchive, NamesOnlyNameConversionWarningsAsNonUtf8Names)
 {
     // libarchive's ZIP reader texts for a name hdrcharset=UTF-8 cannot convert; anything else keeps the generic message.

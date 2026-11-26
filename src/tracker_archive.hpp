@@ -58,9 +58,11 @@ namespace detail
 
 /// Owns a temporary, validated extraction of a Tracker experiment archive.
 /// Members with unsafe names (absolute, drive-letter, UNC, '\', '.'/'..', empty-segment, control-character,
-/// reserved-device or overlong) are never extracted, listed as projects or used to resolve media; an
-/// unsafe project (.trk) name, or a media reference naming an unsafe member, rejects the archive.
+/// replacement-character, reserved-device or overlong) are never extracted, listed as projects or used to resolve
+/// media; an unsafe project (.trk) name, or a media reference naming an unsafe member, rejects the archive.
 /// So does an archive with no project, which Tracker reports as "Not a Tracker file".
+/// Member names are UTF-8 whether or not their ZIP UTF-8 flag is set, as Tracker reads them; a name that is not
+/// UTF-8 rejects the archive, as it does in Tracker (#275).
 class TrackerArchive
 {
   public:
