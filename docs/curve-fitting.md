@@ -46,7 +46,7 @@ Line is the default. Parameters are listed in order with their default values.
 | Line (`Poly1`) | `A*x+B` | A slope, B intercept (0, 0) | normal equations | none |
 | Parabola (`Poly2`) | `A*x^2+B*x+C` | (0, 0, 0) | normal equations | none |
 | Cubic (`Poly3`) | `A*x^3+B*x^2+C*x+D` | (0, 0, 0, 0) | normal equations | none |
-| Gaussian | `A*exp(-(x-B)^2/(2*C^2))` | peak height 1, position 0, standard deviation 1 | Hessian, then LM | Jacquelin's integral regression |
+| Gaussian | `A*exp(-(x-B)^2/(2*C^2))`; the division follows OSP's parser, which divides by 1.0e-128 instead of 0, so a zero width gives A at x = B and 0 elsewhere in both dialects ([#374](https://github.com/mgradwohl/MoTrack/issues/374)) | peak height 1, position 0, standard deviation 1 | Hessian, then LM | Jacquelin's integral regression |
 | Exponential | `A*exp(B*x)+C` | magnitude 1, rate −1, offset 0 | Hessian, then LM | offset from three equally spaced points, rate and magnitude through the ends |
 | Sine (`Sinusoid`) | `A*sin(B*x+C)+D` | amplitude 1, ω 1, phase 0, offset 0 | Hessian, then LM | offset and amplitude from the y range; ω and phase from zero crossings (Corrected: or counted with hysteresis, [#310](#sine-and-damped-sine-guess)) |
 | Damped Sine (`DampedSine`) | `A*exp(E*x)*sin(B*x+C)+D` | 1, 1, 0, 0, rate 0 | Hessian, then LM | as Sine; E keeps its fallback value (0) |
@@ -188,7 +188,7 @@ the oracle allocates it without a constructor and installs the plain objects `fi
 every decision is OSP's own code. Like `Tracker.start`, it sets `Dataset.maxPointsMultiplier` to 32. It records
 [`tests/science/fit-reference.json`](../tests/science/fit-reference.json):
 
-- 155 cases: for every built-in fit exact data, noisy data, an outlier, shuffled order, repeated x, exactly as
+- 158 cases: for every built-in fit exact data, noisy data, an outlier, shuffled order, repeated x, exactly as
   many points as parameters and one fewer, a fixed parameter, a refit from current values, a manual fit and
   four seeded random data sets; missing and infinite values, the 524 288-row limit (evaluated with Autofit
   off), constant and repeated data, undefined starting values, negative fixed values, two fixed cubic

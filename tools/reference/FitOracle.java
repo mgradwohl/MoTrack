@@ -392,6 +392,20 @@ public final class FitOracle {
         add("log/nonpositive-x", "degenerate", "log", grid(0, 0.25, 10), noisy(grid(0.1, 0.2, 10), 0.05, 98), null);
         add("gaussian/all-fixed", "fixed", "gaussian", grid(0, 0.1, 26), evaluate("gaussian", builtIn("gaussian").truth(),
             grid(0, 0.1, 26)), new double[] {3.0, 1.1, 0.5}, new boolean[] {true, true, true}, true, false, null, null, null);
+        // A zero width is defined in Tracker: the parser divides by 1.0e-128 instead of 0, so the model is A at a data
+        // point with x = B and 0 at every other one (MoTrack #374). Fitted from the current values, with C free, with
+        // C fixed, and with Autofit off. The model does not depend on B or C there, so Tracker's autofit reports the
+        // last vector it evaluated (#306) and rounding-noise uncertainties (#307): "zero-width-model" keeps these
+        // cases out of the comparisons with the intended fit.
+        double[] zeroWidthX = grid(-1.0, 0.25, 9);
+        double[] zeroWidthY = noisy(evaluate("gaussian", new double[] {2.0, 0.1, 0.5}, zeroWidthX), 0.02, 7);
+        double[] zeroWidth = {2.0, 0.0, 0.0};
+        add("gaussian/zero-width", "degenerate", "gaussian", zeroWidthX, zeroWidthY, zeroWidth, new boolean[3], true, false,
+            null, "zero-width-model", null);
+        add("gaussian/zero-width-fixed", "fixed", "gaussian", zeroWidthX, zeroWidthY, zeroWidth,
+            new boolean[] {false, false, true}, true, false, null, "zero-width-model", null);
+        add("gaussian/zero-width-no-autofit", "degenerate", "gaussian", zeroWidthX, zeroWidthY, zeroWidth, new boolean[3],
+            false, false, null, null, null);
         double[] negativeStart = defaults("line");
         negativeStart[1] = -1.25;
         add("line/fixed-negative", "fixed", "line", lx, ly, negativeStart, fixedAt(2, 1), true, true,

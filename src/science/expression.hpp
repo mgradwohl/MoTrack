@@ -11,6 +11,10 @@
 namespace motrack::science
 {
 
+/// SuryonoParser divides by this instead of a zero divisor; MoTrack keeps the trap in both dialects, and built-in
+/// models that OSP evaluates through the parser divide the same way.
+inline constexpr double ZERO_DIVISOR_REPLACEMENT = 1.0e-128;
+
 /// Why an expression was rejected. OSP SuryonoParser errors keep their Java codes; MoTrack's bounds follow.
 enum class ExpressionErrorCode : std::uint8_t
 {

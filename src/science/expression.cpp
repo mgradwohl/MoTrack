@@ -110,8 +110,6 @@ using detail::Segment;
 
 /// SuryonoParser compiles into an int[100] whose first entry holds the code count.
 constexpr std::size_t TRACKER_CODE_LIMIT = 99;
-/// SuryonoParser divides by this instead of a zero divisor; MoTrack keeps the trap in both dialects.
-constexpr double ZERO_DIVISOR_REPLACEMENT = 1.0e-128;
 constexpr std::size_t INLINE_STACK = 64;
 constexpr double QUIET_NAN = std::numeric_limits<double>::quiet_NaN();
 
