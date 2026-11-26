@@ -111,7 +111,9 @@ To fill new entries, seed them from Tracker, then machine-translate the rest:
    the bundle and key. `STALE_KEYS`, `HOMOGRAPH_KEYS` and `LOCALE_REJECTED` exclude Tracker translations that no
    longer mean, or never meant, the MoTrack text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); a
    seed whose match disappears is emptied for a new translation. Turkish is not seeded because Tracker's
-   catalog omits Turkish letters.
+   catalog omits Turkish letters. A value that stores `?` where a character was lost is never copied; for OSP's
+   Simplified Chinese tools and video bundles, `tools/translation-restored.json` supplies the translator's intact
+   text from OSP 7e78e1e in its place ([osp#59](https://github.com/OpenSourcePhysics/osp/issues/59)).
 2. `python tools/translations.py pending --locale <locale> --out pending.json --tracker <tracker> --osp <osp>
    --reference de fr es` lists the remaining strings with Tracker's terminology, the plural rule and finished
    German/French/Spanish translations for context.
