@@ -246,12 +246,13 @@ void sineGuess(const SortedData& data, std::vector<double>& params)
 /// A crossing of the offset counts only once the data move from beyond one threshold to beyond the other.
 constexpr double HYSTERESIS = 0.3;
 
-/// Corrected: Tracker's offset and amplitude, with frequency and phase from crossings counted with hysteresis
-/// at +-0.3 of the half range around the offset. Tracker counts every sign change, so noise on dense data adds
-/// crossings near each true one and the frequency guess is several times too high (MoTrack #310). A crossing
-/// lies at the mean of the first and last sign change between the thresholds; a crossing before the data
-/// first pass a threshold is not counted. Without two crossings the frequency falls back to Tracker's rule.
-void hysteresisSineGuess(const SortedData& data, std::vector<double>& params)
+/// Tracker's offset and amplitude, with frequency and phase from crossings counted with hysteresis at +-0.3 of
+/// the half range around the offset; returns the number of crossings. Tracker counts every sign change, so
+/// noise on dense data adds crossings near each true one and the frequency guess is several times too high
+/// (MoTrack #310). A crossing lies at the mean of the first and last sign change between the thresholds; a
+/// crossing before the data first pass a threshold is not counted. The threshold is a fraction of the
+/// range-based amplitude, not a noise estimate.
+int hysteresisCrossings(const SortedData& data, std::vector<double>& params)
 {
     const std::size_t count = data.x.size();
     params[3] = (data.minimum + data.maximum) / 2;
@@ -295,12 +296,13 @@ void hysteresisSineGuess(const SortedData& data, std::vector<double>& params)
         side = beyond;
         firstChange.reset();
     }
-    const double xMinimum = data.x.front();
-    const double xMaximum = data.x.back();
-    params[1] = crossings > 1 ? (PI * static_cast<double>(crossings - 1)) / (lastCrossing - firstCrossing)
-                              : (PI * static_cast<double>(std::max(1, crossings))) / (xMaximum - xMinimum);
-    const double phaseToFirstCrossing = crossings > 0 ? params[1] * firstCrossing : 0;
-    params[2] = positiveSlope ? -phaseToFirstCrossing : PI - phaseToFirstCrossing;
+    if (crossings > 1)
+    {
+        params[1] = (PI * static_cast<double>(crossings - 1)) / (lastCrossing - firstCrossing);
+        const double phaseToFirstCrossing = params[1] * firstCrossing;
+        params[2] = positiveSlope ? -phaseToFirstCrossing : PI - phaseToFirstCrossing;
+    }
+    return crossings;
 }
 
 /// Offset from three points equally spaced in x, then rate and magnitude through the end points.
@@ -540,14 +542,7 @@ initialGuess(BuiltInFit kind, std::span<const double> x, std::span<const double>
     {
     case BuiltInFit::Sinusoid:
     case BuiltInFit::DampedSine:
-        if (dialect == FitDialect::Tracker)
-        {
-            sineGuess(data, params);
-        }
-        else
-        {
-            hysteresisSineGuess(data, params);
-        }
+        sineGuess(data, params);
         break;
     case BuiltInFit::Exponential:
         exponentialGuess(data, params);
@@ -597,6 +592,22 @@ initialGuess(BuiltInFit kind, std::span<const double> x, std::span<const double>
     }
     // Tracker starts from NaN values and then skips the fit; Corrected keeps the current values instead.
     if (dialect == FitDialect::Corrected && !std::ranges::all_of(params, [](double value) { return std::isfinite(value); }))
+    {
+        return std::nullopt;
+    }
+    return params;
+}
+
+std::optional<std::vector<double>>
+hysteresisSineGuess(BuiltInFit kind, std::span<const double> x, std::span<const double> y, std::span<const double> fallback)
+{
+    std::vector<double> params(fallback.begin(), fallback.end());
+    if ((kind != BuiltInFit::Sinusoid && kind != BuiltInFit::DampedSine) || params.empty() || x.size() < params.size())
+    {
+        return std::nullopt;
+    }
+    const SortedData data = sortData(x, y, FitDialect::Corrected);
+    if (hysteresisCrossings(data, params) < 2 || !std::ranges::all_of(params, [](double value) { return std::isfinite(value); }))
     {
         return std::nullopt;
     }

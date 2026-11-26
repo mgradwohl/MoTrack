@@ -822,24 +822,37 @@ TEST(CurveFit, CorrectedKeepsAnUnimprovableStartWithoutUncertainties)
     EXPECT_TRUE(result.uncertaintyBand.empty());
 }
 
-/// Gaussian noise of standard deviation `sigma` by Box-Muller from mt19937_64, whose output (unlike
-/// std::normal_distribution's) is the same with every standard library.
+/// A draw in (0, 1] from mt19937_64, whose output (unlike the <random> distributions') is the same with every
+/// standard library.
+double unitDraw(std::mt19937_64& generator)
+{
+    return static_cast<double>((generator() >> 11U) + 1) * 0x1.0p-53;
+}
+
+/// Gaussian noise of standard deviation `sigma`, by Box-Muller.
 std::vector<double> gaussianNoise(std::vector<double> y, double sigma, std::uint64_t seed)
 {
     std::mt19937_64 generator(seed);
-    const auto uniform = [&generator]
-    {
-        return static_cast<double>((generator() >> 11U) + 1) * 0x1.0p-53; // (0, 1]
-    };
     for (double& value : y)
     {
-        const double radius = std::sqrt(-2 * std::log(uniform()));
-        value += sigma * radius * std::cos(2 * std::numbers::pi * uniform());
+        const double radius = std::sqrt(-2 * std::log(unitDraw(generator)));
+        value += sigma * radius * std::cos(2 * std::numbers::pi * unitDraw(generator));
     }
     return y;
 }
 
-/// Sinusoid parameters with a positive amplitude and the phase in [-pi, pi).
+/// Uniform noise in (-size, size].
+std::vector<double> uniformNoise(std::vector<double> y, double size, std::uint64_t seed)
+{
+    std::mt19937_64 generator(seed);
+    for (double& value : y)
+    {
+        value += size * ((2 * unitDraw(generator)) - 1);
+    }
+    return y;
+}
+
+/// Sinusoid or DampedSine parameters with a positive amplitude and the phase in [-pi, pi).
 std::vector<double> canonicalSine(std::vector<double> p)
 {
     if (p[0] < 0)
@@ -855,43 +868,112 @@ TEST(CurveFit, CorrectedSineGuessIgnoresNoiseCrossings)
 {
     // Tracker's from-scratch guess counts every zero crossing about the mid-range, so noise on dense data adds
     // crossings, the frequency guess is several times too high, and the fit ends at a local minimum (#310).
-    // Expected values are the generating parameters (0.8, 3, 0.4, -0.2) on x = 0 ... 10, within a few
-    // least-squares standard errors.
-    const std::vector<double> truth = {0.8, 3, 0.4, -0.2};
-    const FitFunction sine = builtInFit(BuiltInFit::Sinusoid);
+    // Corrected also counts crossings with hysteresis and starts from the guess with the lower deviation.
+    // Expected values are the generating parameters on x = 0 ... 10, within a few least-squares standard errors.
     struct Case
     {
+        BuiltInFit kind;
+        std::vector<double> truth;
         std::size_t points;
-        double sigma;
+        bool uniform;
+        double size;
         std::uint64_t seed;
         bool tracker;
     };
-    // 500 points with Gaussian noise at an amplitude signal-to-noise ratio of 10, and the issue's dense example
-    // (Tracker's guess there is B = 5.1, its fit rms 0.57; not rerun here, it takes most of this test's time).
-    for (const Case& c : {Case{.points = 500, .sigma = 0.08, .seed = 310, .tracker = true},
-                          Case{.points = 10000, .sigma = 0.005, .seed = 311, .tracker = false}})
+    const std::vector<Case> noisy = {
+        // 500 points with Gaussian noise at an amplitude signal-to-noise ratio of 10. Tracker ends at A = 0.061,
+        // B = 5.75 with rms 0.58, reported as Fitted with estimated uncertainties.
+        {.kind = BuiltInFit::Sinusoid,
+         .truth = {0.8, 3, 0.4, -0.2},
+         .points = 500,
+         .uniform = false,
+         .size = 0.08,
+         .seed = 310,
+         .tracker = true},
+        // #310's dense example: 10 000 points with uniform noise of +-0.01. Tracker's fit ends at A = 0.0087,
+        // B = 7.95 with rms 0.573 (not rerun here: it takes most of this test's time).
+        {.kind = BuiltInFit::Sinusoid,
+         .truth = {0.8, 3, 0.4, -0.2},
+         .points = 10000,
+         .uniform = true,
+         .size = 0.01,
+         .seed = 311,
+         .tracker = false},
+        // A damped sine with the same noise as the first case. Tracker ends at A = 0.39, B = 8.88 with rms 0.49.
+        {.kind = BuiltInFit::DampedSine,
+         .truth = {0.8, 3, 0.4, -0.2, -0.05},
+         .points = 500,
+         .uniform = false,
+         .size = 0.08,
+         .seed = 312,
+         .tracker = true},
+    };
+    for (const Case& c : noisy)
     {
         SCOPED_TRACE(c.points);
+        const FitFunction f = builtInFit(c.kind);
         const auto x = grid(0, 10.0 / static_cast<double>(c.points - 1), c.points);
-        const auto y = gaussianNoise(evaluate(sine, truth, x), c.sigma, c.seed);
+        const auto exact = evaluate(f, c.truth, x);
+        const auto y = c.uniform ? uniformNoise(exact, c.size, c.seed) : gaussianNoise(exact, c.size, c.seed);
+        const double sigma = c.uniform ? c.size / std::sqrt(3.0) : c.size;
         if (c.tracker)
         {
-            // Tracker ends at A = 0.061, B = 5.75 with rms 0.58, reported as Fitted with estimated uncertainties.
-            const FitResult tracker = fitCurve(sine, x, y, options(FitDialect::Tracker));
+            const FitResult tracker = fitCurve(f, x, y, options(FitDialect::Tracker));
             EXPECT_EQ(tracker.status, FitStatus::Fitted);
-            EXPECT_GT(std::abs(tracker.parameters[1] - truth[1]), 1.0);
-            EXPECT_GT(tracker.rmsDeviation, 3 * c.sigma);
+            EXPECT_GT(std::abs(tracker.parameters[1] - c.truth[1]), 1.0);
+            EXPECT_GT(tracker.rmsDeviation, 3 * sigma);
         }
-        const FitResult corrected = fitCurve(sine, x, y, options(FitDialect::Corrected));
+        const FitResult corrected = fitCurve(f, x, y, options(FitDialect::Corrected));
         EXPECT_EQ(corrected.status, FitStatus::Fitted);
         const std::vector<double> fitted = canonicalSine(corrected.parameters);
         // Standard errors at 500 points: about 0.005 (A, D), 0.0015 (B) and 0.01 (C).
-        EXPECT_NEAR(fitted[0], truth[0], 0.03);
-        EXPECT_NEAR(fitted[1], truth[1], 0.01);
-        EXPECT_NEAR(fitted[2], truth[2], 0.05);
-        EXPECT_NEAR(fitted[3], truth[3], 0.03);
-        EXPECT_NEAR(corrected.rmsDeviation, c.sigma, 0.1 * c.sigma);
-        EXPECT_EQ(corrected.uncertaintyStatus, std::vector<UncertaintyStatus>(4, UncertaintyStatus::Estimated));
+        EXPECT_NEAR(fitted[0], c.truth[0], 0.03);
+        EXPECT_NEAR(fitted[1], c.truth[1], 0.01);
+        EXPECT_NEAR(fitted[2], c.truth[2], 0.05);
+        EXPECT_NEAR(fitted[3], c.truth[3], 0.03);
+        if (c.kind == BuiltInFit::DampedSine)
+        {
+            EXPECT_NEAR(fitted[4], c.truth[4], 0.01);
+        }
+        EXPECT_NEAR(corrected.rmsDeviation, sigma, 0.1 * sigma);
+        EXPECT_EQ(corrected.uncertaintyStatus, std::vector<UncertaintyStatus>(c.truth.size(), UncertaintyStatus::Estimated));
+    }
+}
+
+TEST(CurveFit, CorrectedSineGuessKeepsTrackersCrossingsOnCleanData)
+{
+    // On clean data Tracker's crossing count is right, and it is the only usable one when swings stay inside the
+    // hysteresis band: below about three samples per period, or once a damped envelope falls by about 63 % per
+    // period. Corrected then starts from Tracker's guess and, like Tracker, recovers the generating parameters.
+    struct Case
+    {
+        BuiltInFit kind;
+        std::vector<double> truth;
+        std::size_t points;
+    };
+    const std::vector<Case> clean = {
+        {.kind = BuiltInFit::Sinusoid, .truth = {0.8, 3, 0.4, -0.2}, .points = 500},
+        // 2.6 samples per period: hysteresis finds 17 of the 20 crossings, and a fit from its guess ends at
+        // A = 0.18, B = 5.43 with rms 0.687.
+        {.kind = BuiltInFit::Sinusoid, .truth = {1, 6.3, 0.3, 0}, .points = 26},
+        // The envelope falls by 63 % per period, so hysteresis finds one crossing; a fit from its range-based
+        // frequency ends at B = 0 with rms 0.231.
+        {.kind = BuiltInFit::DampedSine, .truth = {1.4, 3.8, -1.5, -0.9, -0.6}, .points = 200},
+    };
+    for (const Case& c : clean)
+    {
+        SCOPED_TRACE(c.points);
+        const FitFunction f = builtInFit(c.kind);
+        const auto x = grid(0, 10.0 / static_cast<double>(c.points - 1), c.points);
+        const auto y = evaluate(f, c.truth, x);
+        for (const FitDialect dialect : DIALECTS)
+        {
+            SCOPED_TRACE(static_cast<int>(dialect));
+            const FitResult result = fitCurve(f, x, y, options(dialect));
+            EXPECT_EQ(result.status, FitStatus::Fitted);
+            EXPECT_LT(result.rmsDeviation, 1e-6);
+            expectNear(c.truth, canonicalSine(result.parameters), 1e-5);
+        }
     }
 }
 

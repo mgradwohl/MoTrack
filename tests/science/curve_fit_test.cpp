@@ -627,6 +627,83 @@ TEST(CurveFitReference, CorrectedDampedSineWithAnOutlierReachesTheMinimum)
     EXPECT_EQ(result.uncertaintyStatus, std::vector<UncertaintyStatus>(5, UncertaintyStatus::Estimated));
 }
 
+TEST(CurveFitReference, CorrectedSineFitsAreNoWorseThanFromTrackersGuess)
+{
+    // From scratch, Corrected starts a Sine or Damped Sine fit from Tracker's guess or from crossings counted with
+    // hysteresis, whichever starts lower (#310). On every such oracle case, including those without an
+    // independent expectation, its fit is at least as good as the Corrected fit from Tracker's guess alone.
+    int checked = 0;
+    int alternatives = 0;
+    for (const QJsonObject& c : cases())
+    {
+        const std::string fit = text(c[QStringLiteral("fit")]);
+        if ((fit != "sinusoid" && fit != "dampedsine") || text(c[QStringLiteral("start")]) != "scratch" ||
+            !c[QStringLiteral("autofit")].toBool())
+        {
+            continue;
+        }
+        const std::string id = text(c[QStringLiteral("id")]);
+        SCOPED_TRACE(id);
+        const FitResult result = runCase(c, FitDialect::Corrected, fit);
+        FitFunction f = caseFunction(fit);
+        if (c[QStringLiteral("initial")].isArray())
+        {
+            const auto initial = numbers(c[QStringLiteral("initial")]);
+            for (std::size_t i = 0; i < initial.size(); ++i)
+            {
+                f.parameters[i].value = initial[i];
+            }
+        }
+        FitOptions fromGuess;
+        fromGuess.start = FitStart::FromCurrent;
+        if (c[QStringLiteral("fixed")].isArray())
+        {
+            fromGuess.fixed = flags(c[QStringLiteral("fixed")]);
+        }
+        // Tracker's rule on the points Corrected fits: every row with finite x and y, sorted stably.
+        const CaseData data = caseData(c);
+        std::vector<double> x;
+        std::vector<double> y;
+        for (std::size_t i = 0; i < data.x.size(); ++i)
+        {
+            if (std::isfinite(data.x[i]) && std::isfinite(data.y[i]))
+            {
+                x.push_back(data.x[i]);
+                y.push_back(data.y[i]);
+            }
+        }
+        const BuiltInFit kind = builtInIds().at(fit);
+        if (const auto guess = motrack::science::fit_detail::initialGuess(
+                kind, x, y, motrack::science::fit_detail::builtInDefaults(kind), FitDialect::Corrected))
+        {
+            for (std::size_t i = 0; i < f.parameters.size(); ++i)
+            {
+                if (fromGuess.fixed.empty() || !fromGuess.fixed[i])
+                {
+                    f.parameters[i].value = (*guess)[i];
+                }
+            }
+        }
+        const FitResult reference = motrack::science::fitCurve(f, data.x, data.y, fromGuess);
+        if (std::isfinite(reference.rmsDeviation))
+        {
+            double scale = 0;
+            for (const double value : y)
+            {
+                scale += value * value;
+            }
+            // Exact data end at rounding-level deviations, which differ by a few ulps of sum y^2 between starts.
+            EXPECT_LE(deviationOf(result), (deviationOf(reference) * (1 + 1e-9)) + (1e-12 * scale))
+                << id << ": rms " << result.rmsDeviation << " against " << reference.rmsDeviation;
+        }
+        alternatives += result.parameters != reference.parameters ? 1 : 0;
+        ++checked;
+    }
+    EXPECT_GE(checked, 20);
+    // 7 of the 24 cases start from the hysteresis guess.
+    EXPECT_GE(alternatives, 1);
+}
+
 TEST(CurveFitReference, CorrectedBandRefitsTheOtherParameters)
 {
     int checked = 0;
