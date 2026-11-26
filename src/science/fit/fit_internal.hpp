@@ -48,6 +48,12 @@ class LupDecomposition
 [[nodiscard]] std::optional<std::vector<double>>
 initialGuess(BuiltInFit kind, std::span<const double> x, std::span<const double> y, std::span<const double> fallback, FitDialect dialect);
 
+/// Corrected only: the Sinusoid or DampedSine guess with zero crossings counted with hysteresis (MoTrack #310),
+/// or nothing when it finds fewer than two crossings, a value is not finite, or `kind` is not a sine fit.
+/// `fitCurve` starts from it instead of Tracker's guess when it has the lower, defined starting deviation.
+[[nodiscard]] std::optional<std::vector<double>>
+hysteresisSineGuess(BuiltInFit kind, std::span<const double> x, std::span<const double> y, std::span<const double> fallback);
+
 /// Default parameter values of a built-in fit.
 [[nodiscard]] std::vector<double> builtInDefaults(BuiltInFit kind);
 

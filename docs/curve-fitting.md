@@ -48,7 +48,7 @@ Line is the default. Parameters are listed in order with their default values.
 | Cubic (`Poly3`) | `A*x^3+B*x^2+C*x+D` | (0, 0, 0, 0) | normal equations | none |
 | Gaussian | `A*exp(-(x-B)^2/(2*C^2))` | peak height 1, position 0, standard deviation 1 | Hessian, then LM | Jacquelin's integral regression |
 | Exponential | `A*exp(B*x)+C` | magnitude 1, rate −1, offset 0 | Hessian, then LM | offset from three equally spaced points, rate and magnitude through the ends |
-| Sine (`Sinusoid`) | `A*sin(B*x+C)+D` | amplitude 1, ω 1, phase 0, offset 0 | Hessian, then LM | offset and amplitude from the y range; ω and phase from zero crossings |
+| Sine (`Sinusoid`) | `A*sin(B*x+C)+D` | amplitude 1, ω 1, phase 0, offset 0 | Hessian, then LM | offset and amplitude from the y range; ω and phase from zero crossings (Corrected: or counted with hysteresis, [#310](#sine-and-damped-sine-guess)) |
 | Damped Sine (`DampedSine`) | `A*exp(E*x)*sin(B*x+C)+D` | 1, 1, 0, 0, rate 0 | Hessian, then LM | as Sine; E keeps its fallback value (0) |
 | Power | `A*x^B` | coefficient 1, power 1 | Hessian, then LM | line through (ln x, ln y), needs x, y > 0 |
 | Log | `A*ln(x)+B` | scale 1, offset 0 | Hessian, then LM | line through (ln x, y), needs x > 0 |
@@ -148,6 +148,7 @@ unbounded). In both cases it estimates no uncertainty. The finite-difference der
 | Fixed parameters and uncertainty refits replace the parameter's name in the expression text, so `c` in `cos`, or `E` after a fixed value written `1.0E-4`, corrupts the function (uncertainties ≈ 1e−16, fixed fits that do not move) | Values are passed to the model structurally in both dialects; `trackerSubstitutionCollisions()` reports where Tracker computes something else | [#240](https://github.com/mgradwohl/MoTrack/issues/240) |
 | The band keeps the other parameters at their original values; with fixed parameters these are the values from before the fit | Band sets hold the refitted parameters | [#241](https://github.com/mgradwohl/MoTrack/issues/241) |
 | Initial guesses sort through a TreeMap that keeps one y per x and leaves zero-padded arrays, and can be NaN (constant data, inverted Gaussian), which skips the fit | Every point sorted stably; a non-finite guess or failed inner line fit keeps the current values | [#242](https://github.com/mgradwohl/MoTrack/issues/242) |
+| Sine and Damped Sine guess ω from every sign change about the mid-range, so noise on dense data adds crossings: 500 points of (0.8, 3, 0.4, −0.2) at amplitude SNR 10 end at B = 5.75, A = 0.06, rms 0.58, reported as fitted | Also counts crossings with hysteresis and starts from whichever guess has the lower defined starting deviation ([below](#sine-and-damped-sine-guess)); the same fit recovers (0.805, 3.001, 0.389, −0.204), rms 0.076 | [#310](https://github.com/mgradwohl/MoTrack/issues/310) |
 | Polynomial normal equations in powers of x: digits lost for offset or narrow x; arbitrary or NaN results for repeated x | Normal equations in x scaled to [−1, 1]; covariance in closed form; `DegenerateData` for fewer distinct x than coefficients | [#244](https://github.com/mgradwohl/MoTrack/issues/244) |
 | The last vector each minimizer evaluated, often a rejected one, is kept and decides whether the fit improved, so a worse vector is reported or an improvement is reverted | Each minimizer's best vector is kept, with the Levenberg-Marquardt fallback described above | [#306](https://github.com/mgradwohl/MoTrack/issues/306) |
 | An undefined model value counts as zero deviation and a NaN deviation as no worse, so a fit can end where the function is undefined on the data | A vector undefined at any valid point is rejected; a fit is never reported for an undefined function | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
@@ -163,6 +164,20 @@ that value explicitly (`FitOptions::scratchFallback`, default 0). The Tracker di
 Tool where state matters: Log and Power fall back to a zero Line fit, and a skipped fit returns no
 uncertainties instead of the previous fit's. Formatting returns nothing for non-finite values, where Java
 prints `NaN ± 0`.
+
+### Sine and Damped Sine guess
+
+From scratch, Corrected computes Tracker's Sine and Damped Sine guess and a second one whose crossings count
+only when the data pass from beyond ±0.3 of the half range about the mid-range to beyond the other
+side, each located at the mean of the sign changes in between. It starts from the second guess only when that finds
+at least two crossings and its starting deviation, with any fixed parameters, is defined and strictly lower. Tracker's
+count is right for clean data and the only usable one when swings stay inside the band: below about three samples per
+period, or once a damped envelope falls by about 63 % per period. Comparing the two starts costs two evaluations of
+the model on the data; fitting from both would double the fit time. The band is a fraction of the range-based
+amplitude, not a noise estimate, so the guess still fails on dense data at low signal-to-noise ratios (an independent
+simulation at amplitude SNR 5 found 93 % of guesses in the basin of the true frequency at 2 000 points and 54 % at
+10 000; at SNR 3, 9 % at 2 000), a trend of four amplitudes across the range defeats both guesses, and near one period
+in the range the frequency can come out halved.
 
 ## Kernel oracle
 
