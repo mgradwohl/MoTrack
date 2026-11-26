@@ -1192,4 +1192,31 @@ TEST(CurveFit, MinimizersHandleEmptyAndUndefinedObjectives)
     EXPECT_TRUE(motrack::science::levenbergMarquardtMinimize(bowl, x, 20, 1e-6).reachedTolerance);
 }
 
+TEST(CurveFit, GaussianDividesLikeTheParserAtZeroWidth)
+{
+    // OSP evaluates the Gaussian through SuryonoParser, which divides by 1.0e-128 instead of 0 (#374): at zero width
+    // the model is A at x = B and 0 elsewhere, not the NaN of a native 0/0.
+    const FitFunction gaussian = builtInFit(BuiltInFit::Gaussian);
+    const std::vector<double> zeroWidth{2, 0.25, 0};
+    EXPECT_EQ(gaussian.model(0.25, zeroWidth), 2.0);
+    EXPECT_EQ(gaussian.model(0.5, zeroWidth), 0.0);
+    EXPECT_EQ(gaussian.model(-3, zeroWidth), 0.0);
+    // A width whose square underflows to zero divides the same way.
+    const std::vector<double> underflow{2, 0.25, 1e-200};
+    EXPECT_EQ(gaussian.model(0.25, underflow), 2.0);
+    EXPECT_EQ(gaussian.model(0.5, underflow), 0.0);
+    // A start at zero width is therefore defined, and both dialects fit from it instead of reporting an undefined
+    // start. The fit oracle's gaussian/zero-width cases pin Tracker's numbers.
+    const auto x = grid(-1, 0.25, 9);
+    const auto y = evaluate(gaussian, std::vector<double>{2, 0.1, 0.5}, x);
+    for (const FitDialect dialect : {FitDialect::Tracker, FitDialect::Corrected})
+    {
+        const FitResult result =
+            fitCurve(withValues(gaussian, std::vector<double>{2, 0, 0}), x, y, options(dialect, FitStart::FromCurrent));
+        EXPECT_NE(result.status, FitStatus::UndefinedAtStart);
+        EXPECT_FALSE(result.nonRealValues);
+        EXPECT_TRUE(std::isfinite(result.rmsDeviation));
+    }
+}
+
 } // namespace

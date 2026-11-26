@@ -1,3 +1,4 @@
+#include "science/expression.hpp"
 #include "science/fit/curve_fit.hpp"
 #include "science/fit/fit_internal.hpp"
 #include "science/java_math.hpp"
@@ -419,8 +420,12 @@ FitFunction builtInFit(BuiltInFit kind)
             {parameter("A", 1.0, "Peak height"), parameter("B", 0.0, "Peak position"), parameter("C", 1.0, "Standard deviation")},
             [](double x, std::span<const double> p)
             {
+                // OSP evaluates this expression with SuryonoParser, which divides by 1.0e-128 instead of 0. With a
+                // zero width (or one whose square underflows) the value is therefore A at x = B, which is also the
+                // limit along x = B, and 0 elsewhere, in both dialects; a native 0/0 would be NaN (#374).
                 const double d = x - p[1];
-                return p[0] * std::exp(-(d * d) / (2 * (p[2] * p[2])));
+                const double divisor = 2 * (p[2] * p[2]);
+                return p[0] * std::exp(-(d * d) / (divisor == 0 ? ZERO_DIVISOR_REPLACEMENT : divisor));
             },
             kind);
     case BuiltInFit::Exponential:
