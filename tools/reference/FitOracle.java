@@ -390,6 +390,12 @@ public final class FitOracle {
             "non-finite-initial-guess", null);
         add("power/negative-x", "degenerate", "power", grid(-1.0, 0.25, 12), noisy(grid(-1.7, 0.4, 12), 0.05, 99), null);
         add("log/nonpositive-x", "degenerate", "log", grid(0, 0.25, 10), noisy(grid(0.1, 0.2, 10), 0.05, 98), null);
+        // Finite model values whose squared deviations overflow: Tracker sums them to Infinity, cannot compare the
+        // vectors it tries and reports a fit with an infinite rms (MoTrack #372).
+        double[] overflowX = grid(0, 0.5, 21);
+        add("exponential/overflowing-start", "degenerate", "exponential", overflowX,
+            noisy(evaluate("exponential", new double[] {1.5, -0.3, 0.2}, overflowX), 0.01, 96), new double[] {1.0, 50.0, 0.0},
+            new boolean[3], true, false, null, "deviation-overflow", null);
         add("gaussian/all-fixed", "fixed", "gaussian", grid(0, 0.1, 26), evaluate("gaussian", builtIn("gaussian").truth(),
             grid(0, 0.1, 26)), new double[] {3.0, 1.1, 0.5}, new boolean[] {true, true, true}, true, false, null, null, null);
         // A zero width is defined in Tracker: the parser divides by 1.0e-128 instead of 0, so the model is A at a data

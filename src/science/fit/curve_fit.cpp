@@ -199,6 +199,9 @@ struct Session
     /// fitEvaluatedToNaN after the latest getDevSquared.
     bool nonReal = false;
     bool stopped = false;
+    /// Corrected only: every deviation is divided by this before it is squared. 1 except while a fit starts where
+    /// the plain sum of squares overflows on finite deviations (#372).
+    double residualScale = 1.0;
     std::size_t sincePoll = 0;
 
     [[nodiscard]] bool corrected() const noexcept
@@ -237,11 +240,45 @@ double deviationSquared(const Curve& curve, Session& session)
     for (std::size_t i = 0; i < session.points.size(); ++i)
     {
         const double next = curve.value(session.points.x[i], undefined, session.dialect);
-        const double deviation = next - session.points.y[i];
+        const double deviation = (next - session.points.y[i]) / session.residualScale;
         total += deviation * deviation;
     }
     session.nonReal = undefined;
     return undefined ? NOT_A_NUMBER : total;
+}
+
+/// The largest finite |deviation| of the curve on the data, or 0 when a value is undefined or a deviation is not
+/// finite: the scale by which Corrected divides deviations when their squares overflow (#372).
+double largestDeviation(const Curve& curve, Session& session)
+{
+    bool undefined = false;
+    double largest = 0;
+    for (std::size_t i = 0; i < session.points.size(); ++i)
+    {
+        const double deviation = std::abs(curve.value(session.points.x[i], undefined, session.dialect) - session.points.y[i]);
+        if (undefined || !std::isfinite(deviation))
+        {
+            return 0;
+        }
+        largest = std::max(largest, deviation);
+    }
+    return largest;
+}
+
+/// sqrt(sum of squared deviations / points) from deviations scaled by the largest one, which stays finite where
+/// the plain sum of squares overflows. NaN when the curve is undefined on the data; infinite only when a
+/// deviation itself is.
+double scaledRmsDeviation(const Curve& curve, Session& session)
+{
+    const double scale = largestDeviation(curve, session);
+    if (scale == 0)
+    {
+        return std::sqrt(deviationSquared(curve, session) / static_cast<double>(session.points.size()));
+    }
+    const double previousScale = std::exchange(session.residualScale, scale);
+    const double scaled = deviationSquared(curve, session);
+    session.residualScale = previousScale;
+    return scale * std::sqrt(scaled / static_cast<double>(session.points.size()));
 }
 
 struct UserFitOutcome
@@ -287,10 +324,34 @@ UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Sess
         double sum = 0.0;
         for (std::size_t i = 0; i < points.size(); ++i)
         {
-            const double deviation = points.y[i] - curve.value(points.x[i], undefined, session.dialect);
+            const double deviation = (points.y[i] - curve.value(points.x[i], undefined, session.dialect)) / session.residualScale;
             sum += deviation * deviation;
         }
         return session.corrected() && undefined ? NOT_A_NUMBER : sum;
+    };
+    // Corrected: a start whose deviations are finite but whose squares overflow would leave every comparison at
+    // infinity, so nothing could improve on it. Deviations are then divided by the largest one while minimizing,
+    // which changes neither the minimum nor the order of any two vectors (#372).
+    const double startDeviation = previousDeviation;
+    bool scaled = false;
+    if (session.corrected() && std::isinf(previousDeviation))
+    {
+        if (const double scale = largestDeviation(curve, session); scale > 0)
+        {
+            scaled = true;
+            session.residualScale = scale;
+            previousDeviation = deviationSquared(curve, session);
+        }
+    }
+    // The outcome's deviation is the plain sum of squares again, which may still be infinite.
+    const auto plain = [&curve, &session, scaled](double deviation)
+    {
+        if (!scaled)
+        {
+            return deviation;
+        }
+        session.residualScale = 1.0;
+        return deviationSquared(curve, session);
     };
     const HessianMinimizeResult hessian = hessianMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE);
     if (session.corrected())
@@ -317,14 +378,15 @@ UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Sess
         }
         if (deviation < previousDeviation || (deviation == previousDeviation && converged))
         {
-            return {.deviation = deviation,
+            return {.deviation = plain(deviation),
                     .skipped = false,
                     .restored = false,
                     .levenbergMarquardt = usedLevenbergMarquardt,
                     .unconverged = !converged};
         }
         curve.setFreeValues(previous);
-        return {.deviation = previousDeviation,
+        session.residualScale = 1.0;
+        return {.deviation = scaled ? startDeviation : previousDeviation,
                 .skipped = false,
                 .restored = true,
                 .levenbergMarquardt = usedLevenbergMarquardt,
@@ -865,6 +927,11 @@ FitResult fitCurve(const FitFunction& function, std::span<const double> x, std::
     result.nonRealValues = session.nonReal;
     result.rmsDeviation =
         count > points.size() && options.autofit ? NOT_A_NUMBER : std::sqrt(deviation / static_cast<double>(points.size()));
+    if (dialect == FitDialect::Corrected && std::isinf(result.rmsDeviation) && !session.nonReal)
+    {
+        // The squares overflowed although the deviations are finite: the rms itself is representable (#372).
+        result.rmsDeviation = scaledRmsDeviation(final, session);
+    }
     if (uncertainties)
     {
         // Tracker keeps drawing the band after doLinearRegression discards the uncertainties.
