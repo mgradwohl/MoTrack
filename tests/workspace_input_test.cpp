@@ -120,11 +120,16 @@ TEST(WorkspaceInput, StandaloneTrackerAndNativeInputsRetainPhysicalMediaAndIndep
 
 TEST(WorkspaceInput, CompleteImageAndMovieArchivesKeepAllMembersAndSourceAfterOriginalRemoval)
 {
-    for (const auto* source : {"linked-images/multitab-images.trz", "linked-mov/archived-movie.trz"})
+    // Tracker opens a .zip experiment exactly as a .trz (ResourceLoader.isJarZipTrz, #224); only its save target differs.
+    for (const auto& [source, name] :
+         std::initializer_list<std::pair<const char*, const char*>>{{"linked-images/multitab-images.trz", "original.TRZ"},
+                                                                    {"linked-mov/archived-movie.trz", "original.TRZ"},
+                                                                    {"linked-images/multitab-images.trz", "Library Lab.Zip"},
+                                                                    {"linked-mov/archived-movie.trz", "Library Lab.Zip"}})
     {
-        SCOPED_TRACE(source);
+        SCOPED_TRACE(std::string(source) + " as " + name);
         QTemporaryDir temporary;
-        const auto path = temporary.filePath("original.TRZ");
+        const auto path = temporary.filePath(name);
         ASSERT_TRUE(QFile::copy(fixture(source), path));
         auto prepared = motrack::prepareWorkspaceInput(path);
         ASSERT_TRUE(prepared.group);
@@ -134,7 +139,9 @@ TEST(WorkspaceInput, CompleteImageAndMovieArchivesKeepAllMembersAndSourceAfterOr
         EXPECT_EQ(snapshot.archive->projects().size(), 2);
         EXPECT_FALSE(prepared.group->isModified());
         EXPECT_FALSE(prepared.group->requiresPairedSave()); // Import establishes a clean baseline, not an earlier paired save.
-        EXPECT_EQ(prepared.group->standardSavePath(), QFileInfo(path).absoluteFilePath());
+        // Tracker never writes into a .zip and exports archives as .trz, so a .zip is not a standard save target.
+        EXPECT_EQ(prepared.group->standardSavePath(), motrack::isTrackerZipPath(path) ? QString{} : QFileInfo(path).absoluteFilePath());
+        EXPECT_TRUE(prepared.group->nativeSavePath().isEmpty());
         const auto digest = snapshot.archive->sourceDigest();
         for (const auto& member : snapshot.members)
         {
@@ -181,7 +188,6 @@ std::vector<motrack::test::ArchiveEntry> imageExperiment(const QByteArray& xml)
 
 TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheirBytesForSaving)
 {
-    QTemporaryDir temporary;
     auto members = imageExperiment(bytes(fixture()));
     for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
         members.push_back(std::move(unsafe));
@@ -190,39 +196,79 @@ TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheir
                     {.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
                     {.name = "__MACOSX/._experiment.trk", .bytes = motrack::test::appleDoubleBytes()},
                     {.name = "broken.trk", .bytes = "invalid xml"}});
-    const auto path = temporary.filePath("library.trz");
-    ASSERT_TRUE(motrack::test::writeArchive(path, members));
-    auto prepared = motrack::prepareWorkspaceInput(path);
-    ASSERT_TRUE(prepared.group);
-    ASSERT_EQ(prepared.unreadableProjects.size(), 1);
-    EXPECT_EQ(prepared.unreadableProjects.front().member, "broken.trk");
-    EXPECT_FALSE(prepared.unreadableProjects.front().reason.isEmpty());
-    const auto snapshot = prepared.group->prepareSave().snapshot;
-    ASSERT_EQ(snapshot.members.size(), 1u);
-    EXPECT_EQ(snapshot.members.front().member, "experiment.trk");
-    EXPECT_EQ(snapshot.archive->projects(), (QStringList{"broken.trk", "experiment.trk"}));
-    EXPECT_EQ(snapshot.archive->skippedMembers().size(), 5);
-    EXPECT_EQ(snapshot.archive->omittedOnSave(), motrack::test::omittedTrackerExportMembers() << "C:/Users/x/images/frame0.png");
-    EXPECT_EQ(snapshot.members.front().document.project.clip.mediaReferences,
-              (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));
+    // A .zip experiment follows exactly the same member rules as a .trz (#224).
+    for (const auto* name : {"library.trz", "library.zip"})
+    {
+        SCOPED_TRACE(name);
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath(name);
+        ASSERT_TRUE(motrack::test::writeArchive(path, members));
+        auto prepared = motrack::prepareWorkspaceInput(path);
+        ASSERT_TRUE(prepared.group);
+        ASSERT_EQ(prepared.unreadableProjects.size(), 1);
+        EXPECT_EQ(prepared.unreadableProjects.front().member, "broken.trk");
+        EXPECT_FALSE(prepared.unreadableProjects.front().reason.isEmpty());
+        const auto snapshot = prepared.group->prepareSave().snapshot;
+        ASSERT_EQ(snapshot.members.size(), 1u);
+        EXPECT_EQ(snapshot.members.front().member, "experiment.trk");
+        EXPECT_EQ(snapshot.archive->projects(), (QStringList{"broken.trk", "experiment.trk"}));
+        EXPECT_EQ(snapshot.archive->skippedMembers().size(), 5);
+        EXPECT_EQ(snapshot.archive->omittedOnSave(), motrack::test::omittedTrackerExportMembers() << "C:/Users/x/images/frame0.png");
+        EXPECT_EQ(snapshot.members.front().document.project.clip.mediaReferences,
+                  (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));
 
-    // Standard saving keeps the unreadable project, Finder metadata, Finder icons and the unique info page
-    // byte-for-byte; only the duplicate absolute copies are omitted.
-    const auto standard = temporary.filePath("saved.trz");
-    motrack::writeTrackerArchiveDocuments(standard, std::span(&snapshot.members.front().document, 1));
-    const auto saved = motrack::TrackerArchive::open(standard);
-    EXPECT_EQ(saved.skippedMembers(),
-              (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html", "html/Icon\r", "images/Icon\r"}));
-    EXPECT_EQ(bytes(QDir(saved.root()).filePath("broken.trk")), "invalid xml");
-    ASSERT_TRUE(saved.memberDigests().contains("__MACOSX/._experiment.trk"));
-    EXPECT_EQ(saved.memberDigests().value("__MACOSX/._experiment.trk"),
-              snapshot.archive->memberDigests().value("__MACOSX/._experiment.trk"));
-    // The native companion embeds the exact original archive, unsafe members included.
-    const auto native = temporary.filePath("library.motrack");
-    motrack::writeArchiveGroup(native, snapshot);
-    const auto reopened = motrack::prepareWorkspaceInput(native);
-    EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->sourceDigest(), snapshot.archive->sourceDigest());
-    EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->skippedMembers(), snapshot.archive->skippedMembers());
+        // Standard saving keeps the unreadable project, Finder metadata, Finder icons and the unique info page
+        // byte-for-byte; only the duplicate absolute copies are omitted.
+        const auto standard = temporary.filePath("saved.trz");
+        motrack::writeTrackerArchiveDocuments(standard, std::span(&snapshot.members.front().document, 1));
+        const auto saved = motrack::TrackerArchive::open(standard);
+        EXPECT_EQ(saved.skippedMembers(),
+                  (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html", "html/Icon\r", "images/Icon\r"}));
+        EXPECT_EQ(bytes(QDir(saved.root()).filePath("broken.trk")), "invalid xml");
+        ASSERT_TRUE(saved.memberDigests().contains("__MACOSX/._experiment.trk"));
+        EXPECT_EQ(saved.memberDigests().value("__MACOSX/._experiment.trk"),
+                  snapshot.archive->memberDigests().value("__MACOSX/._experiment.trk"));
+        // The native companion embeds the exact original archive, unsafe members included.
+        const auto native = temporary.filePath("library.motrack");
+        motrack::writeArchiveGroup(native, snapshot);
+        const auto reopened = motrack::prepareWorkspaceInput(native);
+        EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->sourceDigest(), snapshot.archive->sourceDigest());
+        EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->skippedMembers(), snapshot.archive->skippedMembers());
+    }
+}
+
+TEST(WorkspaceInput, RefusesZipFilesWithoutATrackerProjectOrWithAnUnsafeProjectName)
+{
+    QTemporaryDir temporary;
+    for (const auto* path : {"Lab.zip", "LAB.ZIP", "lab.trz", "lab.trk", "lab.MoTrack"})
+        EXPECT_TRUE(motrack::isWorkspaceProjectPath(path)) << path;
+    for (const auto* path : {"lab.jar", "lab.zip.mov", "frame.png", "zip"})
+        EXPECT_FALSE(motrack::isWorkspaceProjectPath(path)) << path;
+    // Tracker warns "Not a Tracker file" for a ZIP without a project. (A ZIP of numbered images at its root would
+    // open in Tracker as an image video; MoTrack has no zipped image sequences yet, #347.)
+    const auto images = temporary.filePath("frames.zip");
+    ASSERT_TRUE(motrack::test::writeArchive(images,
+                                            {{.name = "frame0.png", .bytes = bytes(fixture("linked-images/images/frame0.png"))},
+                                             {.name = "frame1.png", .bytes = bytes(fixture("linked-images/images/frame1.png"))}}));
+    try
+    {
+        (void)motrack::prepareWorkspaceInput(images);
+        FAIL() << "A ZIP without a Tracker project must not open as an empty archive.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(QString::fromUtf8(error.what()).contains("no Tracker project")) << error.what();
+    }
+    // An unsafe project name refuses a .zip exactly as it refuses a .trz.
+    auto members = imageExperiment(bytes(fixture()));
+    members.push_back({.name = "D:/a/b.trk", .bytes = bytes(fixture())});
+    const auto unsafe = temporary.filePath("unsafe.zip");
+    ASSERT_TRUE(motrack::test::writeArchive(unsafe, members));
+    EXPECT_THROW((void)motrack::prepareWorkspaceInput(unsafe), motrack::ProjectError);
+    // Other archive suffixes are not projects, whatever they hold.
+    const auto jar = temporary.filePath("lab.jar");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), jar));
+    EXPECT_THROW((void)motrack::prepareWorkspaceInput(jar), motrack::ProjectError);
 }
 
 TEST(WorkspaceInput, RefusesProjectsThatUseAnUnsafeMemberAndOpensTheOthers)

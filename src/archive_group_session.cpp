@@ -26,7 +26,7 @@ void requireTransferable(const std::unique_ptr<DocumentSession>& incoming)
 void ArchiveGroupSession::replace(ArchiveGroup incoming, const QString& path, ArchiveGroupSource source)
 {
     require((source == ArchiveGroupSource::Native && path.endsWith(".motrack", Qt::CaseInsensitive)) ||
-            (source == ArchiveGroupSource::Tracker && path.endsWith(".trz", Qt::CaseInsensitive)));
+            (source == ArchiveGroupSource::Tracker && isTrackerArchivePath(path)));
     validateArchiveGroupMembership(incoming);
     SaveState state;
     state.reset(path);

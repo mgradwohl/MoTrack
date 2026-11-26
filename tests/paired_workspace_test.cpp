@@ -11,7 +11,6 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
-#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -68,7 +67,7 @@ bool editMass(motrack::MainWindow& window, double value)
                      &window,
                      []
                      {
-                         if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                              dialog->reject();
                      });
     watchdog.start(2000);
@@ -77,9 +76,10 @@ bool editMass(motrack::MainWindow& window, double value)
                        &window,
                        [&]
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(value));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(value));
                                accepted = true;
                                dialog->accept();
                            }
@@ -130,11 +130,11 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
                            {
                                if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                                {
-                                   auto* distance = dialog->findChild<QDoubleSpinBox*>("knownDistance");
+                                   auto* distance = dialog->findChild<QLineEdit*>("knownDistance");
                                    auto* unit = dialog->findChild<QLineEdit*>("lengthUnit");
                                    if (distance && unit)
                                    {
-                                       distance->setValue(2);
+                                       distance->setText("2");
                                        unit->setText("cm");
                                        configured = true;
                                    }
@@ -347,11 +347,11 @@ TEST(PairedWorkspace, SavesMovingMovieCalibrationAtOriginalFramesWithUndoRedo)
                            {
                                if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                                {
-                                   auto* length = dialog->findChild<QDoubleSpinBox*>("knownDistance");
+                                   auto* length = dialog->findChild<QLineEdit*>("knownDistance");
                                    auto* unit = dialog->findChild<QLineEdit*>("lengthUnit");
                                    if (length && unit)
                                    {
-                                       length->setValue(1);
+                                       length->setText("1");
                                        unit->setText("cm");
                                        configured = true;
                                    }

@@ -574,7 +574,7 @@ class LibraryTests(unittest.TestCase):
             with self.subTest(expected=expected), patch.object(library, "run_tool", side_effect=tools(java_project, native_project)):
                 self.assertEqual(library.reference_compare("java", "cp", "probe", project, self.root, self.root, manifest), expected)
 
-    def test_census_visits_unique_experiments_in_manifest_order_and_retries_zip_as_trz(self):
+    def test_census_visits_unique_experiments_in_manifest_order_and_opens_zip_experiments_directly(self):
         files = library.library_files(self.root)
         files.mkdir(parents=True)
         payloads = {"compadre-1-2.trz": archive({"one.trk": tracker_project(), "videos/a.mp4": b"v"}),
@@ -594,8 +594,6 @@ class LibraryTests(unittest.TestCase):
         def tool(command, timeout):
             self.assertEqual(command[1], "--open")
             opened.append(Path(command[2]).name)
-            if command[2].endswith(".zip"):
-                return 1, "Choose a Tracker or MoTrack project file."
             Path(command[-1]).write_text(json.dumps({"experiments": [{"movie": False, "unsupported_tracks": []}]}),
                                          encoding="utf-8")
             return 0, ""
@@ -603,19 +601,18 @@ class LibraryTests(unittest.TestCase):
             report = library.census({"refreshed": "2026-11-21", "experiments": entries,
                                      "known_issues": [{"issue": 211, "summary": "x", "experiments": ["compadre-1-2"]}]},
                                     self.root, "probe", jobs=2, log=lambda _: None)
-        self.assertEqual(sorted(opened), sorted([names["compadre-1-2"], names["compadre-9-9"], "osp-sampler-a1b2c3d4.trz",
-                                                 names["osp-sampler-a1b2c3d4"]]))
+        # The probe gets each cached file under its own name; a .zip is no longer opened again as a renamed .trz (#224).
+        self.assertEqual(sorted(opened), sorted([names["compadre-1-2"], names["compadre-9-9"], names["osp-sampler-a1b2c3d4"]]))
         self.assertEqual([record["id"] for record in report["experiments"]], ["compadre-1-2", "osp-sampler-a1b2c3d4", "compadre-9-9"])
         self.assertEqual(report["experiments"][0]["native"]["linux"]["known_issue"], 211)
         broken = report["experiments"][2]
         self.assertRegex(broken["archive_error"], r"^compadre-9-9 \(<cache>.*\): BadZipFile")
         self.assertEqual((broken["projects"], broken["tabs"], report["aggregate"]["archive_errors"]), ([], 0, 1))
-        self.assertEqual(report["aggregate"]["native"]["linux"]["open"], {"known issue #211": 1, "opened": 1, "rejected": 1})
+        self.assertEqual(report["aggregate"]["native"]["linux"]["open"], {"known issue #211": 1, "opened": 2})
+        self.assertNotIn("zip_as_trz", report["aggregate"]["native"]["linux"])
         self.assertEqual(report["duplicates_skipped"], 1)
         zipped = report["experiments"][1]
-        self.assertEqual(zipped["native"], {"linux": {"status": "rejected", "message": "Choose a Tracker or MoTrack project file.",
-                                                      "as_trz": {"status": "opened", "experiments": 1, "movies": 0,
-                                                                 "unsupported_tracks": {}}}})
+        self.assertEqual(zipped["native"], {"linux": {"status": "opened", "experiments": 1, "movies": 0, "unsupported_tracks": {}}})
         self.assertEqual(([project["member"] for project in zipped["projects"]], zipped["tabs"]), (["x.trk", "y.trk"], 2))
         self.assertEqual(report["experiments"][0]["archive_file_types"], {"mp4": 1, "trk": 1})
         self.assertEqual(zipped["archive_file_types"], {"(appledouble)": 1, "trk": 2})
@@ -636,7 +633,9 @@ class LibraryTests(unittest.TestCase):
              "native": {"windows": {"status": "rejected", "message": "Choose a Tracker or MoTrack project file.",
                                     "as_trz": {"status": "opened"}}},
              "projects": [{"xml_error": "bad"}]}]
+        # Record "b" is from a census recorded before #224, which retried each rejected .zip as a renamed .trz.
         total = library.aggregate(experiments)
+        self.assertNotIn("zip_as_trz", library.aggregate(experiments[:1])["native"]["windows"])
         self.assertEqual(total["track_classes"], {"PointMass": {"projects": 2, "instances": 3}, "CoordAxes": {"projects": 1, "instances": 1}})
         self.assertEqual(total["tracker_versions"], {"(not recorded)": 1, "4.92": 1, "6.1.1": 1})
         self.assertEqual(total["data_functions"], {"projects": 1, "functions": 2})

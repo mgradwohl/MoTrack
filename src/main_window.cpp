@@ -4,9 +4,11 @@
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
+#include "number_input.hpp"
 #include "paired_save.hpp"
 #include "position_plot.hpp"
 #include "track_identity.hpp"
+#include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 #include "video_canvas.hpp"
 #include "video_reader.hpp"
@@ -19,7 +21,6 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QDoubleSpinBox>
 #include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -82,6 +83,27 @@ QString physicalSourcePath(const QString& path)
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
 }
+
+/// Where choosing a Tracker destination starts: the current standard destination or, for a `.zip` experiment that has
+/// none, a `.trz` with the same name beside it. Tracker never writes into the `.zip` and exports archives as `.trz` (#224).
+/// The offered name is free: when that `.trz` or its `.motrack` companion already exists (an unrelated archive, or one
+/// another open experiment saves to), " (2)", " (3)" and so on is added, so accepting the default replaces nothing.
+QString initialTrackerPath(const QString& standard, const QString& source)
+{
+    if (!standard.isEmpty() || !isTrackerZipPath(source))
+        return standard;
+    const QFileInfo zip(source);
+    const auto folder = zip.dir();
+    const auto taken = [&folder](const QString& name)
+    {
+        return QFileInfo::exists(folder.filePath(name + ".trz")) || QFileInfo::exists(folder.filePath(name + ".motrack"));
+    };
+    auto name = zip.completeBaseName();
+    for (int copy = 2; taken(name) && copy <= 99; ++copy)
+        name = QString("%1 (%2)").arg(zip.completeBaseName()).arg(copy);
+    return folder.filePath(name + ".trz");
+}
+
 bool isLinkedMediaDocument(const WorkspaceDocument& document)
 {
     if (!document.trackerSource || document.archivePayload || document.archiveMember || !document.archiveReference.empty() ||
@@ -465,10 +487,8 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
                 {
                     return;
                 }
-                bool accepted = false;
-                const auto rate = QInputDialog::getDouble(
-                    this, tr("Image sequence timing"), tr("Frames per second (0 if unknown)"), 0.0, 0.0, 1000.0, 3, &accepted);
-                if (accepted)
+                const auto rate = askNumber(this, tr("Image sequence timing"), tr("Frames per second (0 if unknown)"), 0.0, 0.0, 1000.0);
+                if (rate)
                 {
                     QCollator collator;
                     collator.setNumericMode(true);
@@ -478,7 +498,7 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
                                           const auto order = collator.compare(left, right);
                                           return order < 0 || (order == 0 && left < right);
                                       });
-                    openImageSequence(paths, rate);
+                    openImageSequence(paths, *rate);
                 }
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
@@ -1508,20 +1528,22 @@ void MainWindow::setSelectedPointMassValue()
     setPlaying(false);
     const auto index = static_cast<std::size_t>(selected);
     const auto request = m_RequestGeneration.load();
-    const QLocale locale;
-    const auto before = locale.toString(viewProject().pointMasses.at(index).mass, 'g', 15);
+    const auto before = viewProject().pointMasses.at(index).mass;
     const auto massUnit = QString::fromStdString(viewProject().massUnit);
     const auto label = massUnit.isEmpty() ? tr("Mass") : tr("Mass (%1)").arg(massUnit);
-    bool accepted = false;
-    const auto text = QInputDialog::getText(
-        this, tr("Set point-mass value"), "<qt>" + label.toHtmlEscaped() + "</qt>", QLineEdit::Normal, before, &accepted);
-    if (!accepted || request != m_RequestGeneration || before == text)
+    // The dialog keeps ambiguous or invalid text open for correction; its OK button accepts only a positive mass.
+    const auto mass = askNumber(this,
+                                tr("Set point-mass value"),
+                                "<qt>" + label.toHtmlEscaped() + "</qt>",
+                                before,
+                                std::numeric_limits<double>::denorm_min(),
+                                std::numeric_limits<double>::max(),
+                                tr("Enter a finite, positive mass."));
+    if (!mass || request != m_RequestGeneration || *mass == before)
     {
         return;
     }
-    bool valid = false;
-    const auto mass = locale.toDouble(text, &valid);
-    if (valid && viewHistory().setPointMassValue(viewProject(), index, mass))
+    if (viewHistory().setPointMassValue(viewProject(), index, *mass))
     {
         refreshEditViews(selected);
     }
@@ -1772,19 +1794,22 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
     dialog.setObjectName("calibrationDialog");
     dialog.setWindowTitle(tr("Calibration Stick"));
     auto* layout = new QFormLayout(&dialog);
-    auto* length = new QDoubleSpinBox;
+    // A text field, not a QDoubleSpinBox, so a classic "2.5" pasted with comma-decimal formats is not read as 25.
+    auto* length = new QLineEdit(editableNumber(1.0));
     length->setObjectName("knownDistance");
-    length->setDecimals(6);
-    length->setRange(0.000001, 1'000'000'000.0);
-    length->setValue(1.0);
     auto* unit = new QLineEdit(viewProject().lengthUnit.empty() ? QStringLiteral("m") : QString::fromStdString(viewProject().lengthUnit));
     unit->setObjectName("lengthUnit");
+    auto* hint = new QLabel;
+    hint->setObjectName("knownDistanceHint");
     layout->addRow(tr("Known distance"), length);
+    layout->addRow(hint);
     layout->addRow(tr("Length unit"), unit);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     layout->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    requireNumber(*length, 0.000001, 1'000'000'000.0, *buttons, *hint);
+    length->selectAll();
     const bool accepted = dialog.exec() == QDialog::Accepted;
     m_Calibrate->setChecked(false);
     if (!accepted)
@@ -1792,14 +1817,15 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
         return;
     }
 
-    if (viewHistory().calibrateDistance(viewProject(),
-                                        {.frame = frame,
-                                         .imageDeltaX = delta.x(),
-                                         .imageDeltaY = delta.y(),
-                                         .knownLength = length->value(),
-                                         .defaultOriginX = imageSize.width() / 2.0,
-                                         .defaultOriginY = imageSize.height() / 2.0,
-                                         .unit = unit->text().trimmed().toStdString()}))
+    const auto knownLength = parseUserNumber(length->text(), length->locale());
+    if (knownLength && viewHistory().calibrateDistance(viewProject(),
+                                                       {.frame = frame,
+                                                        .imageDeltaX = delta.x(),
+                                                        .imageDeltaY = delta.y(),
+                                                        .knownLength = *knownLength,
+                                                        .defaultOriginX = imageSize.width() / 2.0,
+                                                        .defaultOriginY = imageSize.height() / 2.0,
+                                                        .unit = unit->text().trimmed().toStdString()}))
     {
         refreshEditViews(m_TrackPicker->currentIndex());
         statusBar()->showMessage(tr("Calibration updated."));
@@ -1825,6 +1851,14 @@ bool MainWindow::saveCurrentWorkspace()
 {
     if (viewRequiresPairedSave() || (m_Workspace && !viewStandardSavePath().isEmpty()))
         return saveTrackerWithRecoveryPrompt(viewStandardSavePath());
+    // A .zip experiment saves as a Tracker pair like any other Tracker input, but never into the .zip: the first save
+    // chooses a .trz, which later saves update (#224).
+    if (m_Workspace && isTrackerZipPath(viewSourcePath()))
+    {
+        statusBar()->showMessage(tr("Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.")
+                                     .arg(QFileInfo(viewSourcePath()).fileName()));
+        return chooseTrackerPath();
+    }
     return viewNativeSavePath().isEmpty() ? chooseWorkspacePath() : saveWorkspace(viewNativeSavePath());
 }
 
@@ -1944,7 +1978,7 @@ bool MainWindow::chooseTrackerPath()
     const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
     const auto path = chooseSaveFile(this,
                                      tr("Save Tracker project and MoTrack companion"),
-                                     viewStandardSavePath(),
+                                     initialTrackerPath(viewStandardSavePath(), viewSourcePath()),
                                      archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"),
                                      suffix);
     if (!path || checkpoint.identity != viewCheckpoint().identity)
@@ -2328,7 +2362,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     m_MeasureAngle->setEnabled(!frame.image.isNull());
     refreshAxesOverlay();
     m_Plot->selectFrame(frame.number);
-    const auto label = tr("Frame %1").arg(frame.number);
+    const auto label = tr("Frame %1").arg(dataDisplayLocale().toString(frame.number));
     m_FrameLabel->setText(label);
     QList<QPointF> points;
     for (const auto& track : viewProject().pointMasses)
@@ -2536,7 +2570,7 @@ void MainWindow::requestMovieFrame(int frame)
     m_MeasureDistance->setEnabled(false);
     m_MeasureAngle->setEnabled(false);
     m_Plot->selectFrame(frame);
-    m_FrameLabel->setText(tr("Frame %1").arg(frame));
+    m_FrameLabel->setText(tr("Frame %1").arg(dataDisplayLocale().toString(frame)));
     if (!m_Playing)
     {
         m_Video->display({}, {}, tr("Decoding frame…"));

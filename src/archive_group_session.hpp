@@ -41,7 +41,8 @@ class ArchiveGroupSession
         SaveCheckpoint checkpoint;
     };
 
-    /// Install a prepared on-disk baseline. Tracker groups require .trz, native groups .motrack.
+    /// Install a prepared on-disk baseline. Tracker groups require .trz or .zip, native groups .motrack.
+    /// A .zip baseline has no standard save target (SaveState::reset); its first paired save chooses a .trz.
     /// This is for freshly loaded input, not transferring edited live sessions (use promote/append).
     /// Invalid input leaves the current group untouched.
     void replace(ArchiveGroup incoming, const QString& path, ArchiveGroupSource source = ArchiveGroupSource::Native);

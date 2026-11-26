@@ -227,6 +227,22 @@ TEST(WorkspaceSession, FreshTrackerGroupStartsCleanAndRejectsWrongSourceKinds)
     EXPECT_FALSE(workspace.isModified(opened.source));
 }
 
+TEST(WorkspaceSession, FreshTrackerZipGroupHasNoStandardTargetAndOtherSuffixesAreRefused)
+{
+    auto incoming = archiveSession();
+    const auto prepared = incoming->prepareSave();
+    for (const auto* refused : {"lab.jar", "lab.trk", "lab.zip.motrack"})
+        EXPECT_THROW(incoming->replace(prepared.snapshot, refused, motrack::ArchiveGroupSource::Tracker), motrack::ProjectError) << refused;
+    EXPECT_THROW(incoming->replace(prepared.snapshot, "lab.zip"), motrack::ProjectError); // Not a native group file.
+    incoming->replace(prepared.snapshot, "Library Lab.ZIP", motrack::ArchiveGroupSource::Tracker);
+    EXPECT_EQ(incoming->sourcePath(), QFileInfo("Library Lab.ZIP").absoluteFilePath());
+    // Tracker never writes into the .zip it opened; the first standard save chooses a .trz (#224).
+    EXPECT_TRUE(incoming->standardSavePath().isEmpty());
+    EXPECT_TRUE(incoming->nativeSavePath().isEmpty());
+    EXPECT_FALSE(incoming->isModified());
+    EXPECT_FALSE(incoming->requiresPairedSave());
+}
+
 TEST(WorkspaceSession, SavingHiddenArchiveMembersRetainsBothEditsAfterNativeReopen)
 {
     for (const bool reverse : {false, true})

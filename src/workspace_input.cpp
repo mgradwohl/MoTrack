@@ -59,6 +59,11 @@ void prepareMovieMetadata(WorkspaceDocument& document, const QString& mediaProje
 
 } // namespace
 
+bool isWorkspaceProjectPath(const QString& path)
+{
+    return isTrackerArchivePath(path) || path.endsWith(".trk", Qt::CaseInsensitive) || path.endsWith(".motrack", Qt::CaseInsensitive);
+}
+
 PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::atomic_bool* cancelled)
 {
     checkCancellation(cancelled);
@@ -68,7 +73,9 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
     PreparedWorkspaceInput result;
     result.mediaProjectPath = physical;
     WorkspaceDocument document;
-    if (path.endsWith(".trz", Qt::CaseInsensitive))
+    // Tracker loads a .zip exactly as a .trz (TrackerIO.AsyncLoader: ResourceLoader.isJarZipTrz → TYPE_TRZ); so does
+    // MoTrack, with the same reader and member rules (#224).
+    if (isTrackerArchivePath(path))
     {
         const auto archive = std::make_shared<TrackerArchive>(TrackerArchive::open(physical, cancelled));
         ArchiveGroup group{.id = QUuid::createUuid(), .archive = archive, .members = {}};

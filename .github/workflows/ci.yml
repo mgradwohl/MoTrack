@@ -211,10 +211,11 @@ jobs:
           tools/setup-dev.ps1 -DryRun -Build
           tools/check-prereqs.ps1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Generate comma-decimal test locales
+      - name: Generate test locales
         if: runner.os == 'Linux'
-        # The locale tests run their parse and format paths under de-DE and fr-FR and skip a missing locale.
-        run: sudo locale-gen de_DE.UTF-8 fr_FR.UTF-8
+        # The locale tests run their parse and format paths under de-DE and fr-FR and skip a missing locale; the
+        # WorkspaceLocale cases also switch the C and C++ locales to en-US, de-DE and sv-SE where they exist.
+        run: sudo locale-gen de_DE.UTF-8 en_US.UTF-8 fr_FR.UTF-8 sv_SE.UTF-8
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"

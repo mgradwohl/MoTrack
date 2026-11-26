@@ -977,13 +977,8 @@ def census(manifest, cache, probe, java=None, *, jobs=1, log=print):
             record["archive_file_types"] = archive_file_types(path)
         except ARCHIVE_ERRORS as error:
             items, record["archive_error"] = [], _sanitize(str(error), cache)
+        # A .zip opens directly, as in Tracker (ResourceLoader.isJarZipTrz, #224).
         native = native_open(probe, path, reports / (entry["id"] + "-open.json"), cache)
-        if record["file_type"] == "zip":
-            # Tracker opens ZIP experiments like TRZ (ResourceLoader.isJarZipTrz); MoTrack only accepts .trz.
-            renamed = reports / (entry["id"] + ".trz")
-            shutil.copyfile(path, renamed)
-            native["as_trz"] = native_open(probe, renamed, reports / (entry["id"] + "-open-trz.json"), cache)
-            renamed.unlink()
         if entry["id"] in known:
             # Undefined behaviour (for example #211) may flap between runs; checks compare only the marker.
             native["known_issue"] = known[entry["id"]]
@@ -1047,8 +1042,11 @@ def aggregate(experiments):
         native[platform] = {
             "open": ordered(collections.Counter(native_status(result) for result in results)),
             "rejections": ordered(collections.Counter(result["message"] for result in settled if result["status"] != "opened")),
-            "unsupported_tracks": ordered(collections.Counter(name for result in settled for name in result.get("unsupported_tracks", {}))),
-            "zip_as_trz": ordered(collections.Counter(result["as_trz"]["status"] for result in settled if "as_trz" in result))}
+            "unsupported_tracks": ordered(collections.Counter(name for result in settled for name in result.get("unsupported_tracks", {})))}
+        # Censuses recorded before #224 opened each rejected .zip again under a .trz name; regenerating drops this (#321).
+        if any("as_trz" in result for result in settled):
+            native[platform]["zip_as_trz"] = ordered(collections.Counter(result["as_trz"]["status"] for result in settled
+                                                                         if "as_trz" in result))
     return {"experiments": len(experiments), "projects": len(projects),
             "trackerpanel_projects": sum(1 for project in projects if project.get("root") == "TrackerPanel"),
             "archive_errors": sum(1 for record in experiments if "archive_error" in record),
@@ -1091,7 +1089,7 @@ def census_markdown(report):
         rows += [(f"MoTrack desktop open, {platform} (experiments)", top(native["open"])),
                  (f"MoTrack open failures, {platform} (excluding known issues)", top(native["rejections"], 6)),
                  (f"Unsupported tracks reported, {platform} (experiments)", top(native["unsupported_tracks"], 10))]
-        if native["zip_as_trz"]:
+        if native.get("zip_as_trz"):
             rows.append((f"ZIP experiments renamed .trz, {platform}", top(native["zip_as_trz"])))
     if "reference" in total:
         rows.append(("Java 6.3.5 XML/coordinate vs MoTrack import (projects)", top(total["reference"])))

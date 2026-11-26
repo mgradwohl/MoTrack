@@ -11,6 +11,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
@@ -21,7 +22,6 @@
 #include <QFileDialog>
 #include <QFileOpenEvent>
 #include <QImage>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -191,9 +191,10 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
                        &window,
                        [&]
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(mass));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(mass));
                                accepted = true;
                                dialog->accept();
                            }
@@ -332,6 +333,8 @@ TEST(DesktopLaunch, ParsesOptionsLocalUrlsAndRelativePathsInArgumentOrder)
     EXPECT_EQ(motrack::launchFileKind("A.TRK"), motrack::LaunchFileKind::Project);
     EXPECT_EQ(motrack::launchFileKind("a.Trz"), motrack::LaunchFileKind::Project);
     EXPECT_EQ(motrack::launchFileKind("a.motrack"), motrack::LaunchFileKind::Project);
+    // Tracker opens a .zip experiment as it opens a .trz (#224).
+    EXPECT_EQ(motrack::launchFileKind("Ball Toss.ZIP"), motrack::LaunchFileKind::Project);
     EXPECT_EQ(motrack::launchFileKind("frame.PNG"), motrack::LaunchFileKind::Image);
     EXPECT_EQ(motrack::launchFileKind("clip.mov"), motrack::LaunchFileKind::Movie);
     EXPECT_EQ(motrack::launchFileKind("no-suffix"), motrack::LaunchFileKind::Movie);
@@ -414,6 +417,29 @@ TEST(DesktopLaunch, OpensRequestedFilesInOrderOnceWithinTheTwoInputBound)
     EXPECT_TRUE(summary->isVisible());
     EXPECT_TRUE(summary->informativeText().contains("missing file.trk"));
     summary->accept();
+}
+
+TEST(DesktopLaunch, DroppedZipExperimentsOpenLikeTrzAndZipsWithoutAProjectAreListed)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto zip = copied(fixture("archive.trz"), folder, QString::fromUtf8("library experiment 測定.ZIP"));
+    const auto frames = folder.filePath("frames.zip");
+    ASSERT_TRUE(motrack::test::writeArchive(frames, {{.name = "frame0.png", .bytes = "png"}, {.name = "frame1.png", .bytes = "png"}}));
+    motrack::WorkspaceWindow window;
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QMimeData dropped;
+    dropped.setUrls({QUrl::fromLocalFile(zip), QUrl::fromLocalFile(frames)});
+    window.openFiles(motrack::droppedFiles(dropped));
+    const auto problems = nextBatch(finished);
+    EXPECT_EQ(tabSources(window), canonicalPaths({zip}));
+    // Tracker warns "Not a Tracker file" for a ZIP without a project instead of opening an empty archive.
+    ASSERT_EQ(problems.size(), 1) << problems.join('\n').toStdString();
+    EXPECT_TRUE(contains(problems, "frames.zip could not be opened: This archive contains no Tracker project"))
+        << problems.front().toStdString();
+    if (auto* summary = window.findChild<QMessageBox*>("workspaceRequestedFileProblems"))
+        summary->accept();
 }
 
 TEST(DesktopLaunch, LargeBatchesAreBoundedAndTheirSummaryIsAbbreviated)

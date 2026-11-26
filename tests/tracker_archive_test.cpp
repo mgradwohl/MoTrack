@@ -450,6 +450,45 @@ TEST(TrackerArchive, NamesOnlyNameConversionWarningsAsNonUtf8Names)
     EXPECT_FALSE(motrack::detail::isNameConversionWarning(""));
 }
 
+TEST(TrackerArchive, ZipAndTrzFilesAreTrackerArchivesAndOnlyZipsAreNeverSaveTargets)
+{
+    // Tracker's ResourceLoader.isJarZipTrz: a .zip experiment opens exactly as a .trz (#224).
+    for (const auto* path : {"a.trz", "A.TRZ", "Lab 3.zip", "C:/library/Ball Toss.ZIP", "nested.trk/x.Zip"})
+        EXPECT_TRUE(motrack::isTrackerArchivePath(path)) << path;
+    // Tracker reads .jar the same way, for EJS models; no library experiment is one and MoTrack does not open them.
+    for (const auto* path : {"a.trk", "a.motrack", "a.jar", "a.zip.trk", "a.trz.bak", "zip", "trz"})
+        EXPECT_FALSE(motrack::isTrackerArchivePath(path)) << path;
+    EXPECT_TRUE(motrack::isTrackerZipPath("Ball Toss.ZIP"));
+    EXPECT_FALSE(motrack::isTrackerZipPath("Ball Toss.trz"));
+    EXPECT_FALSE(motrack::isTrackerZipPath("Ball Toss.zip.trz"));
+}
+
+TEST(TrackerArchive, RefusesAnArchiveWithoutAProjectAsNotATrackerExperiment)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    // Tracker warns "Not a Tracker file" for a ZIP or TRZ without a .trk member; Finder metadata is not a project.
+    for (const auto* name : {"images.zip", "images.trz"})
+    {
+        SCOPED_TRACE(name);
+        const auto path = temporary.filePath(name);
+        ASSERT_TRUE(motrack::test::writeArchive(path,
+                                                {{.name = "frame0.png", .bytes = "png"},
+                                                 {.name = "frame1.png", .bytes = "png"},
+                                                 {.name = "notes/read me.txt", .bytes = "text"},
+                                                 {.name = "__MACOSX/._lab.trk", .bytes = motrack::test::appleDoubleBytes()}}));
+        try
+        {
+            std::ignore = motrack::TrackerArchive::open(path);
+            ADD_FAILURE() << "An archive without a Tracker project must not open.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_TRUE(QString::fromUtf8(error.what()).contains("no Tracker project")) << error.what();
+        }
+    }
+}
+
 TEST(TrackerArchive, MemberKeysAreNfc)
 {
     const auto nfc = QString::fromUtf8("expérience/帧.trk").toStdString();

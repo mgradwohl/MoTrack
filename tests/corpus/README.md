@@ -220,8 +220,11 @@ Findings from the first census:
   real projects and 507 TrackerPanel projects.
 - [#213](https://github.com/mgradwohl/MoTrack/issues/213): Tracker's Library Browser cannot reach ComPADRE
   `Source Code` TRZ attachments (OSP reference defect).
-- [#224](https://github.com/mgradwohl/MoTrack/issues/224): `.zip` experiments open in Tracker but are rejected
-  by extension. Renamed to `.trz`, all 33 open.
+- [#224](https://github.com/mgradwohl/MoTrack/issues/224): `.zip` experiments open in Tracker but were rejected
+  by extension. Renamed to `.trz`, all 33 opened. MoTrack now opens a `.zip` like a `.trz`, and the census
+  probes each `.zip` directly instead of retrying it under a `.trz` name. The committed census predates that
+  change; [#321](https://github.com/mgradwohl/MoTrack/issues/321) regenerates it, after which the
+  "ZIP experiments renamed .trz" rows disappear.
 - [#229](https://github.com/mgradwohl/MoTrack/issues/229): a Tracker 4.88 step saved as `NaN` rejects the whole experiment.
 - [#196](https://github.com/mgradwohl/MoTrack/issues/196): a track name with control characters that XML
   forbids is accepted by OSP's line reader but rejected by MoTrack's QDom importer.

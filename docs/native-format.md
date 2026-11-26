@@ -1218,7 +1218,29 @@ still separate work.
 Opening a prepared native group creates a fresh runtime save identity while retaining its persistent
 group/member UUIDs. The workspace foundation also accepts an explicitly identified, freshly loaded
 Tracker `.trz` group as a clean baseline with an inferred standard destination and no inferred native
-destination. This is not a way to reclassify edited live records as saved. Promoting or appending an
+destination. This is not a way to reclassify edited live records as saved.
+
+A Tracker `.zip` experiment is read exactly as a `.trz`, with the same snapshot, bounds and
+[member rules](#unsafe-and-non-project-archive-members), but its group gets no inferred standard
+destination ([#224](https://github.com/mgradwohl/MoTrack/issues/224)). Tracker 6.3.5 never writes into the
+archive a tab came from: `loadTRK` records the archive only as `openedFromPath` and sets no data file, so
+**Save** asks for a new `.trk`
+([TrackerIO.java#L2511-L2541](https://github.com/OpenSourcePhysics/tracker/blob/34b1b503f6cb55bee031d64ea916bf4f3262504d/src/org/opensourcephysics/cabrillo/tracker/TrackerIO.java#L2511-L2541)).
+Its archive export always writes `.trz`
+([ExportZipDialog.java#L2851-L2853](https://github.com/OpenSourcePhysics/tracker/blob/34b1b503f6cb55bee031d64ea916bf4f3262504d/src/org/opensourcephysics/cabrillo/tracker/ExportZipDialog.java#L2851-L2853)).
+MoTrack's desktop **Save** of a `.zip` group therefore chooses a `.trz` (offering the `.zip`'s name in the same
+folder, or the next free name when that `.trz` or its `.motrack` already exists, so the default replaces nothing)
+and writes the usual pair with a same-stem `.motrack`; the paired writer refuses a `.zip` destination.
+Later saves use that pair. The `.zip` is never written, and the native companion embeds its exact bytes. Until
+the first paired save, a saved tabset lists the `.zip` itself, as Tracker lists `openedFromPath`. After it, MoTrack's
+tabset lists the saved `.trz`, where Tracker, which saved a separate `.trk`, would still list the `.zip`: a deliberate
+difference, since the `.trz` is where the edits are. An archive
+without a `.trk` project is refused, as Tracker refuses it with "Not a Tracker file". Two more differences: a
+`.zip` holding both a project and root-level numbered images opens as the experiment (Tracker opens it as an image
+video), and `.jar` archives and zipped image sequences are not opened
+([#347](https://github.com/mgradwohl/MoTrack/issues/347)).
+
+Promoting or appending an
 idle standalone session transfers its stable owner and
 preserves undo history and member identity. Invalid ownership, duplicate members and pending standalone
 recovery are refused before ownership transfers. The caller must finish or cancel its standalone jobs
