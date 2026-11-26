@@ -390,6 +390,18 @@ public final class FitOracle {
             "non-finite-initial-guess", null);
         add("power/negative-x", "degenerate", "power", grid(-1.0, 0.25, 12), noisy(grid(-1.7, 0.4, 12), 0.05, 99), null);
         add("log/nonpositive-x", "degenerate", "log", grid(0, 0.25, 10), noisy(grid(0.1, 0.2, 10), 0.05, 98), null);
+        // Dense noisy data: Tracker's Sine guess counts every sign change about the mid-range, so noise near each
+        // true crossing adds crossings, the frequency guess is several times too high and the fit ends at a wrong
+        // local minimum that Tracker reports as a fit (MoTrack #310). 501 points of (0.8, 3, 0.4, -0.2) on x = 0..10
+        // with Gaussian noise of a tenth of the amplitude.
+        double[] denseX = grid(0, 0.02, 501);
+        double[] denseY = noisy(evaluate("sinusoid", new double[] {0.8, 3.0, 0.4, -0.2}, denseX), 0.08, 310);
+        add("sinusoid/dense-noise", "degenerate", "sinusoid", denseX, denseY, null, null, true, true, null,
+            "noise-crossing-guess", null);
+        // The same data from the generating values: the minimum is there and Tracker reaches it, so only the guess
+        // keeps the from-scratch fit away from it.
+        add("sinusoid/dense-noise-from-truth", "current", "sinusoid", denseX, denseY, new double[] {0.8, 3.0, 0.4, -0.2},
+            new boolean[4], true, false, null, null, null);
         // Finite model values whose squared deviations overflow: Tracker sums them to Infinity, cannot compare the
         // vectors it tries and reports a fit with an infinite rms (MoTrack #372).
         double[] overflowX = grid(0, 0.5, 21);
