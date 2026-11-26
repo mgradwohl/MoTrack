@@ -2273,13 +2273,12 @@ TEST(TrackerWriter, RejectsUnsafeCreatedTrackNamesReferencesAndSourceSchemasAtom
 {
     const auto original = namedSource();
     std::vector<std::string> sources{original};
+    // A `tracks` list of another collection class is refused on import, as Tracker cannot load it (#315).
     for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
              {R"(<property name="selectedtrack" type="string">mass B)", R"(<property name="selectedtrack" type="string">new mass)"},
              {R"(<property name="name" type="string">mass B)", R"(<property name="name" type="string">mass A)"},
              {R"(<property name="name" type="string">protractor</property>)", ""},
              {"tracker.Protractor", "tracker.Unknown"},
-             {R"(name="tracks" type="collection" class="java.util.ArrayList")",
-              R"(name="tracks" type="collection" class="java.util.LinkedList")"},
              {"</object>\n", "<property name=\"unknown_link\" type=\"string\">new mass</property>\n</object>\n"}})
     {
         auto xml = original;

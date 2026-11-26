@@ -32,16 +32,48 @@ bool saved(const model::Read<std::string>& value)
     return value || value.error() != osp::DecodeError::Missing;
 }
 
-std::string lengthUnit(const model::PanelState& panel)
+constexpr std::string_view DEFAULT_MASS_UNIT = "kg";
+constexpr std::string_view DEFAULT_TIME_UNIT = "s";
+
+/// TrackerPanel keeps its preferred length unit (SI "m") unless the file saves one (#214), and assigns a saved mass unit
+/// as it is, an empty one included (#315); B1 shows either unreadable label empty.
+std::string savedLabel(const model::Read<std::string>& value, std::string_view fallback)
 {
-    return saved(panel.lengthUnit) ? model::loadedName(panel.lengthUnit) : std::string(tracker::DEFAULT_LENGTH_UNIT);
+    return saved(value) ? model::loadedName(value) : std::string(fallback);
 }
 
-/// B1 keeps its default mass and time labels unless the file saves a non-empty one (#315 tracks the empty mass unit).
-std::string labelOr(const model::Read<std::string>& value, std::string_view fallback)
+/// VideoPanel.setTimeUnit keeps the default unless the file saves a non-empty time unit.
+std::string timeLabel(const model::Read<std::string>& value)
 {
     auto label = model::loadedName(value);
-    return label.empty() ? std::string(fallback) : label;
+    return label.empty() ? std::string(DEFAULT_TIME_UNIT) : label;
+}
+
+/// The unit labels B1 shows for a panel. A bound panel shows Tracker's reading of its saved labels. An unbound one
+/// holds MoTrack's labels (an empty document, or native-only objects without associations), which no Tracker loader
+/// reads, so each shows as stored, an empty time unit included; only a missing one takes the default.
+struct UnitLabels
+{
+    std::string length;
+    std::string mass;
+    std::string time;
+};
+
+UnitLabels unitLabels(const model::PanelState& panel, bool bound)
+{
+    if (!bound)
+    {
+        const auto stored = [](const model::Read<std::string>& value, std::string_view fallback)
+        {
+            return value ? *value : std::string(fallback);
+        };
+        return {.length = stored(panel.lengthUnit, tracker::DEFAULT_LENGTH_UNIT),
+                .mass = stored(panel.massUnit, DEFAULT_MASS_UNIT),
+                .time = stored(panel.timeUnit, DEFAULT_TIME_UNIT)};
+    }
+    return {.length = savedLabel(panel.lengthUnit, tracker::DEFAULT_LENGTH_UNIT),
+            .mass = savedLabel(panel.massUnit, DEFAULT_MASS_UNIT),
+            .time = timeLabel(panel.timeUnit)};
 }
 
 Calibration calibration(const model::CoordinatesState& coords)
@@ -310,9 +342,10 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
     auto panel = std::get<model::PanelState>(*panelObject->value);
     setIfChanged(panel.semanticVersion, model::loadedName(panel.semanticVersion), project.version);
     setIfChanged(panel.description, model::loadedName(panel.description), project.description);
-    setIfChanged(panel.lengthUnit, lengthUnit(panel), project.lengthUnit);
-    setIfChanged(panel.massUnit, labelOr(panel.massUnit, "kg"), project.massUnit);
-    setIfChanged(panel.timeUnit, labelOr(panel.timeUnit, "s"), project.timeUnit);
+    const auto labels = unitLabels(panel, panelObject->binding.has_value());
+    setIfChanged(panel.lengthUnit, labels.length, project.lengthUnit);
+    setIfChanged(panel.massUnit, labels.mass, project.massUnit);
+    setIfChanged(panel.timeUnit, labels.time, project.timeUnit);
     replaceValue(*panelObject, std::move(panel));
 
     const auto& stored = project.clip;
@@ -510,14 +543,16 @@ model::DocumentParts boundObjects(const LegacyProject& project, const std::strin
 
 LegacyProject legacyProject(const model::TrackerDocument& document)
 {
-    const auto& panel = std::get<model::PanelState>(*document.singleton(Role::Panel)->value);
+    const auto& panelObject = *document.singleton(Role::Panel);
+    const auto& panel = std::get<model::PanelState>(*panelObject.value);
+    auto labels = unitLabels(panel, panelObject.binding.has_value());
     LegacyProject project{.version = model::loadedName(panel.semanticVersion),
                           .description = model::loadedName(panel.description),
                           .clip = {},
                           .calibration = std::nullopt,
-                          .lengthUnit = lengthUnit(panel),
-                          .massUnit = labelOr(panel.massUnit, "kg"),
-                          .timeUnit = labelOr(panel.timeUnit, "s"),
+                          .lengthUnit = std::move(labels.length),
+                          .massUnit = std::move(labels.mass),
+                          .timeUnit = std::move(labels.time),
                           .pointMasses = {},
                           .vectors = {},
                           .unsupportedTrackTypes = document.unknownTrackClasses(),
@@ -577,7 +612,16 @@ std::optional<TrackerSource> trackerSourceView(const model::TrackerDocument& doc
 
 model::TrackerDocument importTypedTracker(std::string_view xml)
 {
-    auto document = model::TrackerDocument::importBaseline(detail::parseTrackerXml(xml));
+    auto source = detail::parseTrackerXml(xml);
+    // The typed import refuses these too, in English; give B1's translated message (#315).
+    if (const auto panel = tracker::loadPanel(*source); panel.className == tracker::TRACKER_PANEL_CLASS)
+    {
+        if (const auto problem = tracker::findUnloadable(*source, panel))
+        {
+            throw ProjectError(detail::unloadableMessage(*problem));
+        }
+    }
+    auto document = model::TrackerDocument::importBaseline(std::move(source));
     if (!document)
     {
         throw ProjectError(document.error().message);

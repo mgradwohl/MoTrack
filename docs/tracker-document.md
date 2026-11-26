@@ -349,7 +349,7 @@ metadata replaces the reduced model:
 | --- | --- |
 | `format`, `version` | `"MoTrack"`, 7 |
 | `requires` | Feature names that a reader must implement; empty in B2 |
-| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently. A version-5 body, standalone or in a v6 group, has the same number as its `trackerReading` ([native format](native-format.md#tracker-reading-revisions): absent is 0, #330 writes 2); v1–v4 count as revision 0 |
+| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently. A version-5 body, standalone or in a v6 group, has the same number as its `trackerReading` ([native format](native-format.md#tracker-reading-revisions): absent is 0, #330 wrote 2, #315 writes 3); v1–v4 count as revision 0 |
 | `nextObjectId`, `countdownLowWater` | The counter and the countdown low-water mark, as decimal strings |
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
@@ -428,11 +428,16 @@ migrated body already holds the current reading, and an outdated one keeps its e
   for such a source is handled the same way, not kept as an edit. Export of changed or new samples of a shifted
   source is refused until [#328](https://github.com/mgradwohl/MoTrack/issues/328) decides how frames map back to
   saved indices, including for objects created in MoTrack.
-- **Empty `mass_unit` (#315):** planned as revision 3. A stored `kg` where the file saved an empty label is the old
-  default, not an edit, and becomes empty.
-- **Inputs Java cannot load (#315):** still read as before #330. Coordinate arrays whose indices Java cannot place
-  import without calibration, and such track arrays keep file order. B2 proposes refusing the baseline and opening the
-  document native-only from its JSON with associations stale.
+- **Empty `mass_unit` (#315, revision 3):** a stored `kg` where the file saved an empty (or unreadable) label is the
+  old default, not an edit, and becomes empty under the same all-or-nothing rule; another stored label keeps the
+  document outdated. `typedDocumentFromReduced` holds an unbound panel's labels as stored, so a native file with an
+  empty mass or time unit converts (an empty time unit, which Tracker never loads, only native-only and stale).
+- **Inputs Java cannot load (#315):** import refuses arrays that OSP's loader cannot build (a class other than the one
+  Tracker saves, or an index unreadable or beyond the last element's) in the panel's typed objects, whatever the revision,
+  and image `paths` that Tracker replaces with the numbered images from `path`. A native body whose
+  source the current reader parses but refuses opens native-only from its stored values, unchanged, with the
+  associations dropped, its earlier `trackerReading`, export refused and the note on every open; B2.1's conversion
+  then gives stale associations, as for a v7 baseline the reader refuses.
 Loader defaults (#214) and the time-unit recovery apply as they do now. Documents without known associations
 keep native-only editing and refuse standard export with the re-import note.
 
@@ -499,12 +504,12 @@ Order: the loader-fidelity prerequisite, B2.1, then B2.2 and B2.3 in parallel, t
 parallel. Each slice depends on merged slices only, so no stack is more than one PR deep. Each slice updates the
 R02–R04 rows of the migration plan and the status line of this document.
 
-**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), merged)
-- Fixes #313, #314 and #315's track slots, and adds the v≤6 migrations of §3 to the current native reader as
-  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, so #315's empty `mass_unit` (revision 3)
-  and its refusals now gate B2.4a: until then B1's reading maps an empty saved mass or time label to its default,
-  and `typedDocumentFromReduced` refuses a native file that stores an empty `massUnit` or `timeUnit`, which would be
-  an open failure once B2.4a reads native files through it.
+**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330) and the rest of
+[#315](https://github.com/mgradwohl/MoTrack/issues/315))
+- #330 fixed #313, #314 and #315's track slots, and added the v≤6 migrations of §3 to the current native reader as
+  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, which then added the empty `mass_unit` as
+  revision 3, the refusal of inputs Java cannot load and native-only opening of a refused preserved source, and made
+  `typedDocumentFromReduced` accept stored empty unit labels. #315 no longer gates B2.4a.
 
 **B2.1 — Typed document** (first)
 - Content: `motrack_model`; `TrackerDocument`, families, descriptors and reference-only descriptors; identities,
@@ -599,8 +604,8 @@ R02–R04 rows of the migration plan and the status line of this document.
    B2.5 updates it.
 2. **Where do #313–#315 land?** Decided: #330 landed #313, #314 and #315's track slots with the v≤6 migrations
    before B2.1, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit.
-   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which now
-   gate B2.4a.
+   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which landed
+   before B2.4a.
 3. **Should removing a referenced object be refused?** Recommended: no. Allow it in the native document with
    export refused while references dangle, as today; the families add explicit cleanup edits.
 4. **Should untyped classes get graph edges in B2?** Recommended: yes, through reference-only descriptors that

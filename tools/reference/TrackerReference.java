@@ -95,10 +95,11 @@ public final class TrackerReference {
         for (int frame : new int[] {first, (int) last})
             coordinateSamples.add(map("frame", frame, "image", List.of(13.5, 17.25),
                 "world", world(coords, frame, 13.5, 17.25)));
-        // Unsaved labels take the panel's defaults: Tracker.preferredLengthUnit (SI "m") and "kg"/"s" (#214).
+        // Unsaved labels take the panel's defaults: Tracker.preferredLengthUnit (SI "m") and "kg"/"s" (#214). The
+        // loader assigns saved length and mass labels as they are, an empty one included (#315), but not the time unit.
         Map<String, Object> result = map("source_version", string(root, "semantic_version", ""),
             "length_unit", string(root, "length_unit", "m"), "mass_unit", string(root, "mass_unit", "kg"),
-            "time_unit", string(root, "time_unit", "s"),
+            "time_unit", timeUnit(root),
             "clip", map("first_frame", first, "step_size", stride, "step_count", count,
                 "start_ms", number(clip, "starttime", 0.0)),
             "point_masses", masses, "vectors", vectors, "unsupported_tracks", unsupported,
@@ -120,6 +121,17 @@ public final class TrackerReference {
         int length = Integer.parseInt(last.substring(1, last.indexOf("]"))) + 1;
         if (length <= 1) return 0;
         return shift >= length ? -1 : shift;
+    }
+
+    /** TrackerPanel.Loader passes a saved time_unit to VideoPanel.setTimeUnit, which keeps the default "s" for a missing,
+     * unreadable or empty label and for one with a digit, and otherwise trims it (MoTrack #315).
+     */
+    static String timeUnit(XMLControl root) {
+        String unit = has(root, "time_unit") ? root.getString("time_unit") : null;
+        if (unit == null || unit.isEmpty()) return "s";
+        unit = unit.trim();
+        for (char c : unit.toCharArray()) if (Character.isDigit(c)) return "s";
+        return unit;
     }
 
     private static Object world(ImageCoordSystem coords, int frame, double x, double y) {
