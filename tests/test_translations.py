@@ -143,6 +143,26 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(t.usable_translation("Video", "Video"))
         self.assertTrue(t.usable_translation("Frame %1", "Bild %1"))
 
+    def test_rejects_values_with_lost_characters(self):
+        # OSP's Simplified Chinese tools and video bundles store "?" where a character was lost (osp#59).
+        self.assertFalse(t.usable_translation("Data Tool", "?据分析工具"))
+        self.assertFalse(t.usable_translation("Bar", "??"))
+        self.assertTrue(t.usable_translation("Data Tool", "数据分析工具"))
+        self.assertTrue(t.usable_translation("Replace existing file?", "替換已有文檔?"))
+        self.assertFalse(t.usable_translation("Replace existing file", "替換已有?"))
+
+    def test_restored_values_have_no_lost_characters_and_name_known_bundles(self):
+        bundles = {Path(stem).name for _, stem in t.BUNDLES}
+        for catalog in (locale.catalog for locale in t.LOCALES):
+            for filename, values in t.restored_values(catalog).items():
+                self.assertIn(filename.split("_")[0], bundles, filename)
+                self.assertTrue(values, filename)
+                for key, value in values.items():
+                    self.assertTrue(value.strip("? "), f"{filename} {key}")  # A question may end in "?".
+                    self.assertFalse(value.startswith("?") or "??" in value, f"{filename} {key}")
+        self.assertEqual(len(t.restored_values("zh_CN")), 2)
+        self.assertEqual(t.restored_values("de"), {})
+
     def test_mnemonic_insertion(self):
         de, ja, ru = LOCALE["de"], LOCALE["ja"], LOCALE["ru"]
         self.assertEqual(t.insert_mnemonic("Video öffnen", "v", de), "&Video öffnen")
@@ -178,6 +198,34 @@ class BundleTests(unittest.TestCase):
             self.assertIsNone(index.match("Cancel"))  # Untranslated.
             with patch.dict(t.LOCALE_REJECTED, {"el": {("File", "Αρχείο")}}):
                 self.assertIsNone(t.TrackerIndex.load({"tracker": root}, LOCALE["el"]).match("&File"))
+
+    def test_seeds_a_restored_value_only_in_place_of_one_with_lost_characters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for repository, bundle in t.BUNDLES:  # Every OSP base bundle must exist; only "tools" has values here.
+                if repository == "osp":
+                    (root / bundle).parent.mkdir(parents=True, exist_ok=True)
+                    (root / bundle).with_name(Path(bundle).name + ".properties").write_text("", encoding="utf-8")
+            stem = root / next(stem for repository, stem in t.BUNDLES if stem.endswith("/tools"))
+            stem.with_name("tools.properties").write_text(
+                "Frame.Title=Data Tool\nChooser.Title=Select Data\nShape.Bar=Bar\nIntact.Key=Markers\n", encoding="utf-8")
+            # As upstream stores them: "?" for each lost character, the others as Java escapes.
+            stem.with_name("tools_zh_CN.properties").write_bytes(
+                b"Frame.Title=?\\u636e\\u5206\\u6790\\u5de5\\u5177\nChooser.Title=???\\u636e\nShape.Bar=??\n"
+                b"Intact.Key=\\u6807\\u8bb0\n")
+            restored = {"tools_zh_CN.properties": {"Frame.Title": "数据分析工具", "Chooser.Title": "选择数据",
+                                                   "Intact.Key": "never used"}}
+            with patch.object(t, "restored_values", lambda catalog, path=None: restored if catalog == "zh_CN" else {}):
+                index = t.TrackerIndex.load({"osp": root}, LOCALE["zh_CN"])
+                other = t.TrackerIndex.load({"osp": root}, LOCALE["zh_TW"])
+            match = index.match("Data Tool")
+            self.assertEqual(match.candidate.translation, "数据分析工具")
+            self.assertEqual(match.candidate.origin, f"tools_zh_CN.properties@{t.restored_revision()} Frame.Title")
+            self.assertEqual(index.match("Select Data").candidate.translation, "选择数据")
+            self.assertIsNone(index.match("Bar"))  # Lost, and no earlier value is recorded.
+            self.assertEqual(index.match("Markers").candidate.translation, "标记")  # An intact value is kept.
+            self.assertEqual(index.match("Markers").candidate.origin, "tools_zh_CN.properties Intact.Key")
+            self.assertIsNone(other.match("Data Tool"))  # Another locale never takes zh_CN's values.
 
     def test_missing_base_bundle_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
