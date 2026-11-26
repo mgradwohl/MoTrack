@@ -31,6 +31,13 @@ struct RgbaLayout
 [[nodiscard]] std::optional<RgbaLayout> paddedRgbaLayout(int width, int height);
 
 /// Converts decoded frames to RGBA without resizing them. Each converter belongs to a single thread.
+///
+/// Each frame is converted with its own range and YCbCr matrix (#261). FFmpeg's deprecated JPEG-range formats
+/// (yuvj420p and the like) are full range; other YUV frames are full range only when their color_range says
+/// so. RGB and integer gray frames are full range, as in swscale's own frame API. BT.709, FCC, SMPTE 240M and BT.2020
+/// frames use their matrix; every other YUV frame, including one with no colorspace, uses BT.601, swscale's
+/// default. The chroma siting is swscale's default. One swscale context is kept for as long as these inputs
+/// are unchanged.
 class RgbaFrameConverter
 {
   public:
@@ -38,6 +45,26 @@ class RgbaFrameConverter
     [[nodiscard]] QImage convert(const AVFrame& frame);
     /// Converts into caller memory laid out by paddedRgbaLayout().
     void convertInto(const AVFrame& frame, std::span<std::uint8_t> destination);
+    /// The number of swscale contexts this converter has created, for tests of context reuse.
+    [[nodiscard]] std::uint64_t contextsCreated() const noexcept
+    {
+        return m_ContextsCreated;
+    }
+
+    /// Every input of a swscale context. swscale rewrites the format and flag options of a context it
+    /// initialises, so sws_getCachedContext cannot tell whether a context still fits a frame (#261).
+    struct Key
+    {
+        int width = 0;
+        int height = 0;
+        int sourceFormat = -1; ///< An AVPixelFormat; a JPEG-range format is replaced by its limited-range format.
+        bool fullRange = false;
+        int matrix = 0; ///< SWS_CS_* coefficients of the YCbCr source.
+        int destinationFormat = -1;
+        int flags = 0;
+
+        friend bool operator==(const Key&, const Key&) = default;
+    };
 
   private:
     struct FreeScale
@@ -45,6 +72,8 @@ class RgbaFrameConverter
         void operator()(SwsContext* context) const;
     };
     std::unique_ptr<SwsContext, FreeScale> m_Scale;
+    Key m_Key;
+    std::uint64_t m_ContextsCreated = 0;
 };
 
 } // namespace motrack::detail
