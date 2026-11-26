@@ -89,7 +89,12 @@ camera delivers it.
 
 Motion JPEG stores every frame independently, so each frame decodes on its own and seeking is exact.
 MoTrack writes it with a fixed JPEG quantizer of 4, in full-range BT.601 4:2:0, which keeps flat colours
-within a few levels of the source (`CaptureEncoder` tests). Expect a few megabytes per second at 720p30
+within a few levels of the source (`CaptureEncoder` tests). A camera frame in video range (16–235) is
+expanded to that full range when it is recorded, so black is 0 and white 255 in the movie, whatever layout
+the camera delivers ([#373](https://github.com/mgradwohl/MoTrack/issues/373)); recordings made before that
+fix from YUV 4:2:0, NV12, NV21, YUYV or UYVY cameras stored the unexpanded levels and read about 16 for
+black and 235 for white. The preview and the recorder each build one conversion context per camera layout,
+size and range ([#369](https://github.com/mgradwohl/MoTrack/issues/369)). Expect a few megabytes per second at 720p30
 and several times that at 1080p. A camera mode that delivers Motion JPEG itself is decoded and
 re-encoded; passing its frames through unchanged is
 [#304](https://github.com/mgradwohl/MoTrack/issues/304).

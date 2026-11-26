@@ -209,6 +209,101 @@ TEST(CaptureEncoder, ReportsUnwritableFilesAndUnusableFrames)
     EXPECT_EQ(motrack::captureImageFromQImage(QImage(8, 8, QImage::Format_Mono)).width, 0);
 }
 
+TEST(CaptureEncoder, RecordsVideoRangeCameraFramesAsFullRangeJpeg)
+{
+    // The movie stores JPEG (full-range) samples, so a video-range camera frame must be expanded when it is recorded:
+    // luma 16 is black, 235 white and 126 mid grey. Layouts that swscale can copy or repack without scaling must not
+    // skip that conversion (#373). Decoding the recording gives the grey level a user would measure.
+    using motrack::CapturePixelFormat;
+    QTemporaryDir temporary;
+    const auto recorded = [&temporary](CapturePixelFormat format, std::uint8_t luma, bool fullRange)
+    {
+        const auto path =
+            temporary.filePath(QStringLiteral("range-%1-%2-%3.mov").arg(static_cast<int>(format)).arg(luma).arg(fullRange ? 1 : 0));
+        auto frame = planar(format, luma, 128, 128, 64, 48);
+        frame.image.fullRange = fullRange;
+        {
+            motrack::CaptureEncoder encoder(path);
+            EXPECT_TRUE(encoder.write(frame.image, microseconds{0}));
+            EXPECT_TRUE(encoder.write(frame.image, microseconds{33'333}));
+            static_cast<void>(encoder.finish());
+        }
+        motrack::VideoReader reader(path);
+        const auto decoded = reader.readNext();
+        return decoded ? decoded->image.pixel(32, 24) : qRgb(255, 0, 255);
+    };
+    for (const auto format : {CapturePixelFormat::Yuv420p,
+                              CapturePixelFormat::Yv12,
+                              CapturePixelFormat::Yuv422p,
+                              CapturePixelFormat::Nv12,
+                              CapturePixelFormat::Nv21,
+                              CapturePixelFormat::Yuyv,
+                              CapturePixelFormat::Uyvy})
+    {
+        SCOPED_TRACE(static_cast<int>(format));
+        expectColor(recorded(format, 16, false), 0, 0, 0, 3);
+        expectColor(recorded(format, 235, false), 255, 255, 255, 3);
+        expectColor(recorded(format, 126, false), 128, 128, 128, 3);
+        // A full-range source is stored as it is.
+        expectColor(recorded(format, 0, true), 0, 0, 0, 3);
+        expectColor(recorded(format, 255, true), 255, 255, 255, 3);
+        expectColor(recorded(format, 128, true), 128, 128, 128, 3);
+    }
+}
+
+TEST(CaptureEncoder, BuildsOneScalerContextWhileTheFrameLayoutIsUnchanged)
+{
+    // swscale rewrites a context's options when it initializes it (a padded RGB layout becomes the alpha layout), so
+    // comparing them with the next frame's never matched and every frame built a new context (#369).
+    using motrack::CapturePixelFormat;
+    QTemporaryDir temporary;
+    const QImage padded = solid(QColor(40, 90, 200)); // RGB with a padding byte (Bgrx on little-endian hosts).
+    const QImage rgba = padded.convertToFormat(QImage::Format_RGBA8888);
+    QImage gray(64, 48, QImage::Format_Grayscale8);
+    gray.fill(120);
+    const auto yuv = planar(CapturePixelFormat::Nv12, 120, 128, 128, 64, 48);
+    for (const auto format : {CapturePixelFormat::Bgrx, CapturePixelFormat::Rgba, CapturePixelFormat::Nv12, CapturePixelFormat::Gray8})
+    {
+        SCOPED_TRACE(static_cast<int>(format));
+        motrack::CaptureEncoder encoder(temporary.filePath(QStringLiteral("contexts-%1.mov").arg(static_cast<int>(format))));
+        const auto frame = format == CapturePixelFormat::Nv12    ? yuv.image
+                           : format == CapturePixelFormat::Gray8 ? motrack::captureImageFromQImage(gray)
+                           : format == CapturePixelFormat::Rgba  ? motrack::captureImageFromQImage(rgba)
+                                                                 : motrack::captureImageFromQImage(padded);
+        for (int index = 0; index < 5; ++index)
+        {
+            ASSERT_TRUE(encoder.write(frame, microseconds{index * 33'333}));
+        }
+        EXPECT_EQ(encoder.contextsCreated(), 1);
+        static_cast<void>(encoder.finish());
+    }
+    // The preview converter keeps its context too, and builds another only when the frame's parameters change.
+    motrack::CaptureConverter converter;
+    const auto video = planar(CapturePixelFormat::Nv12, 81, 90, 240, 64, 48);
+    auto full = planar(CapturePixelFormat::Nv12, 81, 90, 240, 64, 48);
+    full.image.fullRange = true;
+    for (int index = 0; index < 4; ++index)
+    {
+        static_cast<void>(converter.toImage(video.image, {}));
+    }
+    EXPECT_EQ(converter.contextsCreated(), 1);
+    static_cast<void>(converter.toImage(full.image, {}));
+    static_cast<void>(converter.toImage(full.image, {}));
+    EXPECT_EQ(converter.contextsCreated(), 2);
+    static_cast<void>(converter.toImage(video.image, QSize(32, 24)));
+    EXPECT_EQ(converter.contextsCreated(), 3);
+    // Padded RGB and RGBA frames at an odd preview width, where swscale also adds flags of its own.
+    for (const auto* image : {&padded, &rgba})
+    {
+        motrack::CaptureConverter odd;
+        for (int index = 0; index < 4; ++index)
+        {
+            EXPECT_EQ(odd.toImage(motrack::captureImageFromQImage(*image), QSize(33, 48)).width(), 33);
+        }
+        EXPECT_EQ(odd.contextsCreated(), 1);
+    }
+}
+
 TEST(CaptureConverter, ConvertsCameraLayoutsAndRangesToPreviewImages)
 {
     using motrack::CapturePixelFormat;

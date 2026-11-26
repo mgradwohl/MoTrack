@@ -193,16 +193,92 @@ Planes planes(const CaptureImage& frame)
     return result;
 }
 
-// RGB and gray sources are full range; YUV sources say which range and matrix they use. RGB targets are
-// full range; YUV targets are JPEG's full-range BT.601.
-void setColorspace(SwsContext* scale, const CaptureImage& frame, const Planes& source)
+/// Everything a conversion context depends on. RGB and gray sources are full range; YUV sources say which range and
+/// matrix they use. RGB targets are full range; YUV targets are JPEG's full-range BT.601.
+struct ScaleKey
 {
-    const auto* input = sws_getCoefficients(frame.bt709 ? SWS_CS_ITU709 : SWS_CS_ITU601);
-    const auto* output = sws_getCoefficients(SWS_CS_ITU601);
-    const int sourceRange = source.yuv ? static_cast<int>(frame.fullRange) : 1;
-    // Unsupported for some format pairs (it then keeps swscale's defaults); not an error.
-    (void)sws_setColorspaceDetails(scale, input, sourceRange, output, 1, 0, 1 << 16, 1 << 16);
+    int sourceWidth = 0;
+    int sourceHeight = 0;
+    AVPixelFormat sourceFormat = AV_PIX_FMT_NONE;
+    bool sourceFullRange = true;
+    bool bt709 = false;
+    int width = 0;
+    int height = 0;
+    AVPixelFormat format = AV_PIX_FMT_NONE;
+    int flags = 0;
+
+    bool operator==(const ScaleKey&) const = default;
+};
+
+ScaleKey scaleKey(const CaptureImage& frame, const Planes& source, int width, int height, AVPixelFormat format, int flags)
+{
+    return {.sourceWidth = frame.width,
+            .sourceHeight = frame.height,
+            .sourceFormat = source.format,
+            .sourceFullRange = !source.yuv || frame.fullRange,
+            .bt709 = frame.bt709,
+            .width = width,
+            .height = height,
+            .format = format,
+            .flags = flags};
 }
+
+/// One swscale context, rebuilt only when its key changes.
+/// - sws_getCachedContext compares the options of the context it is given, and swscale rewrites some of them when it
+///   initializes a context (a padded RGB layout becomes the alpha layout, flags are added for some widths), so the
+///   comparison failed and a new context was built for every frame (#369).
+/// - The ranges are set before initialization. Set afterwards, they do not replace an unscaled copy or repack
+///   converter that swscale chose for equal ranges, so a video-range camera frame was recorded unexpanded in the
+///   full-range movie: black at 16 and white at 235 (#373).
+class FrameScaler
+{
+  public:
+    SwsContext* context(const ScaleKey& key, const char* failure)
+    {
+        if (m_Scale && key == m_Key)
+        {
+            return m_Scale.get();
+        }
+        Scaler scale{sws_alloc_context(), &sws_freeContext};
+        if (!scale)
+        {
+            throw VideoError(failure);
+        }
+        scale->src_w = key.sourceWidth;
+        scale->src_h = key.sourceHeight;
+        scale->src_format = key.sourceFormat;
+        scale->src_range = static_cast<int>(key.sourceFullRange);
+        scale->dst_w = key.width;
+        scale->dst_h = key.height;
+        scale->dst_format = key.format;
+        scale->dst_range = 1;
+        scale->flags = static_cast<unsigned>(key.flags);
+        requireSuccess(sws_init_context(scale.get(), nullptr, nullptr), failure);
+        // Unsupported for some format pairs (it then keeps swscale's defaults); not an error.
+        (void)sws_setColorspaceDetails(scale.get(),
+                                       sws_getCoefficients(key.bt709 ? SWS_CS_ITU709 : SWS_CS_ITU601),
+                                       static_cast<int>(key.sourceFullRange),
+                                       sws_getCoefficients(SWS_CS_ITU601),
+                                       1,
+                                       0,
+                                       1 << 16,
+                                       1 << 16);
+        m_Scale = std::move(scale);
+        m_Key = key;
+        ++m_Created;
+        return m_Scale.get();
+    }
+
+    [[nodiscard]] int created() const noexcept
+    {
+        return m_Created;
+    }
+
+  private:
+    Scaler m_Scale{nullptr, &sws_freeContext};
+    ScaleKey m_Key;
+    int m_Created = 0;
+};
 
 } // namespace
 
@@ -248,7 +324,7 @@ CaptureImage captureImageFromQImage(const QImage& image)
 
 struct CaptureConverter::Impl
 {
-    Scaler scale{nullptr, &sws_freeContext};
+    FrameScaler scale;
 };
 
 CaptureConverter::CaptureConverter() : m_Impl(std::make_unique<Impl>())
@@ -264,26 +340,20 @@ QImage CaptureConverter::toImage(const CaptureImage& frame, QSize bound)
         size.scale(bound, Qt::KeepAspectRatio);
     size = size.expandedTo({1, 1});
     QImage image(size, QImage::Format_RGBA8888);
-    m_Impl->scale.reset(sws_getCachedContext(m_Impl->scale.release(),
-                                             frame.width,
-                                             frame.height,
-                                             source.format,
-                                             size.width(),
-                                             size.height(),
-                                             AV_PIX_FMT_RGBA,
-                                             SWS_BILINEAR,
-                                             nullptr,
-                                             nullptr,
-                                             nullptr));
-    if (image.isNull() || !m_Impl->scale)
+    if (image.isNull())
         throw VideoError("Could not allocate the camera preview.");
-    setColorspace(m_Impl->scale.get(), frame, source);
+    auto* scale = m_Impl->scale.context(scaleKey(frame, source, size.width(), size.height(), AV_PIX_FMT_RGBA, SWS_BILINEAR),
+                                        "Could not allocate the camera preview.");
     const std::array<std::uint8_t*, 4> destination{image.bits(), nullptr, nullptr, nullptr};
     const std::array<int, 4> strides{static_cast<int>(image.bytesPerLine()), 0, 0, 0};
-    requireSuccess(
-        sws_scale(m_Impl->scale.get(), source.data.data(), source.strides.data(), 0, frame.height, destination.data(), strides.data()),
-        "Could not convert the camera frame");
+    requireSuccess(sws_scale(scale, source.data.data(), source.strides.data(), 0, frame.height, destination.data(), strides.data()),
+                   "Could not convert the camera frame");
     return image;
+}
+
+int CaptureConverter::contextsCreated() const noexcept
+{
+    return m_Impl->scale.created();
 }
 
 struct CaptureEncoder::Impl
@@ -366,7 +436,7 @@ struct CaptureEncoder::Impl
     std::unique_ptr<AVCodecContext, FreeCodec> codec;
     std::unique_ptr<AVFrame, FreeFrame> picture{av_frame_alloc()};
     std::unique_ptr<AVPacket, FreePacket> packet{av_packet_alloc()};
-    Scaler scale{nullptr, &sws_freeContext};
+    FrameScaler scale;
     AVStream* stream = nullptr;
     std::optional<std::chrono::microseconds> first;
     std::chrono::microseconds last{0};
@@ -396,24 +466,11 @@ bool CaptureEncoder::write(const CaptureImage& frame, std::chrono::microseconds 
         state.open(frame.width, frame.height);
     else if (frame.width != state.codec->width || frame.height != state.codec->height)
         throw VideoError("The camera frame size changed during the recording.");
-    state.scale.reset(sws_getCachedContext(state.scale.release(),
-                                           frame.width,
-                                           frame.height,
-                                           source.format,
-                                           state.codec->width,
-                                           state.codec->height,
-                                           state.codec->pix_fmt,
-                                           SWS_BICUBIC,
-                                           nullptr,
-                                           nullptr,
-                                           nullptr));
-    if (!state.scale)
-        throw VideoError("Could not convert the camera frame.");
-    setColorspace(state.scale.get(), frame, source);
+    auto* scale = state.scale.context(scaleKey(frame, source, state.codec->width, state.codec->height, state.codec->pix_fmt, SWS_BICUBIC),
+                                      "Could not convert the camera frame.");
     requireSuccess(av_frame_make_writable(state.picture.get()), "Could not reuse the recording frame");
     requireSuccess(
-        sws_scale(
-            state.scale.get(), source.data.data(), source.strides.data(), 0, frame.height, state.picture->data, state.picture->linesize),
+        sws_scale(scale, source.data.data(), source.strides.data(), 0, frame.height, state.picture->data, state.picture->linesize),
         "Could not convert the camera frame");
     state.picture->pts = pts;
     state.picture->quality = state.codec->global_quality;
@@ -444,6 +501,11 @@ CaptureSummary CaptureEncoder::finish()
         throw VideoError("Could not write the recording file.");
     state.file.close();
     return {.frames = state.frames, .duration = state.first ? state.last - *state.first : std::chrono::microseconds{0}};
+}
+
+int CaptureEncoder::contextsCreated() const noexcept
+{
+    return m_Impl->scale.created();
 }
 
 } // namespace motrack
