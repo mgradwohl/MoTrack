@@ -244,7 +244,7 @@ class ArchiveMembers
         auto found = m_Names.find(archive);
         if (found == m_Names.end())
             found = m_Names.emplace(archive, trackerArchiveProjectNames(archive)).first;
-        return found->second && found->second->contains(member.normalized(QString::NormalizationForm_C));
+        return found->second && found->second->contains(archiveMemberKey(member));
     }
 
   private:
@@ -642,7 +642,7 @@ std::optional<QString> resolveTabsetEntry(const TabsetEntry& entry, const QStrin
 QString tabsetTargetKey(const QString& canonical, const QString& member)
 {
     const auto key = tabsetIdentityKey(canonical);
-    return member.isEmpty() ? key : key + "!/" + member.normalized(QString::NormalizationForm_C);
+    return member.isEmpty() ? key : key + "!/" + archiveMemberKey(member);
 }
 
 QString tabsetBase(const TrackerTabset& tabset, const QString& tabsetPath)

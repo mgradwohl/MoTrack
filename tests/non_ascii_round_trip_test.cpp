@@ -26,6 +26,7 @@
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -219,6 +220,136 @@ TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
     EXPECT_EQ(restored.members.front().member, projectMember.toStdString());
     EXPECT_EQ(restored.members.front().document.project.pointMasses.front().mass, 7.25);
     EXPECT_EQ(restored.archive->sourceDigest(), snapshot.archive->sourceDigest());
+}
+
+/// Whether Tracker finds every media file of the experiment @p projectName (stored bytes) holding @p xml in an
+/// archive with the members @p stored. OSP's ResourceLoader looks a member up with `Map.get` on the names
+/// `ZipInputStream` returned: Java compares the UTF-16 text exactly and never normalizes it.
+bool trackerFindsEveryImage(const std::vector<QByteArray>& stored, const QByteArray& projectName, const QByteArray& xml)
+{
+    const auto directory = projectName.left(projectName.lastIndexOf('/') + 1);
+    const auto references = motrack::parseLegacyProject(xml.toStdString()).clip.mediaReferences;
+    return !references.empty() &&
+           std::ranges::all_of(references,
+                               [&](const std::string& reference)
+                               { return std::ranges::contains(stored, directory + QByteArray::fromStdString(reference)); });
+}
+
+TEST_F(NonAsciiRoundTrip, ArchiveSavesKeepStoredNamesAndReferencesInEitherNormalizationForm)
+{
+    // macOS file names are decomposed (NFD), so an archive made there can store "e" + U+0301 where one made on
+    // Windows stores U+00E9, in its member names, in the experiment's media references, or in only one of them.
+    // MoTrack identifies members by their NFC form on every platform (#308), but Tracker matches the stored bytes:
+    // a save must leave both the stored names and the references exactly as they were. The archives are written
+    // record by record, because libarchive normalizes the names it reads and writes differently on each platform.
+    const auto folder = latin();
+    const auto images = QString::fromUtf8("vidéos à ç");
+    const auto stem = QString::fromUtf8("îmage");
+    const auto projectName = folder + QString::fromUtf8("/expérience.trk");
+    using Form = QString::NormalizationForm;
+    struct Case
+    {
+        const char* name;
+        Form members;
+        Form references;
+    };
+    for (const auto& forms :
+         {Case{.name = "NFC names, NFC references", .members = Form::NormalizationForm_C, .references = Form::NormalizationForm_C},
+          Case{.name = "NFD names, NFD references", .members = Form::NormalizationForm_D, .references = Form::NormalizationForm_D},
+          Case{.name = "NFD names, NFC references", .members = Form::NormalizationForm_D, .references = Form::NormalizationForm_C},
+          Case{.name = "NFC names, NFD references", .members = Form::NormalizationForm_C, .references = Form::NormalizationForm_D}})
+    {
+        SCOPED_TRACE(forms.name);
+        const auto xml = renamedExperiment(images.normalized(forms.references), stem.normalized(forms.references));
+        std::vector<QByteArray> stored{projectName.normalized(forms.members).toUtf8()};
+        std::vector<motrack::test::ArchiveEntry> members{{.name = nullptr, .bytes = xml}};
+        QStringList identities;
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto member = QStringLiteral("%1/%2/%3 %4.png").arg(folder, images, stem).arg(frame);
+            identities.push_back(member.normalized(Form::NormalizationForm_C));
+            stored.push_back(member.normalized(forms.members).toUtf8());
+            members.push_back({.name = nullptr, .bytes = frameBytes(frame)});
+        }
+        for (std::size_t i = 0; i < members.size(); ++i)
+        {
+            members[i].name = stored[i].constData();
+        }
+        const auto original = motrack::test::storedArchiveBytes(members);
+        ASSERT_EQ(motrack::test::storedMemberNames(original), stored);
+        const bool trackerOpensMedia = trackerFindsEveryImage(stored, stored.front(), xml);
+        ASSERT_EQ(trackerOpensMedia, forms.members == forms.references);
+        const auto input =
+            path(QStringLiteral("input %1%2.trz").arg(static_cast<int>(forms.members)).arg(static_cast<int>(forms.references)));
+        ASSERT_TRUE(writeAll(input, original));
+
+        // The same identities whatever was stored and whatever the platform's libarchive returned.
+        auto prepared = motrack::prepareWorkspaceInput(input);
+        ASSERT_TRUE(prepared.group);
+        const auto ids = prepared.group->memberIds();
+        ASSERT_EQ(ids.size(), 1u);
+        const auto identity = projectName.normalized(Form::NormalizationForm_C);
+        const auto& archived = prepared.group->document(ids.front());
+        EXPECT_EQ(QString::fromStdString(archived.archiveMember.value_or("")), identity);
+        const auto archive = archived.archivePayload;
+        ASSERT_TRUE(archive);
+        EXPECT_EQ(archive->projects(), QStringList{identity});
+        ASSERT_EQ(archived.project.clip.mediaReferences.size(), 4u);
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto reference = QString::fromStdString(archived.project.clip.mediaReferences[static_cast<std::size_t>(frame)]);
+            EXPECT_EQ(reference, identities[frame]);
+            EXPECT_EQ(readAll(QDir(archive->root()).filePath(reference)), frameBytes(frame));
+            EXPECT_TRUE(archive->memberMatchesSource(reference.normalized(Form::NormalizationForm_D)));
+        }
+
+        // Saving without an edit returns the archive byte for byte.
+        const auto unchanged =
+            path(QStringLiteral("unchanged %1%2.trz").arg(static_cast<int>(forms.members)).arg(static_cast<int>(forms.references)));
+        motrack::writeTrackerArchiveDocument(unchanged, prepared.group->prepareSave().snapshot.members.front().document);
+        EXPECT_TRUE(readAll(unchanged) == original);
+
+        // An edit changes only the experiment's bytes: no member is renamed and no reference is respelled, so
+        // Tracker finds exactly the media it found before.
+        ASSERT_TRUE(prepared.group->history(ids.front()).setPointMassValue(prepared.group->project(ids.front()), 0, 7.25));
+        const auto snapshot = prepared.group->prepareSave().snapshot;
+        const auto standard =
+            path(QStringLiteral("saved %1%2.trz").arg(static_cast<int>(forms.members)).arg(static_cast<int>(forms.references)));
+        motrack::writeTrackerArchiveDocument(standard, snapshot.members.front().document);
+        const auto saved = readAll(standard);
+        EXPECT_EQ(motrack::test::storedMemberNames(saved), stored);
+        const auto reopened = motrack::TrackerArchive::open(standard);
+        ASSERT_EQ(reopened.projects(), QStringList{identity});
+        const auto savedXml = readAll(reopened.projectPath(identity));
+        EXPECT_TRUE(savedXml != xml);
+        EXPECT_EQ(motrack::parseLegacyProject(savedXml.toStdString()).clip.mediaReferences,
+                  motrack::parseLegacyProject(xml.toStdString()).clip.mediaReferences);
+        EXPECT_EQ(trackerFindsEveryImage(motrack::test::storedMemberNames(saved), stored.front(), savedXml), trackerOpensMedia);
+        auto restored = motrack::importTrackerDocument(reopened.projectPath(identity));
+        EXPECT_EQ(restored.project.pointMasses.front().mass, 7.25);
+        reopened.resolveMedia(restored.project, identity);
+        EXPECT_EQ(restored.project.clip.mediaReferences, archived.project.clip.mediaReferences);
+        for (const auto& member : identities)
+        {
+            EXPECT_TRUE(reopened.memberMatchesSource(member));
+        }
+
+        // The native companion keeps the original archive and finds the member under either spelling's identity.
+        const auto native =
+            path(QStringLiteral("native %1%2.motrack").arg(static_cast<int>(forms.members)).arg(static_cast<int>(forms.references)));
+        motrack::writeArchiveGroup(native, snapshot);
+        auto nativeInput = motrack::prepareWorkspaceInput(native);
+        ASSERT_TRUE(nativeInput.group);
+        const auto nativeSnapshot = nativeInput.group->prepareSave().snapshot;
+        ASSERT_EQ(nativeSnapshot.members.size(), 1u);
+        EXPECT_EQ(QString::fromStdString(nativeSnapshot.members.front().member), identity);
+        EXPECT_EQ(nativeSnapshot.members.front().document.project.pointMasses.front().mass, 7.25);
+        EXPECT_TRUE(readAll(nativeSnapshot.archive->sourcePath()) == original);
+        const auto resaved =
+            path(QStringLiteral("resaved %1%2.trz").arg(static_cast<int>(forms.members)).arg(static_cast<int>(forms.references)));
+        motrack::writeTrackerArchiveDocument(resaved, nativeSnapshot.members.front().document);
+        EXPECT_TRUE(readAll(resaved) == saved);
+    }
 }
 
 TEST_F(NonAsciiRoundTrip, Utf8PathsNameTheSameFilesAsQt)

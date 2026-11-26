@@ -373,6 +373,45 @@ TEST(TrackerArchive, NamesOnlyNameConversionWarningsAsNonUtf8Names)
     EXPECT_FALSE(motrack::detail::isNameConversionWarning(""));
 }
 
+TEST(TrackerArchive, ZipAndTrzFilesAreTrackerArchivesAndOnlyZipsAreNeverSaveTargets)
+{
+    // Tracker's ResourceLoader.isJarZipTrz: a .zip experiment opens exactly as a .trz (#224).
+    for (const auto* path : {"a.trz", "A.TRZ", "Lab 3.zip", "C:/library/Ball Toss.ZIP", "nested.trk/x.Zip"})
+        EXPECT_TRUE(motrack::isTrackerArchivePath(path)) << path;
+    // Tracker reads .jar the same way, for EJS models; no library experiment is one and MoTrack does not open them.
+    for (const auto* path : {"a.trk", "a.motrack", "a.jar", "a.zip.trk", "a.trz.bak", "zip", "trz"})
+        EXPECT_FALSE(motrack::isTrackerArchivePath(path)) << path;
+    EXPECT_TRUE(motrack::isTrackerZipPath("Ball Toss.ZIP"));
+    EXPECT_FALSE(motrack::isTrackerZipPath("Ball Toss.trz"));
+    EXPECT_FALSE(motrack::isTrackerZipPath("Ball Toss.zip.trz"));
+}
+
+TEST(TrackerArchive, RefusesAnArchiveWithoutAProjectAsNotATrackerExperiment)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    // Tracker warns "Not a Tracker file" for a ZIP or TRZ without a .trk member; Finder metadata is not a project.
+    for (const auto* name : {"images.zip", "images.trz"})
+    {
+        SCOPED_TRACE(name);
+        const auto path = temporary.filePath(name);
+        ASSERT_TRUE(motrack::test::writeArchive(path,
+                                                {{.name = "frame0.png", .bytes = "png"},
+                                                 {.name = "frame1.png", .bytes = "png"},
+                                                 {.name = "notes/read me.txt", .bytes = "text"},
+                                                 {.name = "__MACOSX/._lab.trk", .bytes = motrack::test::appleDoubleBytes()}}));
+        try
+        {
+            std::ignore = motrack::TrackerArchive::open(path);
+            ADD_FAILURE() << "An archive without a Tracker project must not open.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_TRUE(QString::fromUtf8(error.what()).contains("no Tracker project")) << error.what();
+        }
+    }
+}
+
 TEST(TrackerArchive, MemberKeysAreNfc)
 {
     const auto nfc = QString::fromUtf8("expérience/帧.trk").toStdString();
@@ -381,6 +420,65 @@ TEST(TrackerArchive, MemberKeysAreNfc)
     EXPECT_EQ(motrack::archiveMemberKey(nfd), nfc);
     EXPECT_EQ(motrack::archiveMemberKey(nfc), nfc);
     EXPECT_EQ(motrack::archiveMemberKey("experiment.trk"), "experiment.trk");
+    EXPECT_EQ(motrack::archiveMemberKey(QString::fromStdString(nfd)), QString::fromStdString(nfc));
+}
+
+TEST(TrackerArchive, IdentifiesMembersByNfcWhicheverFormIsStored)
+{
+    // libarchive returns the names it reads in NFD on macOS and in NFC elsewhere, whatever the archive stores, so
+    // an archive made on macOS (decomposed names) and its Windows twin must list, extract and resolve alike on
+    // every platform (#308). The records are written directly: libarchive's writers normalize names too.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto project = QString::fromUtf8("expérience/élève.trk");
+    const auto image = QString::fromUtf8("expérience/vidéos/îmage ç.png");
+    const auto reference = QString::fromUtf8("vidéos/îmage ç.png");
+    ASSERT_NE(project, project.normalized(QString::NormalizationForm_D));
+    for (const auto form : {QString::NormalizationForm_C, QString::NormalizationForm_D})
+    {
+        SCOPED_TRACE(form == QString::NormalizationForm_C ? "stored NFC" : "stored NFD");
+        const auto storedProject = project.normalized(form).toUtf8();
+        const auto storedImage = image.normalized(form).toUtf8();
+        const auto path = temporary.filePath(QStringLiteral("stored-%1.trz").arg(static_cast<int>(form)));
+        ASSERT_TRUE(motrack::test::writeStoredArchive(
+            path, {{.name = storedProject.constData(), .bytes = "<object/>"}, {.name = storedImage.constData(), .bytes = "pixels"}}));
+        const auto archive = motrack::TrackerArchive::open(path);
+        EXPECT_EQ(archive.projects(), QStringList{project});
+        EXPECT_EQ(archive.memberDigests().size(), 2);
+        EXPECT_TRUE(archive.memberDigests().contains(project));
+        EXPECT_TRUE(archive.memberDigests().contains(image));
+        EXPECT_TRUE(archive.skippedMembers().isEmpty());
+        auto extracted = extractedFiles(archive.root());
+        for (auto& file : extracted)
+            file = file.normalized(QString::NormalizationForm_C); // a directory listing has the file system's form
+        extracted.sort();
+        EXPECT_EQ(extracted, (QStringList{image, project}));
+        for (const auto lookup : {QString::NormalizationForm_C, QString::NormalizationForm_D})
+        {
+            SCOPED_TRACE(lookup == QString::NormalizationForm_C ? "lookup NFC" : "lookup NFD");
+            EXPECT_EQ(archive.projectPath(project.normalized(lookup)), QDir(archive.root()).filePath(project));
+            EXPECT_TRUE(QFileInfo(archive.projectPath(project.normalized(lookup))).isFile());
+            EXPECT_TRUE(archive.memberMatchesSource(image.normalized(lookup)));
+            motrack::LegacyProject experiment;
+            experiment.clip.mediaReferences = {reference.normalized(lookup).toStdString(),
+                                               ("./" + reference.normalized(lookup)).toStdString(),
+                                               ("archive.trz!/" + image.normalized(lookup)).toStdString(),
+                                               QString::fromUtf8("vidéos/image c.png").toStdString()};
+            archive.resolveMedia(experiment, project.normalized(lookup));
+            EXPECT_EQ(experiment.clip.mediaReferences,
+                      (std::vector<std::string>{image.toStdString(), image.toStdString(), image.toStdString(), ""}));
+        }
+    }
+    // Tracker reads the two spellings as two members. MoTrack cannot tell them apart by identity, nor could a
+    // normalization-insensitive file system hold both, so the archive is refused as ambiguous.
+    const auto composed = QString::fromUtf8("vidéo.png").toUtf8();
+    const auto decomposed = QString::fromUtf8("vidéo.png").normalized(QString::NormalizationForm_D).toUtf8();
+    const auto ambiguous = temporary.filePath("ambiguous.trz");
+    ASSERT_TRUE(motrack::test::writeStoredArchive(ambiguous,
+                                                  {{.name = "experiment.trk", .bytes = "<object/>"},
+                                                   {.name = composed.constData(), .bytes = "a"},
+                                                   {.name = decomposed.constData(), .bytes = "b"}}));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(ambiguous), motrack::ProjectError);
 }
 
 TEST(TrackerArchive, CancelsExtraction)

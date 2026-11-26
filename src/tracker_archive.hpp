@@ -5,7 +5,9 @@
 #include <QByteArray>
 #include <QHash>
 #include <QSet>
+#include <QString>
 #include <QStringList>
+#include <QStringView>
 #include <QTemporaryDir>
 
 #include <atomic>
@@ -19,10 +21,28 @@ namespace motrack
 inline constexpr qint64 MAX_TRACKER_ARCHIVE_BYTES = qint64{544} * 1024 * 1024;
 inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 
-/// The identity of archive member @p member: its NFC form. TrackerArchive's names and lookups use it, so a member
-/// name stored or compared elsewhere (native companions, group membership) goes through it too (#308).
+/// Archive member names have two spellings (#308):
+///
+/// - The **stored name** is the member's bytes in the ZIP. Tracker uses them as they are: java.util.zip never
+///   normalizes Unicode, and OSP finds a media file only when the reference in the experiment spells the stored
+///   name exactly. "é" stored precomposed (U+00E9) and decomposed ("e" + U+0301, as macOS spells file names) are
+///   different names to Tracker. MoTrack never changes a stored name, and never respells a reference to one: saving
+///   into an archive copies every name's bytes and leaves the experiment's media references as its XML has them.
+/// - The **identity** is the NFC form of the stored name, which this function returns. libarchive normalizes the
+///   names it reads (to NFD on macOS, to NFC elsewhere), so the stored form never reaches MoTrack; the identity is
+///   the same on every platform. Everything inside MoTrack names a member by its identity: TrackerArchive's lists,
+///   digests, extraction paths and lookups, the in-place writer's matching, group membership and native companions.
+///   A name from outside (a media reference, a saved companion, a tabset entry) goes through this function before
+///   it is compared. Two stored names with one identity make the archive ambiguous, and it is refused.
+[[nodiscard]] QString archiveMemberKey(QStringView member);
 [[nodiscard]] std::string archiveMemberKey(std::string_view member);
 
+/// Whether @p path names a Tracker experiment archive by its suffix, in any letter case: a `.trz`, or a `.zip`, which
+/// Tracker opens the same way (`ResourceLoader.isJarZipTrz`, #224). TrackerArchive::open reads either.
+[[nodiscard]] bool isTrackerArchivePath(const QString& path);
+/// Whether @p path names a `.zip` experiment archive. It is never a save target: Tracker never writes into the archive
+/// a tab came from, and its archive export always writes `.trz`. A standard save asks for a `.trz` instead (#224).
+[[nodiscard]] bool isTrackerZipPath(const QString& path);
 /// The NFC names of the `.trk` members of the Tracker archive at @p path, read from its member headers alone within
 /// TrackerArchive::open's size and member bounds, without extracting anything. Nullopt when the file cannot be read as
 /// a Tracker archive, including a member name that is not UTF-8. Finder metadata under `__MACOSX/` is left out by
@@ -40,6 +60,7 @@ namespace detail
 /// Members with unsafe names (absolute, drive-letter, UNC, '\', '.'/'..', empty-segment, control-character,
 /// reserved-device or overlong) are never extracted, listed as projects or used to resolve media; an
 /// unsafe project (.trk) name, or a media reference naming an unsafe member, rejects the archive.
+/// So does an archive with no project, which Tracker reports as "Not a Tracker file".
 class TrackerArchive
 {
   public:
@@ -47,6 +68,7 @@ class TrackerArchive
     /// Extracted .trk members, sorted. macOS AppleDouble files (magic 0x00051607, or "._" names under
     /// `__MACOSX/`) are not projects.
     [[nodiscard]] const QStringList& projects() const;
+    /// Extracted path of a project. Like every lookup here, @p member may be in any normalization form.
     [[nodiscard]] QString projectPath(const QString& member) const;
     [[nodiscard]] QString root() const;
     /// Exact compressed input snapshot, owned until this archive is destroyed. Extraction uses these bytes.
@@ -59,10 +81,11 @@ class TrackerArchive
     /// Skipped members that standard saves omit: exact copies of an extracted member with the same file
     /// name (OSP JarTool absolute copies), which Tracker never uses.
     [[nodiscard]] const QStringList& omittedOnSave() const;
-    /// Import-time SHA-256 of each extracted regular member, keyed by its exact archive name.
+    /// Import-time SHA-256 of each extracted regular member, keyed by its identity (archiveMemberKey).
     [[nodiscard]] const QHash<QString, QByteArray>& memberDigests() const;
-    /// Maps references to extracted member names; unresolved references become empty and are never
-    /// looked up on disk. Throws ProjectError when a reference names a skipped unsafe member.
+    /// Maps references to the identities of extracted members; unresolved references become empty and are never
+    /// looked up on disk. Throws ProjectError when a reference names a skipped unsafe member. A reference that
+    /// differs from a stored name only in Unicode normalization resolves here, though Tracker would not find it.
     void resolveMedia(LegacyProject& project, const QString& projectMember) const;
     /// Checks extracted bytes against their immutable import-time digest, with bounded, cancellable I/O.
     [[nodiscard]] bool memberMatchesSource(const QString& member, const std::atomic_bool* cancelled = nullptr) const;

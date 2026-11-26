@@ -722,7 +722,7 @@ QJsonObject openedExperiment(const motrack::WorkspaceDocument& document)
             {"movie_frames", static_cast<qint64>(document.movieFrameTimes.size())}};
 }
 
-/// Opens a .trk or .trz exactly as the workspace does (bounded archive reader, every archive member,
+/// Opens a .trk, .trz or .zip exactly as the workspace does (bounded archive reader, every archive member,
 /// media resolution and movie indexing), then reports what was prepared. Rejection exits nonzero.
 void appendOpened(QJsonArray& experiments, const motrack::PreparedWorkspaceInput& prepared)
 {
@@ -764,9 +764,9 @@ QJsonObject openSnapshot(const QString& path)
         }
         try
         {
-            const auto suffix = QFileInfo(item.file).suffix().toLower();
-            const bool project = suffix == "trk" || suffix == "trz" || suffix == "motrack";
-            appendOpened(experiments, project ? motrack::prepareWorkspaceInput(item.file) : motrack::prepareWorkspaceMediaFile(item.file));
+            appendOpened(experiments,
+                         motrack::isWorkspaceProjectPath(item.file) ? motrack::prepareWorkspaceInput(item.file)
+                                                                    : motrack::prepareWorkspaceMediaFile(item.file));
         }
         catch (const motrack::ProjectError& error)
         {
@@ -2172,7 +2172,7 @@ try
     {
         std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json"
                    " | --apply operations.json input.trk output.json"
-                   " | --open input.trk|.trz output.json | --library-dump kind input output.json"
+                   " | --open input.trk|.trz|.zip output.json | --library-dump kind input output.json"
                    " | --export-<case> input.trk output.trk\n",
                    stderr);
         return 1;

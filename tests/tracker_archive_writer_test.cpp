@@ -635,6 +635,40 @@ TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancella
     EXPECT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
 }
 
+TEST(TrackerArchiveWriter, ReplacesADecomposedMemberWithoutRenamingAnyMember)
+{
+    // A member stored in NFD (a macOS file name) is found by its NFC identity under either spelling, and the saved
+    // archive keeps every stored name byte for byte: Tracker matches names exactly (#308). The source is written
+    // record by record, because libarchive's writers store NFC names on Windows and Linux.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto identity = QString::fromUtf8("expérience/élève.trk");
+    const auto project = identity.normalized(QString::NormalizationForm_D).toUtf8();
+    const auto data = QString::fromUtf8("expérience/données ç.bin").normalized(QString::NormalizationForm_D).toUtf8();
+    ASSERT_NE(project, identity.toUtf8());
+    const auto original = temporary.filePath("original.trz");
+    ASSERT_TRUE(motrack::test::writeStoredArchive(original,
+                                                  {{.name = data.constData(), .bytes = "payload"},
+                                                   {.name = project.constData(), .bytes = originalXml()},
+                                                   {.name = "plain.txt", .bytes = "x"}}));
+    const auto input = readBytes(original);
+    const auto source = motrack::TrackerArchive::open(original);
+    ASSERT_EQ(source.projects(), QStringList{identity});
+    for (const auto& spelling : {identity, QString::fromUtf8(project)})
+    {
+        SCOPED_TRACE(spelling == identity ? "NFC spelling" : "NFD spelling");
+        const auto destination = temporary.filePath(spelling == identity ? "nfc.trz" : "nfd.trz");
+        motrack::writeTrackerArchive(destination, source, spelling, EDITED_XML);
+        const auto output = readBytes(destination);
+        EXPECT_EQ(motrack::test::storedMemberNames(output), (std::vector<QByteArray>{data, project, "plain.txt"}));
+        expectRetainedRecords(input, output, {QString::fromUtf8(project)});
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        EXPECT_EQ(reopened.projects(), QStringList{identity});
+        EXPECT_EQ(readBytes(reopened.projectPath(identity)), EDITED_XML);
+    }
+    EXPECT_EQ(readBytes(source.sourcePath()), input);
+}
+
 TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
 {
     QTemporaryDir temporary;
@@ -1001,6 +1035,47 @@ TEST(TrackerArchiveWriter, RejectsAliasesThatRedirectOriginalArchiveMembers)
     }
 }
 #endif
+
+TEST(TrackerArchiveWriter, RefusesReferencesRedirectedToAnotherFileInsideTheExtraction)
+{
+    // The in-root case of RejectsAliasesThatRedirectOriginalArchiveMembers without a symbolic link, so Windows runs
+    // it too: each reference is bound to a copy of its image under another directory of the extraction. An archive
+    // save writes every reference back as the source spells it (#308), so the saved spelling cannot reveal the
+    // redirect; the references rebuilt from the files that were read must still name the original members.
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+    auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+    payload->resolveMedia(document.project, "experiment.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "experiment.trk";
+    document.project.pointMasses.front().mass = 5;
+    const auto destination = temporary.filePath("edited.trz");
+    motrack::writeTrackerArchiveDocument(destination, document);
+    const auto valid = readBytes(destination);
+    const auto original = readBytes(payload->sourcePath());
+
+    const QDir root(payload->root());
+    ASSERT_TRUE(root.mkpath("copied-images"));
+    ASSERT_EQ(document.project.clip.mediaReferences.size(), 4U);
+    for (const auto& reference : document.project.clip.mediaReferences)
+    {
+        const auto member = QString::fromStdString(reference);
+        const auto copy = root.filePath("copied-images/" + QFileInfo(member).fileName());
+        ASSERT_TRUE(QFile::copy(root.filePath(member), copy));
+        document.mediaLocations.insert(member, copy);
+        EXPECT_TRUE(payload->memberMatchesSource(member));
+    }
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), valid);
+    EXPECT_EQ(readBytes(payload->sourcePath()), original);
+
+    // The same document saves once its references read the original members again.
+    document.mediaLocations.clear();
+    motrack::writeTrackerArchiveDocument(destination, document);
+    EXPECT_EQ(readBytes(destination), valid);
+}
 
 TEST(TrackerArchiveWriter, PreservesJavaDeflatedMembersUnicodeNamesAndComments)
 {

@@ -15,9 +15,12 @@
 #include <atomic>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <span>
+#include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace motrack
 {
@@ -109,7 +112,16 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
 
 namespace
 {
-std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
+/// Chooses the references an export writes, given the ones rebuilt from the media files and rebased to the
+/// exported file, in the same order. It may throw to refuse the export.
+using ReferenceSpelling = std::function<std::vector<std::string>(const std::vector<std::string>& rebased)>;
+
+/// Renders @p document as the standard file at @p path, with its media references rebased to that file, or as
+/// @p spelling chooses when it is given.
+std::string prepareTrackerDocument(const QString& path,
+                                   const WorkspaceDocument& document,
+                                   const QString& mediaProjectPath,
+                                   const ReferenceSpelling& spelling = {})
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
@@ -159,6 +171,12 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
                                                   : std::cmp_equal(count, document.movieFrameTimes.size()) || count == clipEnd));
             project.clip.sourceFrameCount.reset();
         }
+        if (spelling)
+        {
+            auto written = spelling(project.clip.mediaReferences);
+            require(written.size() == project.clip.mediaReferences.size());
+            project.clip.mediaReferences = std::move(written);
+        }
     }
     return renderTrackerProjectImpl(project, source, media, document.movieFrameTimes);
 }
@@ -193,6 +211,12 @@ std::string prepareArchiveMember(const WorkspaceDocument& document, const std::a
     require(original.open(QIODevice::ReadOnly) && original.size() <= static_cast<qint64>(MAX_TRACKER_XML_BYTES) &&
             original.readAll().toStdString() == document.trackerSource->xml);
     auto baseline = parseLegacyProject(document.trackerSource->xml);
+    // Tracker finds an archived file only when the reference spells the member's stored name exactly: OSP looks the
+    // name up among java.util.zip's entry names, which are never normalized. MoTrack's member identities are NFC
+    // (#308), and a reference rebuilt from an identity can differ from the stored bytes (a decomposed name from
+    // macOS, a "./" or "archive.trz!/" prefix). Archived media cannot be replaced here, so every reference is
+    // written back exactly as the source spells it.
+    const auto sourceReferences = baseline.clip.mediaReferences;
     archive.resolveMedia(baseline, member);
     require(baseline.clip.mediaReferences == document.project.clip.mediaReferences);
     std::unordered_set<std::string> checkedMedia;
@@ -204,10 +228,18 @@ std::string prepareArchiveMember(const WorkspaceDocument& document, const std::a
     snapshot.archiveMember.reset();
     // Imported archive references are validated archive-root-relative members, independent of
     // the original archive's location or the companion document's later location.
-    const auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"));
-    auto exported = parseLegacyProject(xml);
-    archive.resolveMedia(exported, member);
-    require(exported.clip.mediaReferences == baseline.clip.mediaReferences);
+    const auto keepSourceSpelling = [&](const std::vector<std::string>& rebased)
+    {
+        // The references rebuilt from the extracted files must still name the original members, so an alias inside
+        // the extraction (a renamed directory behind a link) cannot stand in for one.
+        LegacyProject rebuilt;
+        rebuilt.clip.mediaReferences = rebased;
+        archive.resolveMedia(rebuilt, member);
+        require(rebuilt.clip.mediaReferences == baseline.clip.mediaReferences);
+        return std::vector<std::string>(sourceReferences);
+    };
+    auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"), keepSourceSpelling);
+    require(parseLegacyProject(xml).clip.mediaReferences == sourceReferences);
     return xml;
 }
 } // namespace

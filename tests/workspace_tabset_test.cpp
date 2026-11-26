@@ -11,14 +11,15 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
-#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
@@ -163,10 +164,11 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
     bool accepted = false;
     DialogScript script({[&](QWidget* widget)
                          {
-                             auto* dialog = qobject_cast<QInputDialog*>(widget);
-                             if (!dialog)
+                             auto* dialog = qobject_cast<QDialog*>(widget);
+                             auto* field = dialog ? dialog->findChild<QLineEdit*>("numberInput") : nullptr;
+                             if (!field)
                                  return false;
-                             dialog->setTextValue(QLocale().toString(mass));
+                             field->setText(QLocale().toString(mass));
                              accepted = true;
                              dialog->accept();
                              return true;
@@ -368,6 +370,57 @@ TEST(WorkspaceTabset, SavingAsksToSaveChangedProjectsAndReopensTheSameSet)
     ASSERT_EQ(session.sources().size(), 2U);
     EXPECT_EQ(canonical(session.sourcePath(session.sources().front())).toStdString(), canonical(relocated + "/group.trz").toStdString());
     EXPECT_DOUBLE_EQ(session.project(session.sourceDocuments(session.sources().front()).back()).pointMasses.front().mass, 13);
+}
+
+/// The relative entries of a saved tabset, in order.
+std::vector<std::string> relativeEntries(const QString& path)
+{
+    const auto tabset = motrack::parseTrackerTabset(readBytes(path).toStdString());
+    EXPECT_TRUE(tabset.has_value());
+    std::vector<std::string> entries;
+    if (tabset)
+        for (const auto& entry : tabset->entries)
+            entries.push_back(entry.relative);
+    return entries;
+}
+
+TEST(WorkspaceTabset, ListsAZipExperimentAsTrackerDoesUntilItIsSavedAsATrz)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto zip = temporary.filePath("library.zip");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), zip));
+    const auto original = readBytes(zip);
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {{.absolute = std::nullopt, .relative = "library.zip"}});
+    motrack::WorkspaceWindow window;
+    window.show();
+    // A listed .zip opens like a .trz, with a tab per experiment: Tracker opens every listed file through TrackerIO.
+    ASSERT_TRUE(openTabset(window, set, 2));
+    for (const auto& label : tabLabels(window))
+        EXPECT_TRUE(label.startsWith("library.zip")) << label.toStdString();
+    const auto& session = window.context()->session();
+    ASSERT_EQ(session.sources().size(), 1U);
+    const auto source = session.sources().front();
+    // Unchanged, the set lists the .zip itself, as Tracker lists the archive its tabs came from (openedFromPath).
+    const auto unchanged = temporary.filePath("unchanged.trk");
+    ASSERT_TRUE(window.saveTabset(unchanged));
+    EXPECT_EQ(relativeEntries(unchanged), std::vector<std::string>{"library.zip"});
+    // A changed .zip experiment is saved first, to the .trz chosen in the save dialog, and the set lists that.
+    const auto current = window.currentDocument();
+    ASSERT_TRUE(current);
+    ASSERT_TRUE(editMass(window, 13));
+    const auto trz = temporary.filePath("library.trz");
+    DialogScript script({answer("workspaceTabsetSaveQuestion", QMessageBox::Yes), chooseFile(trz)});
+    const auto edited = temporary.filePath("edited.trk");
+    ASSERT_TRUE(window.saveTabset(edited));
+    EXPECT_EQ(script.handled(), 2U);
+    EXPECT_FALSE(session.isModified(source));
+    EXPECT_EQ(relativeEntries(edited), std::vector<std::string>{"library.trz"});
+    EXPECT_EQ(readBytes(zip), original);
+    const auto saved = motrack::TrackerArchive::open(trz);
+    const auto member = QString::fromStdString(session.document(*current).archiveMember.value_or(""));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(saved.projectPath(member)).project.pointMasses.front().mass, 13);
 }
 
 TEST(WorkspaceTabset, SavingRefusesCancelledSavesOpenProjectFilesAndSetsWithNothingToReference)

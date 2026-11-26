@@ -637,16 +637,48 @@ files. Each referenced extracted file must also match the SHA-256 digest capture
 its original archive member; missing or same-path replaced files are rejected before destination
 replacement. Selected XML and media must also resolve within the physical extraction root captured
 at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
-Prepared XML is resolved back through the original archive inventory and must name the same media
-members, so even an in-root rename/alias cannot produce links to files absent from the output ZIP.
+The references rebuilt from the extracted files are resolved back through the original archive
+inventory and must name the same media members, so even an in-root rename/alias is refused and cannot
+produce links to files absent from the output ZIP.
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
-copy prepares member-relative ImageVideo or audited XuggleVideo paths; external/replaced media,
+copy validates the ImageVideo or audited XuggleVideo paths, and each is written back exactly as the
+source XML spells it (see [member names](#member-names-and-unicode-normalization)); external/replaced media,
 filters and numeric timing edits remain refused. Archived movies currently require a `.mov` member and the complete constant-rate native
 index and retain the standalone movie adapter's edit restrictions. Supported clip range/stride edits
 retain the complete original media inventory and measurements. The source envelope and owned
 original archive bytes are unchanged. The [paired-save adapter](paired-saving.md) and desktop standard
 Save use this writer; their current-revision CI and review gates remain separate from archive acceptance.
+
+#### Member names and Unicode normalization
+
+A ZIP stores each member name as bytes, and Tracker uses them as they are: `java.util.zip` does not
+normalize Unicode, and OSP's
+[`ResourceLoader.findZipEntry`](https://github.com/OpenSourcePhysics/osp/blob/d49c6ecf41f48dc53fa85af1806241b46f7a90b4/src/org/opensourcephysics/tools/ResourceLoader.java#L1382-L1398)
+looks a media reference up by exact name. A member stored decomposed (NFD: `e` + U+0301, as macOS spells
+file names) is a different name to Tracker than the precomposed one (NFC: U+00E9), and only a reference
+with the same spelling finds it. libarchive normalizes the names it returns, to NFD on macOS and to NFC
+elsewhere, so the stored form does not reach MoTrack
+([#308](https://github.com/mgradwohl/MoTrack/issues/308)).
+
+- **Identity.** MoTrack names a member by the NFC form of its name (`archiveMemberKey`) on every
+  platform: project lists, digests, extraction paths, lookups, duplicate detection, the writer's matching,
+  group membership and native companions. A media reference, companion or tabset entry in another form
+  finds the same member. Two stored names with one identity refuse the archive as ambiguous.
+- **Stored names never change.** A save copies every name's bytes, and writes each media reference back
+  exactly as the source XML spells it; archived media cannot be replaced, so no reference needs a new
+  spelling. Saving without an edit changes no name and no reference, and Tracker finds the same media
+  after a save as before it.
+- **Difference from Tracker.** MoTrack also opens media whose reference differs from the stored name only
+  in normalization, which Tracker reports as missing. The saved file keeps that reference unchanged.
+- MoTrack's own archive writers (image and movie packages, `.motrack` bundles) store only ASCII member
+  names. libarchive on macOS stores a non-ASCII name decomposed whatever form it is given, so a future
+  writer of non-ASCII names must check the stored bytes against the references it writes.
+
+`NonAsciiRoundTrip.ArchiveSavesKeepStoredNamesAndReferencesInEitherNormalizationForm`,
+`TrackerArchive.IdentifiesMembersByNfcWhicheverFormIsStored` and
+`TrackerArchiveWriter.ReplacesADecomposedMemberWithoutRenamingAnyMember` build archives record by record
+with NFC and NFD names and references, so every platform runs the same cases.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -1158,7 +1190,29 @@ still separate work.
 Opening a prepared native group creates a fresh runtime save identity while retaining its persistent
 group/member UUIDs. The workspace foundation also accepts an explicitly identified, freshly loaded
 Tracker `.trz` group as a clean baseline with an inferred standard destination and no inferred native
-destination. This is not a way to reclassify edited live records as saved. Promoting or appending an
+destination. This is not a way to reclassify edited live records as saved.
+
+A Tracker `.zip` experiment is read exactly as a `.trz`, with the same snapshot, bounds and
+[member rules](#unsafe-and-non-project-archive-members), but its group gets no inferred standard
+destination ([#224](https://github.com/mgradwohl/MoTrack/issues/224)). Tracker 6.3.5 never writes into the
+archive a tab came from: `loadTRK` records the archive only as `openedFromPath` and sets no data file, so
+**Save** asks for a new `.trk`
+([TrackerIO.java#L2511-L2541](https://github.com/OpenSourcePhysics/tracker/blob/34b1b503f6cb55bee031d64ea916bf4f3262504d/src/org/opensourcephysics/cabrillo/tracker/TrackerIO.java#L2511-L2541)).
+Its archive export always writes `.trz`
+([ExportZipDialog.java#L2851-L2853](https://github.com/OpenSourcePhysics/tracker/blob/34b1b503f6cb55bee031d64ea916bf4f3262504d/src/org/opensourcephysics/cabrillo/tracker/ExportZipDialog.java#L2851-L2853)).
+MoTrack's desktop **Save** of a `.zip` group therefore chooses a `.trz` (offering the `.zip`'s name in the same
+folder, or the next free name when that `.trz` or its `.motrack` already exists, so the default replaces nothing)
+and writes the usual pair with a same-stem `.motrack`; the paired writer refuses a `.zip` destination.
+Later saves use that pair. The `.zip` is never written, and the native companion embeds its exact bytes. Until
+the first paired save, a saved tabset lists the `.zip` itself, as Tracker lists `openedFromPath`. After it, MoTrack's
+tabset lists the saved `.trz`, where Tracker, which saved a separate `.trk`, would still list the `.zip`: a deliberate
+difference, since the `.trz` is where the edits are. An archive
+without a `.trk` project is refused, as Tracker refuses it with "Not a Tracker file". Two more differences: a
+`.zip` holding both a project and root-level numbered images opens as the experiment (Tracker opens it as an image
+video), and `.jar` archives and zipped image sequences are not opened
+([#347](https://github.com/mgradwohl/MoTrack/issues/347)).
+
+Promoting or appending an
 idle standalone session transfers its stable owner and
 preserves undo history and member identity. Invalid ownership, duplicate members and pending standalone
 recovery are refused before ownership transfers. The caller must finish or cancel its standalone jobs

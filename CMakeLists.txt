@@ -132,7 +132,7 @@ if(APPLE)
         qt_import_plugins(motrack INCLUDE Qt6::QDarwinCameraPermissionPlugin)
     endif()
 endif()
-add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
+add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/number_input.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp
     src/desktop_launch.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
@@ -185,7 +185,7 @@ set(motrack_ts_files
 qt_add_translations(motrack
     TS_FILES ${motrack_ts_files}
     PLURALS_TS_FILE translations/motrack_en.ts
-    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
+    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/number_input.cpp src/position_plot.cpp src/tracker_image_package.cpp
             src/tracker_archive.cpp src/workspace_input.cpp src/legacy_project.cpp
             src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
@@ -376,7 +376,8 @@ if(BUILD_TESTING)
         tests/document_session_test.cpp
         tests/ui_translations_test.cpp
         tests/camera_capture_test.cpp
-        tests/non_ascii_round_trip_test.cpp)
+        tests/non_ascii_round_trip_test.cpp
+        tests/locale_display_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace motrack_locale GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
@@ -386,9 +387,11 @@ if(BUILD_TESTING)
         MOTRACK_EXECUTABLE="$<TARGET_FILE:motrack>")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*:MenuOpen.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*:WorkspaceTabset.*:MenuOpen.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
+    # Tabset open/save flows, which drive several files and dialogs each, in their own time budget.
+    add_test(NAME workspace_tabset COMMAND motrack_workspace_tests --gtest_filter=WorkspaceTabset.*)
     add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
     # Command-line, drop and operating-system opening, including child launches of the real executable.
     add_test(NAME desktop_launch COMMAND motrack_workspace_tests --gtest_filter=DesktopLaunch.*)
@@ -404,8 +407,8 @@ if(BUILD_TESTING)
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text desktop_launch menu_open PROPERTIES TIMEOUT 60)
+    set_tests_properties(workspace workspace_shell workspace_tabset workspace_saving workspace_document ui_translations
+        document_session document_session_journals camera_capture workspace_text desktop_launch menu_open PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
         tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
@@ -438,9 +441,9 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text desktop_launch menu_open desktop_smoke desktop_invalid_project PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    set_tests_properties(workspace workspace_shell workspace_tabset workspace_saving workspace_document ui_translations
+        document_session document_session_journals camera_capture workspace_text desktop_launch menu_open desktop_smoke
+        desktop_invalid_project PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     # The application's own locale setup and, on Windows, its manifest's UTF-8 code page: the CI runners' system
     # code page is 1252, so GetACP() is 65001 only when activeCodePage took effect. Any locale warning fails.

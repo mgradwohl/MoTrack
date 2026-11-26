@@ -62,6 +62,8 @@ Choose a point mass from the toolbar or create one in the Tracks menu. Shift-cli
 
 Open a Tracker `.trz` experiment archive from the same project chooser. Every experiment gets a tab, and each can be edited independently. Unopened tabs create their full editor only when selected. Saving the archive includes all member edits and retains its media and unknown files. A `.motrack` copy embeds the complete archive, so it can reopen after the original archive is removed. MoTrack never extracts archive members with unsafe names, such as the absolute `C:/Users/…` files some Tracker 6.1 exports contain, and the status bar reports them. Saved `.trz` files leave out the ones that only duplicate another member and keep the rest unchanged; their names can show the original author's folder or user name. Unlike Tracker, MoTrack refuses an archive whose project name is unsafe, and does not open a project that uses an unsafe-named file. macOS `__MACOSX` files are not shown as experiments. A project that cannot be read is reported while the others open, and the **Experiments** menu lists it with the reason ([details](docs/native-format.md#unsafe-and-non-project-archive-members)).
 
+Tracker `.zip` experiments, such as those in the Tracker Home Library and ComPADRE, open exactly like a `.trz`, with the same member rules. A `.zip` that holds no Tracker project is refused with a message, as in Tracker. Three cases differ from Tracker: a `.zip` of numbered images opens as a video in Tracker, which MoTrack cannot yet do ([#347](https://github.com/mgradwohl/MoTrack/issues/347)), so extract the images and use **Open images…**; a `.zip` that holds both a project and numbered images at its top level opens as the experiment in MoTrack and as the image video in Tracker; and `.jar` archives are not opened. Like Tracker, MoTrack never writes into the `.zip`. The first **Save** asks for a `.trz` Tracker archive, offering the `.zip`'s name in the same folder (or the next free name, such as `Lab (2).trz`, when that archive or its companion already exists), and writes it with its `.motrack` companion. Later saves update that pair ([details](docs/native-format.md#live-archive-group-records-and-checkpoints)).
+
 Projects, videos, and image sequences open in the same workspace. Switch or reorder tabs without resetting their playheads or undo histories. The tab × and **Hide experiment view** hide a view and retain its edits; reopen it from **Experiments**. **Close project…** closes the entire source, including hidden archive members, after Save/Discard/Cancel. Closing the window resolves every project before releasing any. **Save all projects** saves each modified source once, including hidden experiments. Failed or canceled saves retain the unsaved records. If two modified copies share a save destination, save one under a different filename before using Save All or saving both during close. Cross-tab import remains unfinished.
 
 Open a Tracker **tabset** (a `.trk` that lists other files) from the same project chooser to open every listed
@@ -73,9 +75,10 @@ published tabset does) opens just that experiment, as Tracker does: the archive'
 **Experiments**, and edits save back into the archive. **File → Save tabset as…** writes a tabset that Tracker can open, offering the
 tabset you opened last and always ending in `.trk`; saving over a tabset changes only the entries that changed and
 keeps those whose files did not open, and keeps an archive experiment's entry in that form. It lists each project's saved Tracker file, or an unchanged single video or
-image, in tab order. A project with unsaved changes is saved first or, if you choose not to, listed as last saved;
-a failed or canceled save writes no tabset. MoTrack-only copies, image sequences and changed raw media are listed as
-not included until saved as Tracker projects. Saving waits until every file has finished opening.
+image, in tab order; a `.zip` experiment is listed as the `.zip` until it is saved as a `.trz`. A project with
+unsaved changes is saved first or, if you choose not to, listed as last saved; a failed or canceled save writes no
+tabset. MoTrack-only copies, image sequences and changed raw media are listed as not included until saved as
+Tracker projects. Saving waits until every file has finished opening.
 
 **File → Revert experiment…** discards changes in the selected experiment after confirmation, returning
 to its last saved state (or its opened state before the first save). It clears that experiment's undo
@@ -87,8 +90,8 @@ reload externally changed files.
 ### Open files from the desktop
 
 Pass files on the command line (`motrack "My experiment.trk" clip.mov`), drop them anywhere on the
-workspace window, including an open experiment, or open them from Finder on macOS. `.trk`, `.trz`
-and `.motrack` files open as projects, image files as one-image sequences with unknown timing, and
+workspace window, including an open experiment, or open them from Finder on macOS. `.trk`, `.trz`,
+`.zip` and `.motrack` files open as projects, image files as one-image sequences with unknown timing, and
 anything else as a video. Files open one at a time in the given order, each in its own tab; the last
 one is selected. Paths may contain spaces and any Unicode characters, and Windows paths may exceed
 260 characters. Missing, unsupported and failed files, folders and web links are listed together
@@ -152,6 +155,7 @@ media-free project as `.trk`, or a supported imported image/MOV archive as `.trz
 all experiment edits and supporting files, including members whose views are hidden.
 
 For a standard Tracker input, ordinary **Save** updates that standard file and its MoTrack companion. **Save Tracker project…** can choose a different standard destination.
+A `.zip` experiment is never replaced: its first **Save** asks for a `.trz` instead, as described above.
 **Save MoTrack copy as…** remains available; once paired saving is in use, a native-only copy does not
 clear outstanding Tracker changes. After reopening a native-only copy, choose **Save Tracker project…**
 to select a standard destination again. MoTrack asks before replacing an unrelated existing companion.
@@ -221,6 +225,22 @@ text is machine-translated and has not yet been reviewed by native speakers; cor
 [Contributing](CONTRIBUTING.md#translations)). Unlike Tracker, MoTrack does not yet have a language preference
 of its own; change the system language to switch.
 
+Numbers follow the system's regional format, not the interface language: the marks table, plot axis labels and
+frame number use its decimal mark, digits and minus sign without digit grouping, as Tracker's tables do, and
+read-outs such as the linear fit and measured distances group digits. Saved projects, companions and CSV exports
+always use classic numbers, with a `.` decimal mark and no grouping.
+
+Number fields (mass, calibration distance, frame rate) accept the regional form, with its decimal mark and
+optionally its digit grouping (groups of three; a space or apostrophe separator may be typed with an ordinary
+space or `'`), and the classic form. A field refuses, and its OK button stays disabled with a note saying why:
+
+- text with a single `.` or `,` that is not the regional decimal mark, followed by exactly three digits, since it
+  could be grouping or a decimal mark: with German, Spanish, Italian or French formats `1.234`, `2.500`, `0.125`
+  and `1.234e3`, and with English formats `1,234` and `0,125`. Type them without grouping, with the regional
+  decimal mark: `1234` or `1,234` with German formats, `1234` or `0.125` with English ones. Other classic values,
+  such as `2.5` or `29.97`, are accepted everywhere;
+- text that is not a number in either form, such as `1,5` with English formats or `1,234.5` with German ones.
+
 ### Stage a local desktop build
 
 From the activated developer shell, run:
@@ -252,6 +272,9 @@ release packaging, R27):
 - **Windows:** right-click a `.trk`, `.trz` or `.motrack` file, choose **Open with → Choose another app**,
   browse to the staged `bin\motrack.exe` and select **Always**. Windows then quotes each path, so spaces
   and Unicode names are passed intact.
+
+MoTrack does not declare or claim `.zip` files on any platform, because most ZIP files are not Tracker experiments.
+Open a `.zip` experiment with **Open project…**, by dropping it on the window or from the command line.
 
 ## License
 

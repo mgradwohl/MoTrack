@@ -10,7 +10,6 @@
     <message><source>Open &amp;video…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פתח סרט &amp;וידאו…</translation></message>
     <message><source>Open &amp;images…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פתח &amp;תמונות…</translation></message>
     <message><source>Open project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פתח פרויקט</translation></message>
-    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פרויקטים של MoTrack ו-Tracker (*.motrack *.trk *.trz)</translation></message>
     <message><source>Open video</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פתח סרט וידאו</translation></message>
     <message><source>Open image sequence</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פתח רצף תמונות</translation></message>
     <message><source>Images (%1)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">תמונות (%1)</translation></message>
@@ -119,6 +118,7 @@
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">חלק מהקבצים המבוקשים נפתחו עם מגבלות.</translation></message>
     <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 כבר פתוח.</translation></message>
     <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">בודק את %1…</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">פרויקטים של MoTrack ו-Tracker (*.motrack *.trk *.trz *.zip)</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
@@ -329,6 +329,7 @@
     <message><source>Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project (%1) Its saved measurements are shown unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data and mass unit. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -339,6 +340,7 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">שם של פריט בארכיון Tracker זה אינו טקסט UTF-8 תקין, ולכן לא ניתן לפתוח את הארכיון. גם Tracker אינו יכול לפתוח אותו.</translation></message>
+    <message><source>This archive contains no Tracker project (.trk file), so it is not a Tracker experiment.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>motrack::QtCameraSource</name>
@@ -427,5 +429,11 @@
     <message><source>Tracker cannot open this file: the calibration's "framedata" array does not have the class Tracker saves (%3).</source><translation type="unfinished"></translation></message>
     <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>NumberInput</name>
+    <message><source>This number can be read two ways. Type it without digit grouping, with “%1” as the decimal mark.</source><translation type="unfinished"></translation></message>
+    <message><source>This is not a number. Type digits with “%1” as the decimal mark, such as %2.</source><translation type="unfinished"></translation></message>
+    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

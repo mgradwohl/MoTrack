@@ -16,10 +16,22 @@ class PositionPlot final : public QWidget
     Q_DECLARE_TR_FUNCTIONS(PositionPlot)
 
   public:
+    /// The numbers drawn at the plot's corners: the vertical range beside the top and bottom of the plot area, the
+    /// horizontal range below its left and right ends. dataDisplayLocale() with five significant digits; right is
+    /// empty when the horizontal range is a single value, and all are empty without samples.
+    struct AxisLabels
+    {
+        QString top;
+        QString bottom;
+        QString left;
+        QString right;
+    };
+
     PositionPlot();
     void setSeries(PlotSeries series, const QString& horizontalLabel, const QString& verticalLabel);
     void selectFrame(std::optional<int> frame);
     void setFitVisible(bool visible);
+    [[nodiscard]] AxisLabels axisLabels() const;
     [[nodiscard]] QString fitSummary() const;
     [[nodiscard]] std::string csv() const;
     std::function<void(int)> seekFrame;
