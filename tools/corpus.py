@@ -5212,7 +5212,7 @@ FIT_AGREEMENTS = {"exact", "polynomial", "transcendental", "chaotic"}
 
 FIT_DEFECTS = {"duplicate-x-initial-guess", "dataset-append-duplicates", "dataset-capacity", "singular-polynomial",
                "non-finite-initial-guess", "normal-equation-conditioning", "text-substitution", "zero-width-model",
-               "deviation-overflow"}
+               "deviation-overflow", "noise-crossing-guess"}
 
 
 FIT_HEADER_KEYS = ["schema_version", "reference_version", "fits", "user_fits", "minimizers", "format"]
