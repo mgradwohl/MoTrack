@@ -59,6 +59,8 @@ class CaptureConverter
     CaptureConverter& operator=(const CaptureConverter&) = delete;
     /// The frame scaled to fit bound (never enlarged), keeping its aspect ratio. Throws VideoError.
     [[nodiscard]] QImage toImage(const CaptureImage& frame, QSize bound);
+    /// How many scaler contexts were built: one per distinct frame layout, size, range and matrix, not one per frame.
+    [[nodiscard]] int contextsCreated() const noexcept;
 
   private:
     struct Impl;
@@ -96,6 +98,8 @@ class CaptureEncoder
     bool write(const CaptureImage& frame, std::chrono::microseconds time);
     /// Flushes the encoder and writes the movie index. Further writes are invalid.
     CaptureSummary finish();
+    /// How many scaler contexts were built: one while the frame layout, range and matrix stay the same.
+    [[nodiscard]] int contextsCreated() const noexcept;
 
   private:
     struct Impl;
