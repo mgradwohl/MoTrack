@@ -967,7 +967,7 @@ TEST(CurveFit, CorrectedSineGuessIgnoresNoiseCrossings)
         const auto x = grid(0, 10.0 / static_cast<double>(c.points - 1), c.points);
         const auto exact = evaluate(f, c.truth, x);
         const auto y = c.uniform ? uniformNoise(exact, c.size, c.seed) : gaussianNoise(exact, c.size, c.seed);
-        const double sigma = c.uniform ? c.size / std::sqrt(3.0) : c.size;
+        const double sigma = c.uniform ? c.size / std::numbers::sqrt3 : c.size;
         if (c.tracker)
         {
             const FitResult tracker = fitCurve(f, x, y, options(FitDialect::Tracker));
