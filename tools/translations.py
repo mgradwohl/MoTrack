@@ -34,6 +34,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSLATIONS = ROOT / "translations"
+RESTORED = ROOT / "tools" / "translation-restored.json"
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,29 @@ LOCALE_REJECTED = {  # Upstream reports: MoTrack #274.
     "zh_TW": {("Start frame", "開啟視窗"), ("End frame", "末頁框"), ("Frame", "視窗")},  # "Open window"; "window".
 }
 
+def lost_characters(english: str, translation: str) -> bool:
+    """A translation that stores a literal "?" where a character was lost in a file conversion, as OSP's Simplified
+    Chinese tools and video bundles do ("?据分析工具" for "Data Tool"; OpenSourcePhysics/osp#59): more "?" than the
+    English text has. A real question mark the English text lacks is rejected too; such a string is then translated
+    anew rather than risk copying a damaged one."""
+    return translation.count("?") > english.count("?")
+
+
+def restored_values(catalog: str, path: Path | None = None) -> dict[str, dict[str, str]]:
+    """Values an upstream bundle lost and an earlier revision still has, by bundle file name and key, for one MoTrack
+    catalog (tools/translation-restored.json). Seeding uses one only in place of a value with lost characters."""
+    path = RESTORED if path is None else path
+    if not path.is_file():
+        return {}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return document.get("locales", {}).get(catalog, {})
+
+
+def restored_revision(path: Path | None = None) -> str:
+    path = RESTORED if path is None else path
+    return json.loads(path.read_text(encoding="utf-8")).get("revision", "restored") if path.is_file() else "restored"
+
+
 # Catalogs not used for seeding. Tracker's Turkish catalog is written without Turkish letters (ç, ğ, ı, ö, ş, ü),
 # so its terms are given to translators as a glossary instead of being copied.
 UNSEEDED_LOCALES = {"tr"}
@@ -202,6 +226,8 @@ def usable_translation(english: str, translation: str) -> bool:
     if len(folded) >= 4 and folded in translation.casefold():
         return False  # English left inside the translation, as in "軌跡Tracks".
     if sorted(re.findall(r"\d", translation)) != sorted(re.findall(r"\d", english)):
+        return False
+    if lost_characters(english, translation):
         return False
     return all(translation.count(mark) <= english.count(mark) for mark in "()[]{}<>")
 
@@ -413,10 +439,14 @@ class TrackerIndex:
                     for key, value in read_properties(path).items():
                         localized[key] = (value, path.name)
             rejected = {(normalize(term), normalize(text)) for term, text in LOCALE_REJECTED.get(locale.catalog, ())}
+            restored = restored_values(locale.catalog)
             for key, source in english.items():
                 if key not in localized or key in STALE_KEYS | HOMOGRAPH_KEYS or key.endswith(".New.Name"):
                     continue  # Default object names are chosen freely by translators, not translated.
                 value, filename = localized[key]
+                earlier = restored.get(filename, {}).get(key)
+                if earlier is not None and lost_characters(source, value):
+                    value, filename = earlier, f"{filename}@{restored_revision()}"  # The translator's intact text.
                 if usable_translation(source, value) and (normalize(source), normalize(value)) not in rejected:
                     candidates.append(Candidate(source, value, f"{filename} {key}", min(rank, 1)))
         return cls(candidates)

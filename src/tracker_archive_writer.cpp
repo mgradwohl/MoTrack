@@ -132,9 +132,11 @@ Directory readDirectory(QFile& input,
         const auto method = number<quint16>(central, 10);
         const auto nameBytes = central.mid(46, nameSize);
         const auto name = QString::fromUtf8(nameBytes);
+        // A name is UTF-8 whether or not its UTF-8 flag (bit 11) is set, as java.util.zip and the reader decode it
+        // (#275); anything else was refused when the archive was opened. The name's bytes and flag are copied as
+        // they are.
         require(number<quint16>(central, 6) <= 20 && (flags & ~0x080e) == 0 && (method == 0 || method == 8) &&
-                (method != 0 || (flags & 6) == 0) && nameSize > 0 && name.toUtf8() == nameBytes &&
-                ((flags & 0x0800) != 0 || std::ranges::all_of(nameBytes, [](char c) { return static_cast<unsigned char>(c) < 128; })));
+                (method != 0 || (flags & 6) == 0) && nameSize > 0 && name.toUtf8() == nameBytes);
         // Use the reader's spelling: libarchive turns a name that has only '\' separators into '/'
         // separators (for the "version needed" values accepted here), and drops a directory's final '/'.
         // Records are matched by member identity (NFC, #308), as TrackerArchive names them; the stored name bytes

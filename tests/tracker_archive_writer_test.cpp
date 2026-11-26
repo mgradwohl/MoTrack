@@ -669,6 +669,54 @@ TEST(TrackerArchiveWriter, ReplacesADecomposedMemberWithoutRenamingAnyMember)
     EXPECT_EQ(readBytes(source.sourcePath()), input);
 }
 
+TEST(TrackerArchiveWriter, SavesIntoAnArchiveWhoseUtf8NamesLackTheUtf8Flag)
+{
+    // Info-ZIP and older archivers store UTF-8 names without general-purpose bit 11. Tracker reads them as UTF-8
+    // (#275), and so does MoTrack, so the archive must also save: each name keeps its bytes and its clear flag.
+    // A name holding a stored U+FFFD is valid UTF-8 too; its member is skipped as unsafe and copied unchanged.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto identity = QString::fromUtf8("expérience/élève 帧.trk");
+    const auto project = identity.toUtf8();
+    const auto data = QString::fromUtf8("expérience/données 😀.bin").toUtf8();
+    const QByteArray replaced("notes \xEF\xBF\xBD.txt");
+    for (const bool flagged : {false, true})
+    {
+        SCOPED_TRACE(flagged ? "flagged" : "unflagged");
+        const auto original = temporary.filePath(flagged ? "flagged.trz" : "unflagged.trz");
+        ASSERT_TRUE(motrack::test::writeStoredArchive(original,
+                                                      {{.name = data.constData(), .bytes = "payload"},
+                                                       {.name = project.constData(), .bytes = originalXml()},
+                                                       {.name = replaced.constData(), .bytes = "kept"}},
+                                                      flagged));
+        const auto input = readBytes(original);
+        const auto source = motrack::TrackerArchive::open(original);
+        ASSERT_EQ(source.projects(), QStringList{identity});
+        ASSERT_EQ(source.skippedMembers(), QStringList{QString::fromUtf8(replaced)});
+        const auto destination = temporary.filePath(flagged ? "flagged-saved.trz" : "unflagged-saved.trz");
+        motrack::writeTrackerArchive(destination, source, identity, EDITED_XML);
+        const auto output = readBytes(destination);
+        expectRetainedRecords(input, output, {identity});
+        const auto records = zipRecords(output);
+        ASSERT_EQ(records.size(), 3U);
+        for (const auto& record : records)
+        {
+            SCOPED_TRACE(record.name.toStdString());
+            const unsigned expected = flagged ? 0x0800U : 0U;
+            EXPECT_EQ(qFromLittleEndian<quint16>(record.central.constData() + 8), expected);
+            EXPECT_EQ(qFromLittleEndian<quint16>(record.local.constData() + 6), expected);
+        }
+        EXPECT_EQ(records[0].name, data);
+        EXPECT_EQ(records[1].name, project);
+        EXPECT_EQ(records[2].name, replaced);
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        EXPECT_EQ(reopened.projects(), QStringList{identity});
+        EXPECT_EQ(reopened.skippedMembers(), source.skippedMembers());
+        EXPECT_EQ(readBytes(reopened.projectPath(identity)), EDITED_XML);
+        EXPECT_TRUE(reopened.memberMatchesSource(QString::fromUtf8(data)));
+    }
+}
+
 TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
 {
     QTemporaryDir temporary;

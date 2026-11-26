@@ -725,13 +725,35 @@ FitResult fitCurve(const FitFunction& function, std::span<const double> x, std::
             options.scratchFallback.empty() ? fit_detail::builtInDefaults(*function.builtIn) : options.scratchFallback;
         if (fallback.size() == count)
         {
-            if (const auto guess = fit_detail::initialGuess(*function.builtIn, points.x, points.y, fallback, dialect))
+            const auto startFrom = [&](const std::vector<double>& guess)
             {
+                std::vector<double> start = values;
                 for (std::size_t i = 0; i < count; ++i)
                 {
                     if (!fixed[i])
                     {
-                        assign(values, i, (*guess)[i], polynomial);
+                        assign(start, i, guess[i], polynomial);
+                    }
+                }
+                return start;
+            };
+            if (const auto guess = fit_detail::initialGuess(*function.builtIn, points.x, points.y, fallback, dialect))
+            {
+                values = startFrom(*guess);
+            }
+            // Corrected also tries crossings counted with hysteresis (#310). Tracker's count is right for clean,
+            // sparse or strongly damped data, where swings stay inside the hysteresis band, and wrong on dense
+            // noisy data, so the start with the lower deviation wins; an undefined start never does.
+            if (dialect == FitDialect::Corrected)
+            {
+                if (const auto alternative = fit_detail::hysteresisSineGuess(*function.builtIn, points.x, points.y, fallback))
+                {
+                    std::vector<double> start = startFrom(*alternative);
+                    const double current = deviationSquared(Curve(function, values, {}, polynomial), session);
+                    const double proposed = deviationSquared(Curve(function, start, {}, polynomial), session);
+                    if (std::isfinite(proposed) && !(current <= proposed))
+                    {
+                        values = std::move(start);
                     }
                 }
             }
