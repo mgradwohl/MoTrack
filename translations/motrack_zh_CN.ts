@@ -10,7 +10,6 @@
     <message><source>Open &amp;video…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">打开视频(&amp;V)…</translation></message>
     <message><source>Open &amp;images…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">打开图像(&amp;I)…</translation></message>
     <message><source>Open project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">打开项目</translation></message>
-    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack 和 Tracker 项目 (*.motrack *.trk *.trz)</translation></message>
     <message><source>Open video</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">打开视频</translation></message>
     <message><source>Open image sequence</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">打开图像序列</translation></message>
     <message><source>Images (%1)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">图像 (%1)</translation></message>
@@ -119,6 +118,7 @@
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">部分请求的文件以受限方式打开。</translation></message>
     <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 已打开。</translation></message>
     <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">正在检查 %1…</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack 和 Tracker 项目 (*.motrack *.trk *.trz *.zip)</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
@@ -329,6 +329,7 @@
     <message><source>Tracker export unavailable: this MoTrack cannot read the copy of the original Tracker file kept in this project (%1) Its saved measurements are shown unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: an earlier MoTrack read the Tracker file's frame shift, calibration keys, frame data or mass unit differently, and the measurements it saved could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
     <message><source>Measurements an earlier MoTrack saved were updated to Tracker's frame shift, calibration keys, frame data and mass unit. Save the project to keep them.</source><translation type="unfinished"></translation></message>
+    <message><source>Save this ZIP experiment as a .trz Tracker archive; %1 itself is never changed.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -339,6 +340,7 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">此 Tracker 归档中的某个成员名称不是有效的 UTF-8 文本，因此无法打开该归档。Tracker 也无法打开它。</translation></message>
+    <message><source>This archive contains no Tracker project (.trk file), so it is not a Tracker experiment.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>motrack::QtCameraSource</name>

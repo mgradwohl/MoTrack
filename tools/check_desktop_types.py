@@ -64,6 +64,9 @@ def check_plist(bundle):
         require(claims.get(identifier) == ("Editor", rank), f"{identifier} is not opened as an editor with rank {rank}")
     for media in ("public.movie", "public.image"):
         require(claims.get(media, (None, None))[1] == "Alternate", f"{media} is not an alternate document type")
+    # MoTrack opens Tracker .zip experiments (#224) but must not claim ZIP files system-wide.
+    require(not any("zip" in tags for _, tags in declarations.values()) and not any("zip" in name for name in claims),
+            "the bundle must not declare or claim ZIP files")
     print(f"{path}: declares {', '.join('.' + extension for extension in TYPES)}")
 
 
@@ -106,6 +109,10 @@ def check_linux(stage):
     for extension, (_, _, _, mime_type) in TYPES.items():
         require(mime_type in declared, f"the desktop entry does not open {mime_type}")
         require(globs.get(mime_type) == [f"*.{extension}"], f"{mime_type} does not match *.{extension}")
+    # MoTrack opens Tracker .zip experiments (#224) but must not claim ZIP files system-wide.
+    require(not any("zip" in mime_type for mime_type in declared | set(globs)) and
+            not any("zip" in pattern.lower() for patterns in globs.values() for pattern in patterns),
+            "the desktop entry and MIME package must not claim ZIP files")
     if shutil.which("desktop-file-validate"):
         subprocess.run(["desktop-file-validate", str(desktop)], check=True)
     print(f"{desktop}: opens {', '.join(sorted(declared))}")

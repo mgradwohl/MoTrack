@@ -4,6 +4,7 @@
 #include "main_window.hpp"
 #include "number_input.hpp"
 #include "tracker_archive.hpp"
+#include "workspace_input.hpp"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -94,13 +95,6 @@ Qt::DropAction safeDropAction(Qt::DropActions possible)
     const auto before = set.size();
     set.insert(value);
     return set.size() != before;
-}
-
-[[nodiscard]] bool isProjectFile(const QString& path)
-{
-    const auto suffix = QFileInfo(path).suffix();
-    return std::ranges::any_of(std::array{"trk", "trz", "motrack"},
-                               [&](const char* known) { return suffix.compare(QLatin1StringView(known), Qt::CaseInsensitive) == 0; });
 }
 
 /// Window-modal summary without a nested event loop; tests and users dismiss it independently.
@@ -199,8 +193,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 bool alive = true;
                 QObject lifetime;
                 connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
-                const auto path =
-                    QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk *.trz)"));
+                const auto path = QFileDialog::getOpenFileName(
+                    this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk *.trz *.zip)"));
                 if (alive && !path.isEmpty())
                     openChosenFile(path, LaunchFileKind::Project);
             });
@@ -532,7 +526,7 @@ void WorkspaceWindow::finishOpen(QUuid request, const QString& problem, bool can
 
 std::optional<QUuid> WorkspaceWindow::requestInput(const QString& path, WorkspaceActivation activation)
 {
-    if (isProjectFile(path))
+    if (isWorkspaceProjectPath(path))
         return m_Context->openProject(path, activation);
     // The worker decides between a still image and a movie; animated images keep their frames.
     return m_Context->openMediaFile(path, activation);
@@ -685,7 +679,7 @@ void WorkspaceWindow::continueTabset()
         pending.request = request;
         pending.current = queuedLabel(file);
         pending.currentMember = file.member;
-        pending.requestIsProject = isProjectFile(file.path);
+        pending.requestIsProject = isWorkspaceProjectPath(file.path);
         (void)trackOpen(request, pending.current);
         return;
     }
@@ -765,7 +759,7 @@ void WorkspaceWindow::applyTabsetFileCheck(std::uint64_t check, const QString& f
         std::ranges::copy_if(shown, std::back_inserter(hidden), [this](QUuid document) { return !m_Pages.contains(document); });
         if (!hidden.isEmpty())
             addDocuments(hidden);
-        if (isProjectFile(file) && !pending.select && !shown.isEmpty())
+        if (isWorkspaceProjectPath(file) && !pending.select && !shown.isEmpty())
             pending.select = shown.front();
     }
     else
@@ -856,7 +850,10 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
     const auto name = QFileInfo(session.sourcePath(source)).fileName();
     const auto standard = [&]
     {
-        return localProjectPath(session.standardSavePath(source));
+        // A .zip experiment is never a save target, but until it is saved as a .trz Tracker lists the .zip itself, the
+        // archive its tabs were opened from (TrackerPanel.openedFromPath, #224).
+        const auto& saved = session.standardSavePath(source);
+        return localProjectPath(saved.isEmpty() && isTrackerZipPath(session.sourcePath(source)) ? session.sourcePath(source) : saved);
     };
     if (!session.nativeSavePath(source).isEmpty() || !standard().isEmpty())
     {

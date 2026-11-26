@@ -18,7 +18,7 @@ class WorkspaceWindow;
 /// Workspace entry point for one requested file, chosen from its suffix on the owner thread.
 enum class LaunchFileKind : std::uint8_t
 {
-    Project, ///< .trk, .trz or .motrack, in any letter case.
+    Project, ///< .trk, .trz, .zip or .motrack, in any letter case (isWorkspaceProjectPath).
     Image,   ///< A suffix Qt's image readers support; opens as a one-image sequence with unknown timing.
     Movie,   ///< Everything else; the movie indexer reports unsupported formats.
 };

@@ -37,6 +37,12 @@ inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 [[nodiscard]] QString archiveMemberKey(QStringView member);
 [[nodiscard]] std::string archiveMemberKey(std::string_view member);
 
+/// Whether @p path names a Tracker experiment archive by its suffix, in any letter case: a `.trz`, or a `.zip`, which
+/// Tracker opens the same way (`ResourceLoader.isJarZipTrz`, #224). TrackerArchive::open reads either.
+[[nodiscard]] bool isTrackerArchivePath(const QString& path);
+/// Whether @p path names a `.zip` experiment archive. It is never a save target: Tracker never writes into the archive
+/// a tab came from, and its archive export always writes `.trz`. A standard save asks for a `.trz` instead (#224).
+[[nodiscard]] bool isTrackerZipPath(const QString& path);
 /// The NFC names of the `.trk` members of the Tracker archive at @p path, read from its member headers alone within
 /// TrackerArchive::open's size and member bounds, without extracting anything. Nullopt when the file cannot be read as
 /// a Tracker archive, including a member name that is not UTF-8. Finder metadata under `__MACOSX/` is left out by
@@ -54,6 +60,7 @@ namespace detail
 /// Members with unsafe names (absolute, drive-letter, UNC, '\', '.'/'..', empty-segment, control-character,
 /// reserved-device or overlong) are never extracted, listed as projects or used to resolve media; an
 /// unsafe project (.trk) name, or a media reference naming an unsafe member, rejects the archive.
+/// So does an archive with no project, which Tracker reports as "Not a Tracker file".
 class TrackerArchive
 {
   public:

@@ -268,8 +268,10 @@ Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 Command-line arguments, drops and macOS `QFileOpenEvent`s all call `WorkspaceWindow::openFiles`, which
 uses the same context entry points as the menus. **Open project…** and **Open video…** call
 `openChosenFile`, which adds the chosen file to the same batch with its entry point (see below). `launchFileKind` routes by suffix on the owner thread:
-`.trk`/`.trz`/`.motrack` in any case are projects, suffixes Qt can read are one-image sequences with
-unknown timing, and every other file is a movie whose indexer reports unsupported formats.
+`.trk`/`.trz`/`.zip`/`.motrack` in any case are projects (`isWorkspaceProjectPath`, which tabsets and the
+corpus probe use too), suffixes Qt can read are one-image sequences with unknown timing, and every other file
+is a movie whose indexer reports unsupported formats. A `.zip` is a Tracker experiment archive, as in Tracker
+([#224](https://github.com/mgradwohl/MoTrack/issues/224)); the declared desktop types leave `.zip` unclaimed.
 
 - **Order and the input bound.** One requested or menu-chosen file prepares at a time, so tabs appear in
   request order while **Open images…** or a camera recording can still use the other slot. When those hold
@@ -494,10 +496,13 @@ anything changes. A tabset MoTrack cannot read is not replaced.
   (`TrackerPanel.openedFromPath`), so its resave reopens every member; MoTrack keeps the `archive!/member` entry. MoTrack
   opens the whole archive with the other members hidden, so that the member saves back into it.
 - Tracker reads a member path only after a lowercase archive extension such as `.trz`, `.zip` or `.jar`
-  (`ResourceLoader.isZipEntry`) and joins it with `java.io.File`, which on Windows turns `!/` into `!\`, so from the
-  sources Tracker 6.3.5 on Windows
-  does not find such entries (not run). MoTrack reads `.trz` in any case on every platform; `.zip` experiments are
-  [#224](https://github.com/mgradwohl/MoTrack/issues/224).
+  (`ResourceLoader.isZipEntry`). On Windows `java.io.File` turns `!/` into `!\`, but the lookup is retried through
+  the tabset's folder with forward slashes, so Tracker 6.3.5 finds such entries there too (checked with headless calls
+  against the release JAR, not through the GUI;
+  [#325](https://github.com/mgradwohl/MoTrack/issues/325#issuecomment-7092357767)). MoTrack reads a member after
+  `.trz` in any letter case on every platform. A member inside a `.zip` (`lab.zip!/run.trk`) is not opened yet
+  ([#382](https://github.com/mgradwohl/MoTrack/issues/382)): the entry is kept and reported as not open, while the
+  whole `.zip` opens as an experiment ([#224](https://github.com/mgradwohl/MoTrack/issues/224)).
 
 **Evidence.** Unit tests cover the exact OSP layout, reading as Tracker's line reader does, parser refusals, in-place
 edits with exact expected bytes (CRLF, CDATA, removed and inserted paths, appended entries, out-of-order indices),
