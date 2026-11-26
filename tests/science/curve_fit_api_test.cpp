@@ -1219,4 +1219,45 @@ TEST(CurveFit, GaussianDividesLikeTheParserAtZeroWidth)
     }
 }
 
+TEST(CurveFit, CorrectedLeavesAStartWhoseSquaredDeviationsOverflow)
+{
+    // Every model value is finite at this start, but the largest deviation is about 1.4e217 and its square overflows:
+    // the plain sum of squares is +inf for the start and for every vector near it (#372).
+    const auto x = grid(0, 0.5, 21);
+    FitFunction exponential = builtInFit(BuiltInFit::Exponential);
+    const auto y = wiggle(evaluate(exponential, std::vector<double>{1.5, -0.3, 0.2}, x), 0.01);
+    const std::vector<double> start{1, 50, 0};
+    exponential = withValues(exponential, start);
+    const double largest = exponential.model(x.back(), start);
+    ASSERT_TRUE(std::isfinite(largest));
+    ASSERT_TRUE(std::isinf(largest * largest));
+    // Tracker reports the infinite rms without a warning (the fit oracle's exponential/overflowing-start case).
+    const FitResult tracker = fitCurve(exponential, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_TRUE(std::isinf(tracker.rmsDeviation));
+    EXPECT_FALSE(tracker.nonRealValues);
+    // Corrected reports the start's rms, which is representable: the largest deviation over sqrt(points), to rounding.
+    FitOptions manual = options(FitDialect::Corrected, FitStart::FromCurrent);
+    manual.autofit = false;
+    const FitResult evaluated = fitCurve(exponential, x, y, manual);
+    EXPECT_EQ(evaluated.status, FitStatus::Manual);
+    EXPECT_FALSE(evaluated.nonRealValues);
+    EXPECT_NEAR(evaluated.rmsDeviation / (largest / std::sqrt(static_cast<double>(x.size()))), 1.0, 1e-9);
+    // With Autofit it minimizes on deviations divided by the largest one, so it can leave the region.
+    const FitResult corrected = fitCurve(exponential, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_NE(corrected.status, FitStatus::UndefinedAtStart);
+    EXPECT_FALSE(corrected.nonRealValues);
+    ASSERT_TRUE(std::isfinite(corrected.rmsDeviation));
+    // It lowers the deviation but does not reach a minimum from so far away, and says so: no "fitted" status, no
+    // uncertainties, and the rate has moved toward the data.
+    EXPECT_LT(corrected.rmsDeviation, evaluated.rmsDeviation);
+    EXPECT_TRUE(corrected.status == FitStatus::NotConverged || corrected.status == FitStatus::Fitted);
+    EXPECT_LT(corrected.parameters[1], start[1]);
+    if (corrected.status == FitStatus::NotConverged)
+    {
+        EXPECT_TRUE(
+            std::ranges::none_of(corrected.uncertaintyStatus, [](UncertaintyStatus s) { return s == UncertaintyStatus::Estimated; }));
+        EXPECT_TRUE(corrected.uncertaintyBand.empty());
+    }
+}
+
 } // namespace

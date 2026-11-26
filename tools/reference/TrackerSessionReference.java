@@ -398,11 +398,39 @@ public final class TrackerSessionReference {
                     }
                 }
             }
+            // A vector's analysis rows are refreshed from the draw path as well. For an archived movie the first paint
+            // can come before the clip and coordinate system have settled, and the rows then hold NaN until the next
+            // refresh; the snapshot reads them, so wait here rather than fail on a row Tracker has not finished. A row
+            // that stays unfinished ends in the watchdog's timeout with this label (MoTrack #368).
+            for (TTrack track : panel.getTracks()) if (track.getClass() == Vector.class
+                    && !vectorAnalysisReady((Vector) track, panel)) {
+                WAITING.set("vector analysis rows: " + track.getName());
+                return;
+            }
             ((Timer) event.getSource()).stop();
             WAITING.set("custom table preparation");
             visitCustomTables(panel, action);
         }).run());
         timer.start();
+    }
+
+    /** Whether every live analysis row that calibratedVectorSamples reads is finished: finite components and
+     *  magnitude and a whole frame number. Its other checks (column names, bounds) stay hard failures there. */
+    private static boolean vectorAnalysisReady(Vector vector, TrackerPanel panel) {
+        DatasetManager data = vector.getData(panel);
+        int[] indices = {0, 1, 2, 7};
+        double[][] columns = new double[indices.length][];
+        for (int index = 0; index < indices.length; index++) {
+            columns[index] = data.getDataset(indices[index]).getYPoints();
+            if (columns[index].length != columns[0].length) return false;
+        }
+        for (int row = 0; row < columns[0].length; row++) {
+            double frame = columns[3][row];
+            if (!Double.isFinite(frame) || frame != Math.rint(frame) || !Double.isFinite(columns[0][row])
+                    || !Double.isFinite(columns[1][row]) || !Double.isFinite(columns[2][row]))
+                return false;
+        }
+        return true;
     }
 
     private record TableVisit(TrackChooserTView view, TTrack track, TTrack restore) {}

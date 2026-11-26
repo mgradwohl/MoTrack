@@ -577,8 +577,9 @@ TEST(CurveFitReference, CorrectedFitsAreMinima)
         if (result.status == FitStatus::NotConverged)
         {
             // gaussian/valley: a Gaussian without offset fits a valley on a plateau best as its width grows
-            // without bound, so there is no minimum to reach.
-            EXPECT_EQ(id, "gaussian/valley");
+            // without bound, so there is no minimum to reach. exponential/overflowing-start: the start is so far from
+            // the data that the minimizers lower the deviation without reaching a minimum (#372).
+            EXPECT_TRUE(id == "gaussian/valley" || id == "exponential/overflowing-start") << id;
             EXPECT_TRUE(
                 std::ranges::none_of(result.uncertaintyStatus, [](UncertaintyStatus s) { return s == UncertaintyStatus::Estimated; }));
             EXPECT_TRUE(result.uncertaintyBand.empty());
