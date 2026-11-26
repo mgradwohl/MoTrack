@@ -757,6 +757,44 @@ TEST(CurveFitReference, CorrectedTreatsLogOfZeroAsUndefined)
     }
 }
 
+TEST(CurveFitReference, CorrectedRecoversTheDenseNoisySineThatTrackerMisfits)
+{
+    // 501 points of (0.8, 3, 0.4, -0.2) with noise 0.08 (#310). Tracker's guess counts the noise's crossings, starts at
+    // twice the frequency and reports a fit with a tenth of the amplitude; from the generating values it reaches the
+    // minimum, so the guess alone is at fault. Corrected reaches that minimum from scratch.
+    int checked = 0;
+    for (const QJsonObject& c : cases())
+    {
+        const std::string id = text(c[QStringLiteral("id")]);
+        if (id != "sinusoid/dense-noise" && id != "sinusoid/dense-noise-from-truth")
+        {
+            continue;
+        }
+        SCOPED_TRACE(id);
+        const FitResult tracker = runCase(c, FitDialect::Tracker, "sinusoid");
+        const FitResult corrected = runCase(c, FitDialect::Corrected, "sinusoid");
+        const bool fromTruth = id == "sinusoid/dense-noise-from-truth";
+        for (const FitResult* result : {&tracker, &corrected})
+        {
+            if (result == &tracker && !fromTruth)
+            {
+                EXPECT_EQ(tracker.status, FitStatus::Fitted);
+                EXPECT_GT(tracker.rmsDeviation, 0.5);
+                EXPECT_LT(std::abs(tracker.parameters[0]), 0.1);
+                EXPECT_GT(tracker.parameters[1], 5.0);
+                continue;
+            }
+            EXPECT_EQ(result->status, FitStatus::Fitted);
+            EXPECT_NEAR(std::abs(result->parameters[0]), 0.8, 0.02);
+            EXPECT_NEAR(result->parameters[1], 3.0, 0.01);
+            EXPECT_NEAR(result->parameters[3], -0.2, 0.02);
+            EXPECT_NEAR(result->rmsDeviation, 0.08, 0.01);
+        }
+        ++checked;
+    }
+    EXPECT_EQ(checked, 2);
+}
+
 TEST(CurveFitReference, CorrectedBandRefitsTheOtherParameters)
 {
     int checked = 0;

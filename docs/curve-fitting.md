@@ -189,7 +189,7 @@ the oracle allocates it without a constructor and installs the plain objects `fi
 every decision is OSP's own code. Like `Tracker.start`, it sets `Dataset.maxPointsMultiplier` to 32. It records
 [`tests/science/fit-reference.json`](../tests/science/fit-reference.json):
 
-- 159 cases: for every built-in fit exact data, noisy data, an outlier, shuffled order, repeated x, exactly as
+- 161 cases: for every built-in fit exact data, noisy data, an outlier, shuffled order, repeated x, exactly as
   many points as parameters and one fewer, a fixed parameter, a refit from current values, a manual fit and
   four seeded random data sets; missing and infinite values, the 524 288-row limit (evaluated with Autofit
   off), constant and repeated data, undefined starting values, negative fixed values, two fixed cubic
