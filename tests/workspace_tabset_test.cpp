@@ -11,14 +11,15 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
-#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
@@ -163,10 +164,11 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
     bool accepted = false;
     DialogScript script({[&](QWidget* widget)
                          {
-                             auto* dialog = qobject_cast<QInputDialog*>(widget);
-                             if (!dialog)
+                             auto* dialog = qobject_cast<QDialog*>(widget);
+                             auto* field = dialog ? dialog->findChild<QLineEdit*>("numberInput") : nullptr;
+                             if (!field)
                                  return false;
-                             dialog->setTextValue(QLocale().toString(mass));
+                             field->setText(QLocale().toString(mass));
                              accepted = true;
                              dialog->accept();
                              return true;

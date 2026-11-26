@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "main_window.hpp"
+#include "number_input.hpp"
 #include "tracker_archive.hpp"
 
 #include <QAction>
@@ -18,7 +19,6 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QImageReader>
-#include <QInputDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenuBar>
@@ -230,10 +230,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 auto paths = QFileDialog::getOpenFileNames(this, tr("Open image sequence"), {}, tr("Images (%1)").arg(patterns.join(' ')));
                 if (!alive || paths.isEmpty())
                     return;
-                bool accepted = false;
-                const auto rate = QInputDialog::getDouble(
-                    this, tr("Image sequence timing"), tr("Frames per second (0 for unknown)"), 30, 0, 1000000, 6, &accepted);
-                if (!alive || !accepted)
+                const auto rate = askNumber(this, tr("Image sequence timing"), tr("Frames per second (0 for unknown)"), 30, 0, 1000000);
+                if (!alive || !rate)
                     return;
                 QCollator collator;
                 collator.setNumericMode(true);
@@ -243,7 +241,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                                       const auto order = collator.compare(left, right);
                                       return order < 0 || (order == 0 && left < right);
                                   });
-                (void)openImages(paths, rate);
+                (void)openImages(paths, *rate);
             });
     m_SaveAll = new QAction(tr("Save &all projects"), this);
     m_SaveAll->setObjectName("saveAllProjects");

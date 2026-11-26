@@ -428,4 +428,10 @@
     <message><source>Tracker cannot load the tracks of this file: its "tracks" list does not have the class Tracker saves (%3). Tracker opens such a file without any of its tracks, or not at all.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker cannot load the tracks of this file: the "%2" array of track "%1" does not have the class Tracker saves (%3). Tracker opens the file without any of its tracks.</source><translation type="unfinished"></translation></message>
   </context>
+  <context>
+    <name>NumberInput</name>
+    <message><source>This number can be read two ways. Type it without digit grouping, with “%1” as the decimal mark.</source><translation type="unfinished"></translation></message>
+    <message><source>This is not a number. Type digits with “%1” as the decimal mark, such as %2.</source><translation type="unfinished"></translation></message>
+    <message><source>Enter a number from %1 to %2.</source><translation type="unfinished"></translation></message>
+  </context>
 </TS>

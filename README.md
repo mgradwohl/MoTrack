@@ -221,6 +221,22 @@ text is machine-translated and has not yet been reviewed by native speakers; cor
 [Contributing](CONTRIBUTING.md#translations)). Unlike Tracker, MoTrack does not yet have a language preference
 of its own; change the system language to switch.
 
+Numbers follow the system's regional format, not the interface language: the marks table, plot axis labels and
+frame number use its decimal mark, digits and minus sign without digit grouping, as Tracker's tables do, and
+read-outs such as the linear fit and measured distances group digits. Saved projects, companions and CSV exports
+always use classic numbers, with a `.` decimal mark and no grouping.
+
+Number fields (mass, calibration distance, frame rate) accept the regional form, with its decimal mark and
+optionally its digit grouping (groups of three; a space or apostrophe separator may be typed with an ordinary
+space or `'`), and the classic form. A field refuses, and its OK button stays disabled with a note saying why:
+
+- text with a single `.` or `,` that is not the regional decimal mark, followed by exactly three digits, since it
+  could be grouping or a decimal mark: with German, Spanish, Italian or French formats `1.234`, `2.500`, `0.125`
+  and `1.234e3`, and with English formats `1,234` and `0,125`. Type them without grouping, with the regional
+  decimal mark: `1234` or `1,234` with German formats, `1234` or `0.125` with English ones. Other classic values,
+  such as `2.5` or `29.97`, are accepted everywhere;
+- text that is not a number in either form, such as `1,5` with English formats or `1,234.5` with German ones.
+
 ### Stage a local desktop build
 
 From the activated developer shell, run:

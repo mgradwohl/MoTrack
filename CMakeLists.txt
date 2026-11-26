@@ -132,7 +132,7 @@ if(APPLE)
         qt_import_plugins(motrack INCLUDE Qt6::QDarwinCameraPermissionPlugin)
     endif()
 endif()
-add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
+add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/number_input.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp
     src/desktop_launch.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
@@ -185,7 +185,7 @@ set(motrack_ts_files
 qt_add_translations(motrack
     TS_FILES ${motrack_ts_files}
     PLURALS_TS_FILE translations/motrack_en.ts
-    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
+    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/number_input.cpp src/position_plot.cpp src/tracker_image_package.cpp
             src/tracker_archive.cpp src/workspace_input.cpp src/legacy_project.cpp
             src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
@@ -376,7 +376,8 @@ if(BUILD_TESTING)
         tests/document_session_test.cpp
         tests/ui_translations_test.cpp
         tests/camera_capture_test.cpp
-        tests/non_ascii_round_trip_test.cpp)
+        tests/non_ascii_round_trip_test.cpp
+        tests/locale_display_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace motrack_locale GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE

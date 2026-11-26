@@ -7,10 +7,11 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
-#include <QInputDialog>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QLocale>
 #include <QMenu>
@@ -88,7 +89,7 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
                      &window,
                      []
                      {
-                         if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                              dialog->reject();
                      });
     watchdog.start(2000);
@@ -96,9 +97,10 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
                        &window,
                        [&]
                        {
-                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                            {
-                               dialog->setTextValue(QLocale().toString(mass));
+                               if (auto* field = dialog->findChild<QLineEdit*>("numberInput"))
+                                   field->setText(QLocale().toString(mass));
                                accepted = true;
                                dialog->accept();
                            }
