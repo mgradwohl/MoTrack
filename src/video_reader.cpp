@@ -16,6 +16,7 @@ extern "C" {
 #include <libavutil/mathematics.h>
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
 
@@ -25,6 +26,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -158,6 +160,88 @@ void freeImageBuffer(void* data)
     av_free(data);
 }
 
+/// FFmpeg deprecates the JPEG-range formats in favour of the limited-range format plus a full color_range.
+/// swscale maps them itself while initialising a context, logging a warning and rewriting its format option.
+std::optional<AVPixelFormat> limitedRangeFormat(AVPixelFormat format)
+{
+    switch (format)
+    {
+    case AV_PIX_FMT_YUVJ420P:
+        return AV_PIX_FMT_YUV420P;
+    case AV_PIX_FMT_YUVJ411P:
+        return AV_PIX_FMT_YUV411P;
+    case AV_PIX_FMT_YUVJ422P:
+        return AV_PIX_FMT_YUV422P;
+    case AV_PIX_FMT_YUVJ440P:
+        return AV_PIX_FMT_YUV440P;
+    case AV_PIX_FMT_YUVJ444P:
+        return AV_PIX_FMT_YUV444P;
+    default:
+        return std::nullopt;
+    }
+}
+
+/// The swscale coefficients of a YCbCr matrix, which sws_getCoefficients() also returns for these colorspaces.
+int swscaleMatrix(AVColorSpace space)
+{
+    switch (space)
+    {
+    case AVCOL_SPC_BT709:
+        return SWS_CS_ITU709;
+    case AVCOL_SPC_FCC:
+        return SWS_CS_FCC;
+    case AVCOL_SPC_SMPTE240M:
+        return SWS_CS_SMPTE240M;
+    case AVCOL_SPC_BT2020_NCL:
+    case AVCOL_SPC_BT2020_CL:
+        return SWS_CS_BT2020;
+    default:
+        // BT.601 (BT470BG, SMPTE170M), unspecified, and matrices swscale has no coefficients for, such as YCgCo.
+        return SWS_CS_DEFAULT;
+    }
+}
+
+// Follows the range rules of swscale's frame API (sanitize_fmt in libswscale/format.c): JPEG-range formats
+// are full range, other YUV frames say which range they use, and integer gray frames are full range. swscale
+// ignores the range of RGB sources.
+detail::RgbaFrameConverter::Key swscaleKey(const AVFrame& frame)
+{
+    auto format = static_cast<AVPixelFormat>(frame.format);
+    const auto* descriptor = av_pix_fmt_desc_get(format);
+    bool fullRange = true;
+    int matrix = SWS_CS_DEFAULT;
+    constexpr auto RGB_LIKE = AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_BAYER | AV_PIX_FMT_FLAG_XYZ;
+    if (const auto limited = limitedRangeFormat(format))
+    {
+        format = *limited;
+        matrix = swscaleMatrix(frame.colorspace);
+    }
+    else if (descriptor != nullptr && (descriptor->flags & RGB_LIKE) == 0)
+    {
+        if (descriptor->nb_components >= 3)
+        {
+            fullRange = frame.color_range == AVCOL_RANGE_JPEG;
+            matrix = swscaleMatrix(frame.colorspace);
+        }
+        else
+        {
+            fullRange = (descriptor->flags & AV_PIX_FMT_FLAG_FLOAT) == 0;
+        }
+    }
+    // FFmpeg n9.0.2's unscaled YUV-to-RGB C converter, used on AArch64 for widths that are not multiples of 16
+    // and on CPUs without SSSE3, never writes the last column of an odd-width row. SWS_ACCURATE_RND disables
+    // the unscaled converters. swscale forces full horizontal chroma for odd RGB widths anyway, so requesting
+    // it changes nothing. FFmpeg master fixed this in 72f8c33; drop this when the pin has it.
+    const int flags = (frame.width & 1) == 0 ? SWS_BILINEAR : SWS_BILINEAR | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT;
+    return {.width = frame.width,
+            .height = frame.height,
+            .sourceFormat = format,
+            .fullRange = fullRange,
+            .matrix = matrix,
+            .destinationFormat = AV_PIX_FMT_RGBA,
+            .flags = flags};
+}
+
 } // namespace
 
 namespace detail
@@ -195,25 +279,37 @@ void RgbaFrameConverter::convertInto(const AVFrame& frame, std::span<std::uint8_
     {
         throw VideoError("The converted video frame buffer is too small.");
     }
-    // FFmpeg n9.0.2's unscaled YUV-to-RGB C converter, used on AArch64 for widths that are not multiples of 16
-    // and on CPUs without SSSE3, never writes the last column of an odd-width row. SWS_ACCURATE_RND disables
-    // the unscaled converters. swscale forces full horizontal chroma for odd RGB widths anyway; requesting it
-    // keeps the cached context reusable. FFmpeg master fixed this in 72f8c33; drop this when the pin has it.
-    const int flags = (frame.width & 1) == 0 ? SWS_BILINEAR : SWS_BILINEAR | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT;
-    m_Scale.reset(sws_getCachedContext(m_Scale.release(),
-                                       frame.width,
-                                       frame.height,
-                                       static_cast<AVPixelFormat>(frame.format),
-                                       frame.width,
-                                       frame.height,
-                                       AV_PIX_FMT_RGBA,
-                                       flags,
-                                       nullptr,
-                                       nullptr,
-                                       nullptr));
-    if (!m_Scale)
+    const auto key = swscaleKey(frame);
+    if (!m_Scale || key != m_Key)
     {
-        throw VideoError("Could not allocate the converted video frame.");
+        std::unique_ptr<SwsContext, FreeScale> scale(sws_alloc_context());
+        if (!scale)
+        {
+            throw VideoError("Could not allocate the converted video frame.");
+        }
+        scale->src_w = key.width;
+        scale->src_h = key.height;
+        scale->src_format = key.sourceFormat;
+        scale->src_range = static_cast<int>(key.fullRange);
+        scale->dst_w = key.width;
+        scale->dst_h = key.height;
+        scale->dst_format = key.destinationFormat;
+        scale->dst_range = 1;
+        scale->flags = static_cast<unsigned>(key.flags);
+        requireSuccess(sws_init_context(scale.get(), nullptr, nullptr), "Could not prepare the video frame conversion");
+        // Initialisation sets swscale's default BT.601 coefficients; RGBA output is full range.
+        requireSuccess(sws_setColorspaceDetails(scale.get(),
+                                                sws_getCoefficients(key.matrix),
+                                                static_cast<int>(key.fullRange),
+                                                sws_getCoefficients(SWS_CS_DEFAULT),
+                                                1,
+                                                0,
+                                                1 << 16,
+                                                1 << 16),
+                       "Could not set the video frame colour space");
+        m_Scale = std::move(scale);
+        m_Key = key;
+        ++m_ContextsCreated;
     }
     const std::array<std::uint8_t*, 4> planes{destination.data(), nullptr, nullptr, nullptr};
     const std::array<int, 4> strides{layout->stride, 0, 0, 0};

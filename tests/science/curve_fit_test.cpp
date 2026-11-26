@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -625,6 +626,57 @@ TEST(CurveFitReference, CorrectedDampedSineWithAnOutlierReachesTheMinimum)
     EXPECT_EQ(result.status, FitStatus::Fitted);
     EXPECT_LT(deviationOf(result), 0.3933);
     EXPECT_EQ(result.uncertaintyStatus, std::vector<UncertaintyStatus>(5, UncertaintyStatus::Estimated));
+}
+
+TEST(CurveFitReference, CorrectedTreatsLogOfZeroAsUndefined)
+{
+    // log(0) = -inf at the first point. OSP passes the infinity through as a value: Java minimizes from an
+    // infinite deviation and reports a fit with an infinite rms and no warning, which the Tracker dialect
+    // reproduces. Corrected treats -inf like NaN, so the fit is skipped with the non-real warning (#311).
+    const std::vector<QJsonObject> all = cases();
+    const auto found = std::ranges::find_if(all, [](const QJsonObject& c) { return text(c[QStringLiteral("id")]) == "log/nonpositive-x"; });
+    ASSERT_NE(found, all.end());
+    const QJsonObject java = (*found)[QStringLiteral("java")].toObject();
+    ASSERT_TRUE(std::isinf(number(java[QStringLiteral("rms")])));
+    ASSERT_FALSE(java[QStringLiteral("non_real")].toBool());
+    const FitResult tracker = runCase(*found, FitDialect::Tracker, "log");
+    EXPECT_EQ(tracker.status, FitStatus::Fitted);
+    EXPECT_TRUE(std::isinf(tracker.rmsDeviation));
+    EXPECT_FALSE(tracker.nonRealValues);
+    const FitResult corrected = runCase(*found, FitDialect::Corrected, "log");
+    EXPECT_EQ(corrected.status, FitStatus::UndefinedAtStart);
+    EXPECT_EQ(corrected.method, FitMethod::None);
+    EXPECT_TRUE(corrected.nonRealValues);
+    EXPECT_TRUE(std::isnan(corrected.rmsDeviation));
+    // From scratch, Log has no guess for x <= 0 and keeps its defaults.
+    EXPECT_EQ(corrected.parameters, (std::vector<double>{1, 0}));
+    EXPECT_TRUE(corrected.uncertainties.empty());
+    EXPECT_TRUE(corrected.uncertaintyBand.empty());
+    // Without a fit (Autofit off, or every parameter fixed) the deviation is measured the same way: Tracker
+    // shows an infinite rms without the warning, Corrected an undefined one with it.
+    const CaseData data = caseData(*found);
+    FitOptions manual;
+    manual.autofit = false;
+    manual.start = FitStart::FromCurrent;
+    FitOptions fixed;
+    fixed.fixed = {true, true};
+    for (const auto& [what, unfitted, status] :
+         {std::tuple{"manual", manual, FitStatus::Manual}, std::tuple{"fixed", fixed, FitStatus::NothingToFit}})
+    {
+        SCOPED_TRACE(what);
+        FitOptions run = unfitted;
+        run.dialect = FitDialect::Tracker;
+        const FitResult trackerResult = motrack::science::fitCurve(caseFunction("log"), data.x, data.y, run);
+        EXPECT_EQ(trackerResult.status, status);
+        EXPECT_TRUE(std::isinf(trackerResult.rmsDeviation));
+        EXPECT_FALSE(trackerResult.nonRealValues);
+        run.dialect = FitDialect::Corrected;
+        const FitResult correctedResult = motrack::science::fitCurve(caseFunction("log"), data.x, data.y, run);
+        EXPECT_EQ(correctedResult.status, status);
+        EXPECT_TRUE(std::isnan(correctedResult.rmsDeviation));
+        EXPECT_TRUE(correctedResult.nonRealValues);
+        EXPECT_EQ(correctedResult.parameters, (std::vector<double>{1, 0}));
+    }
 }
 
 TEST(CurveFitReference, CorrectedBandRefitsTheOtherParameters)
